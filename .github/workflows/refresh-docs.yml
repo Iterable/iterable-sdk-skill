@@ -1,0 +1,111 @@
+name: Refresh docs
+
+# Triggered when Iterable/iterable-docs publishes a change to an SDK doc
+# path. The docs repo dispatches `iterable-docs-changed`; this workflow
+# pulls the fresh markdown, runs the deterministic transform, and opens a
+# PR. There is no LLM step — the corpus is the docs reshaped. A reviewer
+# refreshes the snapshot and merges.
+#
+# `workflow_dispatch` is kept as a manual fallback for re-running a
+# refresh outside of a docs-side trigger (e.g. when validating a config
+# change on this repo).
+
+on:
+  repository_dispatch:
+    types: [iterable-docs-changed]
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: "Platform to refresh"
+        required: true
+        default: "android"
+        type: choice
+        options:
+          - android
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: pipeline/pnpm-lock.yaml
+
+      - name: Install pipeline deps
+        working-directory: pipeline
+        run: pnpm install --frozen-lockfile
+
+      - name: Fetch sources (uses GITHUB_TOKEN for gh api)
+        working-directory: pipeline
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: pnpm fetch:sources -- ${{ github.event.inputs.platform || github.event.client_payload.platform || 'android' }}
+
+      - name: Polish Layer A
+        working-directory: pipeline
+        run: pnpm polish:a -- --platform=${{ github.event.inputs.platform || github.event.client_payload.platform || 'android' }}
+
+      - name: Detect changes
+        id: changes
+        run: |
+          if git diff --quiet sources/ polished/; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          # Slugs touched in sources/ this run
+          slugs=$(git diff --name-only sources/ \
+            | sed -E 's|sources/[^/]+/([^/]+)\.md|\1|' \
+            | sort -u | paste -sd ', ' -)
+          echo "slugs=${slugs}" >> "$GITHUB_OUTPUT"
+
+      - name: Open refresh PR
+        if: steps.changes.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: refresh/${{ github.event.inputs.platform || github.event.client_payload.platform || 'android' }}-${{ github.run_id }}
+          base: main
+          delete-branch: true
+          title: "docs refresh (${{ github.event.inputs.platform || github.event.client_payload.platform || 'android' }}): ${{ steps.changes.outputs.slugs }}"
+          commit-message: |
+            docs refresh (${{ github.event.inputs.platform || github.event.client_payload.platform || 'android' }}): Layer A only
+
+            Slugs: ${{ steps.changes.outputs.slugs }}
+          body: |
+            Automated refresh of `sources/` and the deterministic `polished/`
+            corpus (Layer A). **No LLM rewrite step** — the polished corpus is
+            a deterministic transform of the docs.
+
+            **Slugs touched:** ${{ steps.changes.outputs.slugs }}
+
+            ## Reviewer steps
+
+            1. Check out this branch.
+            2. Spot-check the diff against `sources/` for content fidelity —
+               the transform only strips boilerplate / normalizes structure,
+               so headings and code should match the upstream docs.
+            3. Run `pnpm snapshot:refresh` and commit the resulting
+               `iterable-android/snapshot/` changes. CI's `snapshot:verify`
+               gate will fail the build otherwise.
+            4. Confirm `pnpm check:all` is green locally.
+            5. Merge to `main`. Context7 picks up the change on its next
+               crawl (`context7.json` controls scope).
+          labels: |
+            docs-refresh
+            automated

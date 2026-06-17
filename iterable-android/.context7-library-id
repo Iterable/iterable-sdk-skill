@@ -1,0 +1,14 @@
+# Context7 library ID for this skill — single source of truth.
+#
+# SKILL.md references this file by path so a future org migration
+# (franco-zalamena-iterable -> Iterable) is a one-line PR here, not a
+# coordinated rewrite across SKILL.md, README.md, and downstream agents.
+#
+# Format: one library ID per line, comments allowed (lines starting with #).
+# The first non-comment, non-empty line is canonical.
+#
+# Status: PLACEHOLDER until Phase 3 completes — see TODO below.
+# After context7.com/add-library returns a library ID, replace the line below
+# with the real value and remove this status block.
+
+TODO-PHASE-3/iterable-sdk-skill

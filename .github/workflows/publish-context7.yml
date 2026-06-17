@@ -1,0 +1,53 @@
+name: Publish to Context7
+
+# Fires after a refresh PR merges and the published surface (polished docs
+# or skill) actually changed. Tells Context7 to re-index our library so
+# updates land in agent results without waiting for the scheduled crawl.
+#
+# STUB: the POST below targets a placeholder endpoint. The real reindex
+# URL and the payload shape are pending confirmation from Context7
+# (Lauren). The CONTEXT7_API_KEY repo secret is not provisioned yet —
+# until it is, the curl call will fail and the job will exit non-zero.
+# That's intentional so a missing secret is loud rather than silent.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - polished/**
+      - iterable-android/**
+      - context7.json
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Reindex Context7 library
+        env:
+          CONTEXT7_API_KEY: ${{ secrets.CONTEXT7_API_KEY }}
+          # TODO: replace once Lauren / Context7 confirm the endpoint shape.
+          CONTEXT7_REINDEX_URL: https://context7.com/api/v1/libraries/iterable/sdks/reindex
+        run: |
+          set -euo pipefail
+          if [[ -z "${CONTEXT7_API_KEY:-}" ]]; then
+            echo "::error::CONTEXT7_API_KEY secret is not set on this repo."
+            echo "Provision the secret once Context7 issues a token, then re-run."
+            exit 1
+          fi
+          echo "Triggering Context7 reindex for commit ${GITHUB_SHA}"
+          curl --fail-with-body --silent --show-error \
+            -X POST "${CONTEXT7_REINDEX_URL}" \
+            -H "Authorization: Bearer ${CONTEXT7_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "$(cat <<EOF
+          {
+            "ref": "${GITHUB_SHA}",
+            "source": "github.com/${GITHUB_REPOSITORY}"
+          }
+          EOF
+          )"

@@ -1,0 +1,12 @@
+.DS_Store
+scaffold.sh
+*.local
+node_modules/
+pipeline/dist/
+proposals/
+
+# Eval derived artifacts — regenerated from scenarios/ + transcripts/.
+# Committed: scenarios, *.sample.md transcripts, eval/README.md.
+eval/prompts/
+eval/results/
+eval/report/

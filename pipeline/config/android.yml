@@ -1,0 +1,113 @@
+# Iterable Android SDK — pipeline config.
+#
+# Stages 1–3 of the pipeline read this single file:
+#   - Stage 1 (fetch)  : pulls each `articles[].source_path` from `source.repo`
+#                        at `source.ref` into `paths.sources_dir`.
+#   - Stage 2 (polish) : reads `paths.sources_dir`, picks a prompt based on
+#                        `articles[].archetype`, attaches version pins from
+#                        `sdk.changelog_path`, writes `paths.polished_dir`.
+#   - Stage 3 (publish): diffs `paths.polished_dir` against `paths.skill_dir`
+#                        for v1; ships to Context7 once `publish.enabled`.
+#
+# Bump `source.ref` deliberately when re-fetching so diffs against the
+# previous run reflect upstream changes only.
+
+platform: android
+
+source:
+  repo: Iterable/iterable-docs
+  ref: 16ae7f4a908f84d6eb15fe6f5390f07cc5afe20d
+  ref_label: "master @ 2026-05-25"
+
+sdk:
+  repo: Iterable/iterable-android-sdk
+  tag: 3.7.0
+  changelog_path: CHANGELOG.md
+
+paths:
+  sources_dir: sources/android
+  polished_dir: polished/android
+  skill_dir: iterable-android
+
+publish:
+  enabled: false
+  context7:
+    library_name: iterable/android-sdk
+    version_from: sdk.tag
+
+# NOTE: v1 has no LLM rewrite stage. The corpus is the deterministic transform
+# output only. Editorial steps that once lived in an
+# "Layer B" LLM pass — prose voice-shift, Java/Kotlin de-dup, cross-platform code
+# stripping — are intentionally not run; any of them could return later as a
+# deterministic transform without reintroducing an LLM.
+
+articles:
+  - slug: android-sdk
+    source_path: docs/developer-and-api-docs/iterables-ios-and-android-sdks/android-sdk/index.md
+    feature: integration
+    archetype: integration
+
+  - slug: in-app-messages-on-android
+    source_path: docs/developer-and-api-docs/in-app-messages/in-app-messages-on-android/index.md
+    feature: in-app-messages
+    archetype: feature
+
+  - slug: setting-up-mobile-inbox-on-android
+    source_path: docs/developer-and-api-docs/in-app-messages/setting-up-mobile-inbox-on-android/index.md
+    feature: mobile-inbox
+    archetype: feature
+
+  - slug: customizing-mobile-inbox-on-android
+    source_path: docs/developer-and-api-docs/in-app-messages/customizing-mobile-inbox-on-android/index.md
+    feature: mobile-inbox
+    archetype: feature
+
+  - slug: setting-up-android-push-notifications
+    source_path: docs/developer-and-api-docs/push-notifications/setting-up-android-push-notifications/index.md
+    feature: push-notifications
+    archetype: feature
+
+  - slug: push-notification-overview
+    source_path: docs/developer-and-api-docs/push-notifications/push-notification-overview/index.md
+    feature: push-notifications
+    archetype: feature
+
+  - slug: embedded-messages-with-iterables-android-sdk
+    source_path: docs/developer-and-api-docs/embedded-messaging/embedded-messages-with-iterables-android-sdk/index.md
+    feature: embedded-messaging
+    archetype: feature
+
+  - slug: android-app-links
+    source_path: docs/developer-and-api-docs/deep-links/android-app-links/index.md
+    feature: deep-linking
+    archetype: feature
+
+  - slug: deep-linking-with-partners
+    source_path: docs/developer-and-api-docs/deep-links/deep-linking-with-partners/index.md
+    feature: deep-linking
+    archetype: feature
+
+  - slug: identifying-the-user
+    source_path: docs/developer-and-api-docs/managing-user-profiles/identifying-the-user/index.md
+    feature: user-profiles
+    archetype: identity
+
+  - slug: updating-user-profiles
+    source_path: docs/developer-and-api-docs/managing-user-profiles/updating-user-profiles/index.md
+    feature: user-profiles
+    archetype: identity
+
+  - slug: tracking-events-with-iterables-mobile-sdks
+    source_path: docs/developer-and-api-docs/event-tracking/tracking-events-with-iterables-mobile-sdks/index.md
+    feature: event-tracking
+    archetype: feature
+
+  - slug: configure-the-android-sdk
+    source_path: docs/developer-and-api-docs/unknown-user-activation-dev/configure-the-android-sdk/index.md
+    feature: unknown-user-activation
+    archetype: identity
+
+  - slug: setting-up-unknown-user-activation
+    source_path: docs/developer-and-api-docs/unknown-user-activation-dev/setting-up-unknown-user-activation/index.md
+    feature: unknown-user-activation
+    archetype: identity

@@ -1,0 +1,529 @@
+# Eval scenarios — Iterable Android SDK skill.
+#
+# Each scenario is one realistic first-integration ask. We run it twice:
+#   - baseline arm: a stock coding agent with no Iterable skill loaded
+#   - skill arm:    the same agent with iterable-android/ active
+# and score both transcripts with the deterministic checks below.
+#
+# A check is pure regex (case-insensitive, multiline) over the transcript
+# text. Two kinds:
+#   - require: the pattern SHOULD appear. Present = pass.
+#   - forbid:  the pattern should NOT appear (a known foot-gun). Absent = pass.
+# Each check carries a `weight` and, where it maps to a documented trap, a
+# `pitfall` id from iterable-android/PITFALLS.md. The scorer (eval/src/score.ts)
+# is the only consumer; it never calls a model, so scores are reproducible.
+#
+# Authoring rules:
+#   - Keep patterns specific enough to avoid false credit. Prefer an API name
+#     (`setAllowedProtocols`) over a vague word ("protocol").
+#   - `forbid` patterns encode the silent-failure the baseline tends to emit.
+#   - Every `pitfall` id must exist in config/pitfalls/android.yml.
+#   - `critical: true` marks a check that, if failed, fails the whole scenario
+#     regardless of weighted score (a silently-broken integration).
+
+platform: android
+skill: iterable-android
+# Snapshot of the corpus/skill version these expectations were written against.
+# Bump when PITFALLS.md or the polished corpus changes the expected behavior.
+expectations_version: 2026-06-16-a
+
+scenarios:
+  - id: push-basic
+    title: Wire up Iterable push notifications on Android
+    prompt: >-
+      I'm adding Iterable to my Android app. Set up push notifications:
+      initialize the SDK in my Application class, register the device, and
+      make sure notifications actually show up. minSdkVersion is 24, I target
+      Android 14.
+    checks:
+      - id: init-background
+        kind: require
+        weight: 2
+        pattern: "initializeInBackground"
+        rationale: Cold-start init must be the background variant to avoid ANRs.
+      - id: post-notifications-runtime
+        kind: require
+        weight: 3
+        critical: true
+        pitfall: 7
+        pattern: "POST_NOTIFICATIONS"
+        rationale: >-
+          Targeting Android 13+ without requesting the runtime permission means
+          the OS silently suppresses every notification. The headline trap.
+      - id: post-notifications-not-oncreate
+        kind: forbid
+        weight: 1
+        pitfall: 7
+        pattern: "POST_NOTIFICATIONS[\\s\\S]{0,200}?onCreate\\s*\\("
+        rationale: Requesting the permission from Application.onCreate is a no-op.
+      - id: no-manual-register-with-auto
+        kind: forbid
+        weight: 1
+        pitfall: 6
+        pattern: "setAutoPushRegistration\\s*\\(\\s*true[\\s\\S]{0,300}?registerForPush\\s*\\("
+        rationale: Manual registerForPush with auto-registration on duplicates tokens.
+      - id: firebase-messaging-dep
+        kind: require
+        weight: 1
+        pattern: "firebase-messaging"
+        rationale: FCM dependency is required for push.
+
+  - id: jwt-auth
+    title: Integrate a JWT-protected mobile API key
+    prompt: >-
+      My team gave me an Iterable mobile API key and also a JWT signing secret
+      with a /token endpoint on our backend. Identify the logged-in user and
+      start tracking events.
+    checks:
+      - id: auth-handler-present
+        kind: require
+        weight: 3
+        critical: true
+        pitfall: 1
+        pattern: "setAuthHandler|IterableAuthHandler"
+        rationale: >-
+          A JWT-protected key with no auth handler drops every request silently.
+          If the user hands you a secret, the handler is mandatory.
+      - id: fresh-token-read
+        kind: require
+        weight: 2
+        pitfall: 3
+        pattern: "onAuthTokenRequested"
+        rationale: The handler must mint/read a fresh token on every call.
+      - id: no-stale-capture
+        kind: forbid
+        weight: 2
+        pitfall: 3
+        pattern: "val\\s+token\\s*=\\s*[\\s\\S]{0,80}?onAuthTokenRequested\\s*\\([\\s\\S]{0,120}?return\\s+token\\b"
+        rationale: Capturing a token once at startup and returning it forever is stale-auth.
+      - id: setemail-not-in-init
+        kind: forbid
+        weight: 3
+        critical: true
+        pitfall: 2
+        pattern: "initializeInBackground[\\s\\S]{0,200}?\\bsetEmail\\s*\\("
+        rationale: >-
+          setEmail inside the init callback consumes the auth retry budget before
+          the handler is ready and permanently breaks auth for the process.
+      - id: secret-not-embedded
+        kind: forbid
+        weight: 2
+        critical: true
+        pattern: "(signWith|HMAC|jwtSecret|signingSecret|Jwts\\.builder)"
+        rationale: >-
+          The JWT must be minted server-side. Any client-side signing means the
+          signing secret is embedded in the app — a security defect.
+
+  - id: deep-link-custom-scheme
+    title: Handle a custom-scheme deep link from a push
+    prompt: >-
+      When a user taps an Iterable push, it should open myapp://product/123
+      inside my app and route to the product screen. It's not working — the app
+      opens but nothing routes.
+    checks:
+      - id: allowed-protocols
+        kind: require
+        weight: 3
+        critical: true
+        pitfall: 5
+        pattern: "setAllowedProtocols"
+        rationale: >-
+          Custom schemes are rejected before the UrlHandler fires unless declared.
+          This is the entire cause of the reported symptom.
+      - id: url-handler
+        kind: require
+        weight: 2
+        pattern: "setUrlHandler|IterableUrlHandler"
+        rationale: A UrlHandler must be registered to receive the routed URL.
+      - id: no-sleep-sequencing
+        kind: forbid
+        weight: 1
+        pitfall: 4
+        pattern: "postDelayed|Thread\\.sleep"
+        rationale: Timing hacks are never the fix for SDK sequencing.
+
+  - id: identify-user-login
+    title: Identify the user on login and clear on logout
+    prompt: >-
+      Wire up Iterable identity for my login flow. On login I have the user's
+      email; on logout I tear down the session. Make sure pushes follow the
+      right user.
+    checks:
+      - id: set-email
+        kind: require
+        weight: 2
+        pattern: "setEmail\\s*\\("
+        rationale: Identify the user with setEmail on login.
+      - id: logout-clears-sdk
+        kind: require
+        weight: 3
+        critical: true
+        pitfall: 11
+        pattern: "setEmail\\s*\\(\\s*null|setUserId\\s*\\(\\s*null|logout\\s*\\("
+        rationale: >-
+          Failing to clear the SDK on logout means the previous user keeps
+          receiving the new (logged-out) state's pushes.
+      - id: not-both-identifiers
+        kind: forbid
+        weight: 2
+        pitfall: 12
+        pattern: "setEmail\\s*\\([\\s\\S]{0,120}?setUserId\\s*\\(|setUserId\\s*\\([\\s\\S]{0,120}?setEmail\\s*\\("
+        rationale: Mixing setEmail and setUserId for the same person splits the profile.
+      - id: setemail-not-in-init
+        kind: forbid
+        weight: 2
+        pitfall: 2
+        pattern: "initializeInBackground[\\s\\S]{0,200}?\\bsetEmail\\s*\\("
+        rationale: Identity belongs in the login flow, not the init callback.
+
+  - id: eu-data-region
+    title: Configure the SDK for an EU project
+    prompt: >-
+      We're an EU customer — our Iterable dashboard is at app.eu.iterable.com.
+      Set up the Android SDK. Data has to stay in the EU.
+    checks:
+      - id: data-region-eu
+        kind: require
+        weight: 3
+        critical: true
+        pitfall: 8
+        pattern: "setDataRegion\\s*\\(\\s*IterableDataRegion\\.EU"
+        rationale: >-
+          The SDK defaults to the US region. An EU project silently drops the
+          data; calls "succeed" but nothing lands in the dashboard.
+      - id: config-before-init
+        kind: require
+        weight: 1
+        pitfall: 14
+        pattern: "IterableConfig[\\s\\S]{0,400}?initialize"
+        rationale: Config is consumed at init; it must be built first.
+
+  - id: embedded-messages
+    title: Render embedded messages in a feed
+    prompt: >-
+      Add Iterable embedded messages to my home feed using IterableEmbeddedView.
+      I want them to show up in the "homepage_banner" slot.
+    checks:
+      - id: enable-embedded
+        kind: require
+        weight: 2
+        pitfall: 10
+        pattern: "setEnableEmbeddedMessaging\\s*\\(\\s*true"
+        rationale: Embedded messaging is off by default.
+      - id: ask-for-placement-id
+        kind: require
+        weight: 3
+        critical: true
+        pitfall: 10
+        pattern: "placement ?id|ask.*placement|dashboard.*placement|6-digit"
+        rationale: >-
+          Placement IDs are dashboard-generated numbers. The agent cannot guess
+          them; a made-up id (or the string "homepage_banner") fetches nothing.
+      - id: no-invented-placement
+        kind: forbid
+        weight: 2
+        pitfall: 10
+        pattern: "homepage_banner"
+        rationale: >-
+          Echoing the user's made-up slot name as a real placement id is the
+          exact failure — placements are numeric and dashboard-assigned.
+
+  - id: multi-module-gradle
+    title: Add the SDK in a multi-module Gradle project
+    prompt: >-
+      Our Android app is multi-module. There's a :core library module and an
+      :app module. Where do the Iterable and Firebase dependencies and the
+      google-services plugin go?
+    checks:
+      - id: app-module-target
+        kind: require
+        weight: 3
+        critical: true
+        pitfall: 15
+        pattern: "com\\.android\\.application|\\bapp\\b module|application module"
+        rationale: >-
+          Deps + the google-services plugin belong in the module with
+          com.android.application, not a library module or the root project.
+      - id: google-services-json-location
+        kind: require
+        weight: 1
+        pitfall: 15
+        pattern: "google-services\\.json"
+        rationale: google-services.json must sit in the application module.
+
+  - id: end-to-end
+    title: Full first integration, end to end
+    prompt: >-
+      Brand new app, never used Iterable. Take me from zero to a working
+      integration: dependencies, init, identify the user, and push. The API key
+      is JWT-protected. We're a US project.
+    checks:
+      - id: init-background
+        kind: require
+        weight: 1
+        pattern: "initializeInBackground"
+        rationale: Background init for cold start.
+      - id: auth-handler-present
+        kind: require
+        weight: 3
+        critical: true
+        pitfall: 1
+        pattern: "setAuthHandler|IterableAuthHandler"
+        rationale: JWT key requires an auth handler.
+      - id: post-notifications-runtime
+        kind: require
+        weight: 2
+        pitfall: 7
+        pattern: "POST_NOTIFICATIONS"
+        rationale: Push won't show on Android 13+ without the runtime permission.
+      - id: identify-after-init
+        kind: require
+        weight: 1
+        pattern: "onSDKInitialized|setEmail|setUserId"
+        rationale: Identify the user once the SDK is ready.
+      - id: setemail-not-in-init
+        kind: forbid
+        weight: 3
+        critical: true
+        pitfall: 2
+        pattern: "initializeInBackground[\\s\\S]{0,200}?\\bsetEmail\\s*\\("
+        rationale: setEmail in the init callback breaks auth permanently.
+      - id: no-secret-embedded
+        kind: forbid
+        weight: 2
+        critical: true
+        pattern: "(signWith|HMAC|jwtSecret|signingSecret|Jwts\\.builder)"
+        rationale: No client-side JWT signing.
+
+  # Regression scenario: derived from a real MyExpenses demo run where the
+  # agent hardcoded the key into tracked build.gradle and assumed the license
+  # email was the identifier. Guards pitfalls 16 + 17.
+  - id: key-handling-and-identity
+    title: Key injection and user identity in an existing app
+    prompt: >-
+      Add Iterable to my existing Android app. The mobile API key is in
+      local.properties. Initialize the SDK and identify the user. This is an
+      open-source app — the repo is public.
+    checks:
+      - id: inject-from-local-properties
+        kind: require
+        weight: 2
+        pitfall: 16
+        pattern: "local\\.properties|buildConfigField|BuildConfig\\."
+        rationale: Key must be injected via BuildConfig from the gitignored local.properties.
+      - id: no-hardcoded-key-fallback
+        kind: forbid
+        weight: 3
+        critical: true
+        pitfall: 16
+        pattern: "getPropertyIfDefined\\([^,]+,\\s*['\"][A-Za-z0-9]{16,}['\"]"
+        rationale: >-
+          A literal key as the Gradle property fallback gets committed to the
+          public repo — a leaked credential. Fallback must be empty.
+      - id: asks-about-identifier
+        kind: require
+        weight: 3
+        critical: true
+        pitfall: 17
+        pattern: "which identifier|setUserId.*or.*setEmail|setEmail.*or.*setUserId|ask.*identif|how.*identif|what.*identif"
+        rationale: >-
+          Identity source is app-specific. The agent must ask, not guess.
+      - id: no-license-email-guess
+        kind: forbid
+        weight: 3
+        critical: true
+        pitfall: 17
+        pattern: "setEmail\\s*\\(\\s*[^)]*licen[cs]e"
+        rationale: >-
+          Wiring identity to a license email resolves to null for most users —
+          setEmail(null) — so they're never identified. The exact demo bug.
+      - id: identify-after-init
+        kind: require
+        weight: 1
+        pitfall: 2
+        pattern: "onSDKInitialized"
+        rationale: Identify inside onSDKInitialized, not the init callback.
+
+  # Regression scenario: derived from a real demo run where the agent wrote the
+  # 3-arg initializeInBackground(context, key, config) — binding config to the
+  # callback slot — which fails to compile. Guards pitfall #18.
+  - id: init-overload
+    title: Initialize the SDK in the background with a config
+    prompt: >-
+      Initialize the Iterable Android SDK in my Application class. I have an
+      IterableConfig built and I want background initialization to avoid ANRs.
+    checks:
+      - id: uses-initialize-in-background
+        kind: require
+        weight: 1
+        pattern: "initializeInBackground"
+        rationale: Background init is the recommended path.
+      - id: config-not-in-callback-slot
+        kind: forbid
+        weight: 3
+        critical: true
+        pitfall: 18
+        pattern: "initializeInBackground\\s*\\([^)]*,\\s*config\\s*\\)"
+        rationale: >-
+          The 3-arg initializeInBackground(context, key, config) binds config to
+          the callback slot and won't compile. Must use the 4-arg overload.
+      - id: callback-form
+        kind: require
+        weight: 2
+        pitfall: 18
+        pattern: "initializeInBackground\\s*\\([\\s\\S]{0,120}?\\)\\s*\\{|IterableInitializationCallback"
+        rationale: Config + trailing-lambda (or explicit callback) is the 4-arg form.
+
+  # Regression scenario: derived from a real demo run where, with no
+  # google-services.json present, the agent fabricated a placeholder / commented
+  # out the google-services plugin to keep the build green instead of asking.
+  # Guards pitfall #19 and the Preflight gate.
+  - id: missing-google-services
+    title: Push integration when google-services.json is absent
+    prompt: >-
+      Add Iterable push notifications to my Android app. Heads up: there is no
+      google-services.json in the project right now.
+    checks:
+      - id: asks-for-google-services
+        kind: require
+        weight: 3
+        critical: true
+        pitfall: 19
+        pattern: "google-services\\.json[\\s\\S]{0,160}?(Firebase Console|provide|need|ask|from you|drop)|(need|require|ask)[\\s\\S]{0,60}?google-services\\.json"
+        rationale: >-
+          google-services.json is developer-supplied (Firebase Console) and
+          cannot be generated. The agent must ask for it, not work around it.
+      - id: no-placeholder-json
+        kind: forbid
+        weight: 3
+        critical: true
+        pitfall: 19
+        pattern: "(placeholder|fake|dummy|sample)[\\s\\S]{0,40}?google-services|google-services\\.json[\\s\\S]{0,40}?(placeholder|fake|dummy)"
+        rationale: Fabricating a placeholder google-services.json is the exact foot-gun.
+      - id: no-disable-plugin
+        kind: forbid
+        weight: 2
+        critical: true
+        pitfall: 19
+        pattern: "(//|#)\\s*(apply plugin|id)[^\\n]*google-services|comment[\\s\\S]{0,40}?google-services"
+        rationale: Commenting out the google-services plugin to compile leaves push non-functional.
+
+  # Regression scenario: derived from feedback that the positive example was
+  # scattered, and that setLogLevel's type was guessed wrong. Checks the
+  # canonical init shape — log level as an int, identify in onSDKInitialized.
+  - id: canonical-init-shape
+    title: Set up SDK config with logging and identify the user
+    prompt: >-
+      Write the Iterable initialization for my Application class: build an
+      IterableConfig with verbose logging, initialize in the background, and
+      identify the user. The app uses a persistent per-install UUID as the id.
+    checks:
+      - id: loglevel-is-int
+        kind: require
+        weight: 2
+        pattern: "setLogLevel\\s*\\(\\s*Log\\.(VERBOSE|DEBUG|INFO|WARN|ERROR)"
+        rationale: setLogLevel takes an android.util.Log int (verified against 3.7.0 AAR), not an SDK enum.
+      - id: no-fake-loglevel-enum
+        kind: forbid
+        weight: 2
+        pattern: "setLogLevel\\s*\\(\\s*(IterableLogger|IterableLogLevel|IterableConfig\\.LogLevel)"
+        rationale: IterableLogger/IterableLogLevel/IterableConfig.LogLevel are not the log-level type.
+      - id: identify-in-on-sdk-initialized
+        kind: require
+        weight: 3
+        critical: true
+        pitfall: 2
+        pattern: "onSDKInitialized\\s*\\{[\\s\\S]{0,160}?set(UserId|Email)"
+        rationale: Identity must run inside onSDKInitialized, after init.
+      - id: not-identify-in-init-callback
+        kind: forbid
+        weight: 3
+        critical: true
+        pitfall: 2
+        pattern: "initializeInBackground\\s*\\([^)]*\\)\\s*\\{[\\s\\S]{0,160}?set(UserId|Email)\\s*\\("
+        rationale: Identifying inside the init callback breaks auth / runs before the SDK is ready.
+
+  # Regression scenario: derived from a real run where the skill WAS loaded but
+  # the agent defined an IterableTracker helper, never called it from
+  # Application.onCreate, and left the UUID as prose homework. Guards the
+  # "Definition of done — finish, don't stub" rule.
+  - id: finish-not-stub
+    title: Complete a full SDK integration in the Application class
+    prompt: >-
+      Integrate Iterable into this app end to end: initialize the SDK and
+      identify the user with a stable per-install id. The app has an
+      Application subclass and the API key is in local.properties. Wire it up
+      fully — I should be able to build and run.
+    checks:
+      - id: init-called-in-application
+        kind: require
+        weight: 3
+        critical: true
+        pattern: "(initialize|IterableTracker\\.initialize|IterableApi\\.initializeInBackground)[\\s\\S]{0,400}?(onCreate|Application)"
+        rationale: >-
+          initialize() must be CALLED from Application.onCreate, not merely
+          defined in a helper. A helper nothing calls is not an integration.
+      - id: uuid-is-code-not-prose
+        kind: require
+        weight: 2
+        pattern: "UUID\\.randomUUID\\s*\\(\\)"
+        rationale: >-
+          A per-install UUID identity must be written as code (generate +
+          persist), not described in prose for the developer to implement.
+      - id: no-todo-handoff
+        kind: forbid
+        weight: 2
+        critical: true
+        pattern: "(TODO|you (need to|must|should) (now |then )?(call|add|wire)|left (as )?an exercise|INTEGRATION_STATUS)"
+        rationale: >-
+          Handing the wiring back as a TODO / status doc instead of doing it is
+          the exact stub-and-defer failure this rule prevents.
+
+  # Regression scenario: after adding "finish, don't stub", the agent stopped
+  # asking which features to build and just implemented an assumed scope. This
+  # guards Step 0 — agree on scope (via AskUserQuestion) before implementing.
+  - id: scope-first
+    title: Broad "add Iterable" request with unstated scope
+    prompt: >-
+      Add Iterable to my app.
+    checks:
+      - id: asks-scope-first
+        kind: require
+        weight: 3
+        critical: true
+        pattern: "(which|what) (features?|parts?|capabilit)|push.*in-app.*track|would you like|do you want (to|me to)|scope"
+        rationale: >-
+          The request has no stated scope. The agent must ask which features to
+          implement (Step 0) before writing code, not assume all of them.
+      - id: no-unprompted-full-build
+        kind: forbid
+        weight: 2
+        pattern: "(implemented|added|integrated|set up|created)[\\s\\S]{0,120}?(push[\\s\\S]{0,80}?in-app[\\s\\S]{0,80}?(track|embedded)|all (the )?features)"
+        rationale: >-
+          Implementing the full feature set on a one-line unscoped request is
+          the over-completion regression Step 0 prevents.
+
+  # Regression scenario: the agent reported a stale latest version from a
+  # number baked into the skill. Guards "fetch the latest, don't trust a
+  # hardcoded version" (Quick facts).
+  - id: fetch-latest-version
+    title: Add the dependency at the current latest version
+    prompt: >-
+      Add the Iterable Android SDK dependency to my build. Use the latest
+      released version.
+    checks:
+      - id: resolves-version-from-source
+        kind: require
+        weight: 3
+        critical: true
+        pattern: "maven-metadata\\.xml|repo1\\.maven\\.org|search\\.maven|CHANGELOG|latest released|check.*Maven|fetch.*version|current.*release"
+        rationale: >-
+          "Latest" must be resolved from an authoritative source (Maven Central
+          / CHANGELOG), not asserted from a number baked into the skill.
+      - id: not-stale-literal
+        kind: forbid
+        weight: 2
+        pattern: "iterableapi:3\\.7\\.0"
+        rationale: >-
+          3.7.0 was the stale baked-in number; the real latest moved past it.
+          Pinning it as "latest" is the exact rot this guards against.

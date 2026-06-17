@@ -1,0 +1,73 @@
+name: Validate polished corpus
+
+# Runs the pipeline's full validation suite on every push to main and every PR.
+# Blocking gates: typecheck, polished-frontmatter schema, layer-a vs polished
+# structural diff. Advisory (always exit 0): chunking lint and kotlinc snippet
+# check. The snippet check is advisory in v1 because kotlinc -script runs full
+# semantic analysis and floods on "unresolved reference" without a classpath;
+# tracked follow-up loads the Iterable SDK + android.jar so it can become
+# blocking in v2.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - polished/**
+      - pipeline/**
+      - iterable-android/snapshot/**
+      - .github/workflows/validate.yml
+  pull_request:
+    branches: [main]
+    paths:
+      - polished/**
+      - pipeline/**
+      - iterable-android/snapshot/**
+      - .github/workflows/validate.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: pipeline/pnpm-lock.yaml
+
+      - name: Setup Java (kotlinc dependency)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Kotlin compiler
+        run: |
+          set -euo pipefail
+          curl -sL "https://github.com/JetBrains/kotlin/releases/download/v1.9.24/kotlin-compiler-1.9.24.zip" -o /tmp/kotlinc.zip
+          unzip -q /tmp/kotlinc.zip -d "$HOME"
+          echo "$HOME/kotlinc/bin" >> "$GITHUB_PATH"
+
+      - name: Verify kotlinc
+        run: kotlinc -version
+
+      - name: Install pipeline deps
+        working-directory: pipeline
+        run: pnpm install --frozen-lockfile
+
+      - name: Run all gates
+        working-directory: pipeline
+        run: pnpm check:all

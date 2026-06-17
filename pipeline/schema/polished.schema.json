@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://iterable.dev/schemas/polished.schema.json",
+  "title": "Polished article frontmatter",
+  "description": "Frontmatter contract for files under `polished/<platform>/<slug>.polished.md`. Layer A files (`<slug>.layer-a.md`) follow the same shape with `layer: a`.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "slug",
+    "feature",
+    "archetype",
+    "sdk_min_version",
+    "sdk_artifact",
+    "title",
+    "summary",
+    "source_url",
+    "source_repo",
+    "source_path",
+    "source_ref",
+    "source_sha",
+    "fetched_at",
+    "polished_at",
+    "layer",
+    "snippets"
+  ],
+  "properties": {
+    "slug": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "description": "URL-safe identifier. Lowercase, hyphen-separated."
+    },
+    "feature": {
+      "type": "string",
+      "enum": [
+        "integration",
+        "push-notifications",
+        "in-app-messages",
+        "mobile-inbox",
+        "embedded-messaging",
+        "jwt-authentication",
+        "deep-linking",
+        "event-tracking",
+        "user-profiles",
+        "unknown-user-activation"
+      ],
+      "description": "Routing tag — matches a feature bucket the agent can ask about."
+    },
+    "archetype": {
+      "type": "string",
+      "enum": ["integration", "feature", "identity"],
+      "description": "Article archetype tag (integration / feature / identity), carried through from pipeline config."
+    },
+    "sdk_min_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Semver pin: the SDK release every snippet in the file was validated against."
+    },
+    "sdk_artifact": {
+      "type": "string",
+      "description": "Maven / Cocoapods / npm artifact name. Android: `iterableapi` or `iterableapi-ui`."
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 40,
+      "maxLength": 600,
+      "description": "Agent-facing 2–3 sentence summary, extracted from the first prose paragraph(s) by `pnpm enrich:summary`. Required."
+    },
+    "source_url": {
+      "type": "string",
+      "format": "uri",
+      "description": "Public-facing URL where humans can read the same content."
+    },
+    "source_repo": {
+      "type": "string",
+      "pattern": "^[^/]+/[^/]+$",
+      "description": "GitHub owner/repo of the upstream docs source."
+    },
+    "source_path": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path within `source_repo` at `source_ref`."
+    },
+    "source_ref": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$",
+      "description": "Pinned commit SHA on the upstream docs repo."
+    },
+    "source_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$",
+      "description": "Git blob SHA of the source file at `source_ref`."
+    },
+    "fetched_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "polished_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "layer": {
+      "type": "string",
+      "enum": ["a", "b"]
+    },
+    "android_excerpt": {
+      "type": "boolean",
+      "description": "Optional. Marks a doc sourced from a cross-platform article that still contains foreign-platform (iOS/web) examples. Informational in v1 (the deterministic transform does not strip foreign code)."
+    },
+    "snippets": {
+      "type": "array",
+      "description": "Per-fence manifest. Each entry corresponds to a surviving code block in the body, in document order.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["index", "lang", "hash", "line_count"],
+        "properties": {
+          "index": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Position in document order. Must start at 0 and be contiguous."
+          },
+          "lang": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Markdown code-fence language tag."
+          },
+          "hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{12}$",
+            "description": "12-char hex content hash of the code block, used to detect manifest/body drift."
+          },
+          "line_count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    }
+  }
+}

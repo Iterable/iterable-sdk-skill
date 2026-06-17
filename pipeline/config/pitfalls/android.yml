@@ -1,0 +1,160 @@
+# Pitfall index for the Android SDK skill.
+#
+# Mirrors `iterable-android/PITFALLS.md` headings 1..N. Consumer:
+#   - Eval — `triggers` are regex (case-insensitive) matched against a doc or
+#     transcript. If a trigger appears but the relevant pitfall wasn't
+#     surfaced, the eval can flag the omission.
+#
+# Keep `triggers` narrow enough to avoid noise but broad enough to catch
+# the obvious mentions. Over-triggering is fine — a human reviews.
+
+platform: android
+
+pitfalls:
+  - id: 1
+    title: JWT-required API key with no AuthHandler
+    triggers:
+      - "JWT-enabled"
+      - "AuthHandler"
+      - "onAuthTokenRequested"
+    features: [jwt-authentication, integration, unknown-user-activation, user-profiles]
+
+  - id: 2
+    title: setEmail inside the init callback
+    triggers:
+      - "initializeInBackground"
+      - "init callback"
+    features: [integration, user-profiles]
+
+  - id: 3
+    title: Stale email captured in the auth handler lambda
+    triggers:
+      - "onAuthTokenRequested"
+      - "AuthHandler"
+    features: [jwt-authentication, integration]
+
+  - id: 4
+    title: Sequencing with Handler.postDelayed or Thread.sleep
+    triggers:
+      - "postDelayed"
+      - "Thread\\.sleep"
+      - "setEmail.*onSuccess"
+    features: [integration, user-profiles]
+
+  - id: 5
+    title: Custom deep-link scheme dropped silently
+    triggers:
+      - "setAllowedProtocols"
+      - "custom URL scheme"
+      - "UrlHandler"
+    features: [deep-linking, integration]
+
+  - id: 6
+    title: registerForPush called explicitly with auto-registration on
+    triggers:
+      - "registerForPush"
+      - "setAutoPushRegistration"
+    features: [push-notifications, integration]
+
+  - id: 7
+    title: POST_NOTIFICATIONS permission not requested on Android 13+
+    triggers:
+      - "POST_NOTIFICATIONS"
+      - "Android 13"
+      - "API 33"
+    features: [push-notifications, integration]
+
+  - id: 8
+    title: EU customer hitting US endpoint
+    triggers:
+      - "setDataRegion"
+      - "IterableDataRegion"
+      - "EU"
+    features: [integration]
+
+  - id: 9
+    title: Push integration name mismatch
+    triggers:
+      - "setPushIntegrationName"
+      - "push integration"
+    features: [push-notifications, integration]
+
+  - id: 10
+    title: Embedded placements not loading
+    triggers:
+      - "IterableEmbeddedView"
+      - "placement"
+      - "setEnableEmbeddedMessaging"
+    features: [embedded-messaging]
+
+  - id: 11
+    title: Logout not clearing the SDK
+    triggers:
+      - "setEmail\\(null\\)"
+      - "setUserId\\(null\\)"
+      - "logout"
+    features: [user-profiles, integration]
+
+  - id: 12
+    title: Mixing setEmail and setUserId on the same user
+    triggers:
+      - "setEmail"
+      - "setUserId"
+      - "identity resolution"
+    features: [user-profiles, unknown-user-activation]
+
+  - id: 13
+    title: Calling SDK before onSDKInitialized when using initializeInBackground
+    triggers:
+      - "onSDKInitialized"
+      - "initializeInBackground"
+      - "IllegalStateException"
+    features: [integration]
+
+  - id: 14
+    title: Treating IterableConfig as a singleton you can mutate
+    triggers:
+      - "IterableConfig"
+      - "post-init"
+    features: [integration]
+
+  - id: 15
+    title: Multi-module Android project — SDK in the wrong module
+    triggers:
+      - "google-services"
+      - "multi-module"
+      - "applicationIdSuffix"
+    features: [integration]
+
+  - id: 16
+    title: API key hardcoded into a tracked file
+    triggers:
+      - "buildConfigField"
+      - "BuildConfig"
+      - "local\\.properties"
+      - "API_KEY"
+    features: [integration]
+
+  - id: 17
+    title: Guessing the user identifier (e.g. a license/account email)
+    triggers:
+      - "setEmail"
+      - "setUserId"
+      - "licen[cs]e"
+    features: [integration, user-profiles, unknown-user-activation]
+
+  - id: 18
+    title: initializeInBackground overload — config in the callback slot
+    triggers:
+      - "initializeInBackground"
+      - "IterableInitializationCallback"
+    features: [integration]
+
+  - id: 19
+    title: Faking a missing prerequisite to keep the build green
+    triggers:
+      - "google-services\\.json"
+      - "google-services"
+      - "placeholder"
+      - "project_info"
+    features: [integration, push-notifications]
