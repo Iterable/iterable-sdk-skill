@@ -293,15 +293,20 @@ snapshot:verify`). Match the task to a slug (table below) and open
 `snapshot/<slug>.md`. This is the canonical source right now — don't try
 Context7 first.
 
-### Source later: Context7 *(Phase 3 — not live yet, skip)*
+### Source later: Context7 *(curated library not published yet — do not fetch)*
 
-[`.context7-library-id`](.context7-library-id) is still the placeholder
-`TODO-PHASE-3/...`, so any Context7 fetch fails today. Once a real library ID
-is dropped into that file (first non-comment line; starts with `TODO-` ⇒ not
-live), the flow becomes: read the ID, fetch the matching slug via the Context7
-MCP tool (self-contained — one doc per task, don't bulk-load), use its snippets
-verbatim, and surface any `sdk_min_version` mismatch. Until then, the snapshot
-above is authoritative.
+The Context7 MCP server **is** connected (the plugin bundles it), but Iterable's
+curated library is **not published there yet** — [`.context7-library-id`](.context7-library-id)
+is still the placeholder `TODO-PHASE-3/...`. So do **not** call Context7 for
+Iterable docs right now: a `resolve-library-id` / `query-docs` lookup would
+return some *unrelated public* library, not this skill's vetted corpus. The
+[`snapshot/`](snapshot/) is authoritative until the real ID lands.
+
+Once a real library ID is dropped into that file (first non-comment line; one
+that does **not** start with `TODO-`), the flow becomes: read the ID, fetch the
+matching slug via the Context7 MCP tool (self-contained — one doc per task,
+don't bulk-load), use its snippets verbatim, and surface any `sdk_min_version`
+mismatch.
 
 ### Slug routing
 
