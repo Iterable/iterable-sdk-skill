@@ -330,6 +330,13 @@ mismatch.
 | `updateUser`, profile data fields, JSON merging | `updating-user-profiles` |
 | Unknown User Activation (anonymous → identified upgrade) | `setting-up-unknown-user-activation` |
 
+> **Inbox UI is fragment-based.** `IterableInboxFragment` needs a
+> `FragmentManager`, so its host must be a `FragmentActivity` /
+> `AppCompatActivity`. Compose-first apps default their host to
+> `ComponentActivity`, which has none — hosting the fragment there crashes
+> at attach (`… is not within a subclass of FragmentActivity`). The SDK ships
+> no Compose-native inbox; switch the host activity's base class before adding it.
+
 For tasks that span multiple areas (e.g. "wire up the whole SDK end to end"),
 fetch `android-sdk` first — it tells you which others to load and in what
 order.
