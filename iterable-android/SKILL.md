@@ -183,7 +183,10 @@ generating any non-trivial code.
 
 5. **Custom deep-link schemes need `setAllowedProtocols(arrayOf("yourscheme"))`.**
    Without this the SDK refuses to dispatch the URL to your `UrlHandler` and
-   silently drops the link.
+   silently drops the link. Also register **both** `urlHandler` and
+   `customActionHandler` — `action://`/`itbl://` links and custom-action push
+   types route to the latter, and a tap to an unset handler is silently dropped
+   (PITFALLS #20).
 
 6. **Never hardcode the API key into a tracked file.** A *mobile* API key is
    safe to embed in the compiled app — that's its intended use — but it must

@@ -300,3 +300,25 @@ hot-path subset; the full list lives here and is loaded on demand.
   wired but needs your `google-services.json` to build" beats a green build
   that silently does nothing. Never commit a placeholder; never disable a
   required plugin to compile.
+
+## 20. Link tap routed to a handler that isn't set (silently dropped)
+
+- **Symptom:** A push notification (or in-app / embedded message) opens the
+  app but never navigates — the deep link silently does nothing. A registered
+  `urlHandler` is never called for these taps.
+- **Cause:** Iterable routes an action by its **type / URL scheme**, not
+  through one catch-all handler. Plain `http`/`https` links (and push actions
+  of type `openUrl`) go to `IterableConfig.urlHandler` → `handleIterableURL()`.
+  Links whose scheme is `action://` or `itbl://`, **and push actions whose
+  type is a custom action**, go to `IterableConfig.customActionHandler` →
+  `handleIterableCustomAction()`. (`iterable://` URLs are SDK-reserved and
+  handled internally.) If the handler an action routes to has **not** been set,
+  the action is silently dropped — no crash, no log. So an integration that
+  registers only `urlHandler` looks complete but loses every custom-action
+  link; "opens the app but doesn't navigate" is the only symptom.
+- **Fix:** Register **both** `urlHandler` and `customActionHandler` on
+  `IterableConfig`, unless you've confirmed the dashboard only ever sends
+  `openUrl` / plain-URL actions. Don't assume one handler catches everything.
+  When a link opens the app but doesn't navigate, suspect a missing
+  `customActionHandler` first — the dashboard template likely carries the link
+  in the action *type* rather than as an `openUrl`.
