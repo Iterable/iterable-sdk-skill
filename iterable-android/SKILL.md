@@ -293,15 +293,20 @@ snapshot:verify`). Match the task to a slug (table below) and open
 `snapshot/<slug>.md`. This is the canonical source right now — don't try
 Context7 first.
 
-### Source later: Context7 *(Phase 3 — not live yet, skip)*
+### Source later: Context7 *(curated library not published yet — do not fetch)*
 
-[`.context7-library-id`](.context7-library-id) is still the placeholder
-`TODO-PHASE-3/...`, so any Context7 fetch fails today. Once a real library ID
-is dropped into that file (first non-comment line; starts with `TODO-` ⇒ not
-live), the flow becomes: read the ID, fetch the matching slug via the Context7
-MCP tool (self-contained — one doc per task, don't bulk-load), use its snippets
-verbatim, and surface any `sdk_min_version` mismatch. Until then, the snapshot
-above is authoritative.
+The Context7 MCP server **is** connected (the plugin bundles it), but Iterable's
+curated library is **not published there yet** — [`.context7-library-id`](.context7-library-id)
+is still the placeholder `TODO-PHASE-3/...`. So do **not** call Context7 for
+Iterable docs right now: a `resolve-library-id` / `query-docs` lookup would
+return some *unrelated public* library, not this skill's vetted corpus. The
+[`snapshot/`](snapshot/) is authoritative until the real ID lands.
+
+Once a real library ID is dropped into that file (first non-comment line; one
+that does **not** start with `TODO-`), the flow becomes: read the ID, fetch the
+matching slug via the Context7 MCP tool (self-contained — one doc per task,
+don't bulk-load), use its snippets verbatim, and surface any `sdk_min_version`
+mismatch.
 
 ### Slug routing
 
@@ -334,9 +339,10 @@ order.
    or "what does this code do?"
 2. **Check rules 1–5 above** against whatever the user already has. Many
    "the SDK isn't working" reports are rule violations.
-3. **Fetch the matching slug from Context7** (snapshot fallback if needed)
-   before writing code. Each polished doc has its own gotchas section that
-   supersedes generic advice.
+3. **Read the matching slug for the task** before writing code, from whichever
+   source the "How to use this skill" section marks authoritative (the
+   `snapshot/` today). Each doc has its own gotchas section that supersedes
+   generic advice.
 4. **For non-obvious traps not covered in the polished doc**, consult
    [`PITFALLS.md`](PITFALLS.md).
 5. **Version-check.** If the user is on an older SDK version than the doc's

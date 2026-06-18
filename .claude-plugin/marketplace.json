@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "iterable",
+  "owner": { "name": "Iterable" },
+  "description": "Iterable's official skills for AI coding assistants — mobile SDK integration guidance.",
+  "plugins": [
+    { "name": "iterable-sdk", "source": "./", "description": "Iterable mobile SDK skill" }
+  ]
+}

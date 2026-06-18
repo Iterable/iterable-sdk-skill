@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "iterable-sdk",
+  "version": "0.1.0",
+  "description": "Reliable Iterable mobile SDK integration guidance for AI coding assistants — version-pinned snippets + silent-failure pitfalls. Android today; iOS/RN/Web later.",
+  "author": { "name": "Iterable" },
+  "repository": "https://github.com/Iterable/iterable-sdk-skill",
+  "license": "MIT",
+  "keywords": ["iterable", "android", "sdk", "mobile", "push", "in-app"],
+  "skills": ["./iterable-android"]
+}

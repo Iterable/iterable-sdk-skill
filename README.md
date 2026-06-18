@@ -12,34 +12,42 @@ callback, and more).
 
 ## Install
 
-The skill is a single directory you symlink into your assistant's skills folder.
+**Claude Code** — install the plugin from this repo's marketplace:
+
+```
+/plugin marketplace add Iterable/iterable-sdk-skill
+/plugin install iterable-sdk@iterable
+```
+
+This installs the skill and wires up its documentation source in one step.
+
+**Cursor (or a manual install)** — symlink the skill directory into your
+assistant's skills folder:
 
 ```bash
 git clone --depth 1 git@github.com:Iterable/iterable-sdk-skill.git ~/iterable-skills
-
-# Cursor
 ln -s ~/iterable-skills/iterable-android ~/.cursor/skills/iterable-android
-
-# Claude Code
-ln -s ~/iterable-skills/iterable-android ~/.claude/skills/iterable-android
 ```
 
-That's it. The skill activates automatically whenever you mention Iterable: it
+Either way, the skill activates automatically whenever you mention Iterable: it
 loads its always-on rules and `PITFALLS.md`, then pulls the documentation for
 whatever feature you're working on (see [How it works](#how-it-works)).
 
 ## How it works
 
-The Iterable documentation that powers the skill is published to
-[Context7](https://context7.com), a service that hosts docs for AI assistants to
-query. When you ask the skill to build something, it fetches the relevant
-articles from Context7 on demand, so it works from the current documentation
-rather than what the model happened to memorize.
+The skill carries a copy of the Iterable documentation inside it
+(`iterable-android/snapshot/`), so it always has the docs on hand — even offline.
+This snapshot is the active source today.
 
-A copy of the same docs ships inside the skill (`iterable-android/snapshot/`),
-which it falls back to if Context7 is unreachable or your assistant is offline.
-This snapshot is the active source today; the Context7 library comes online in an
-upcoming release.
+The Claude Code plugin also connects to [Context7](https://context7.com), a
+service that hosts docs for AI assistants to query on demand. That connection is
+bundled and ready, but stays dormant until Iterable's curated library is
+published there; once it is, the skill fetches the latest docs live, with the
+snapshot as its fallback. No reinstall needed when that happens.
+
+> Context7 works without an API key at a lower rate limit. To raise it, get a
+> free key at [context7.com](https://context7.com) and add it as a
+> `CONTEXT7_API_KEY` header on the `context7` MCP server.
 
 ## What it covers
 
