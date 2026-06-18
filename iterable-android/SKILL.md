@@ -339,9 +339,10 @@ order.
    or "what does this code do?"
 2. **Check rules 1–5 above** against whatever the user already has. Many
    "the SDK isn't working" reports are rule violations.
-3. **Fetch the matching slug from Context7** (snapshot fallback if needed)
-   before writing code. Each polished doc has its own gotchas section that
-   supersedes generic advice.
+3. **Read the matching slug for the task** before writing code, from whichever
+   source the "How to use this skill" section marks authoritative (the
+   `snapshot/` today). Each doc has its own gotchas section that supersedes
+   generic advice.
 4. **For non-obvious traps not covered in the polished doc**, consult
    [`PITFALLS.md`](PITFALLS.md).
 5. **Version-check.** If the user is on an older SDK version than the doc's
