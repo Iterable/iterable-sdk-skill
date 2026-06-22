@@ -322,3 +322,35 @@ hot-path subset; the full list lives here and is loaded on demand.
   When a link opens the app but doesn't navigate, suspect a missing
   `customActionHandler` first — the dashboard template likely carries the link
   in the action *type* rather than as an `openUrl`.
+
+## 21. Setting `CommerceItem.categories` after construction (compiles, crashes at runtime)
+
+- **Symptom:** A green build, then a hard crash the first time a real purchase
+  is reported — inside your own `trackPurchase` wrapper, not the SDK and not the
+  checkout flow. Nothing surfaces until the code actually runs on a device.
+- **Cause:** `CommerceItem`'s `categories` is **write-once — settable only
+  through the constructor**, not assignable afterward. Kotlin's `.apply { }`
+  makes the wrong form look natural and it compiles cleanly:
+  ```kotlin
+  // WRONG — compiles, throws at runtime on the assignment
+  CommerceItem(id, name, price, quantity).apply {
+      categories = arrayOf(product.category)
+  }
+  ```
+  The constraint is enforced only at runtime, so a build-time check (and the
+  agent) won't catch it.
+- **Fix:** Pass `categories` (and the other optional fields) **in the
+  constructor** — the SDK exposes a longer overload for exactly this. The
+  positional order is `id, name, price, quantity, sku, description, url,
+  imageUrl, categories` (categories last, as `Array<String>`):
+  ```kotlin
+  CommerceItem(
+      id, name, price, quantity,
+      sku, description, url, imageUrl,
+      arrayOf(product.category),   // categories — set here, never reassigned
+  )
+  ```
+  General rule for this SDK: prefer constructing value objects like
+  `CommerceItem` fully via their constructor rather than mutating fields
+  post-construction with `.apply { }` — several fields are intentionally
+  write-once and only enforce it at runtime.
