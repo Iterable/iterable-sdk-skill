@@ -33,10 +33,11 @@ human readers but omit several silent-failure traps documented in
 Do this **first**, before Preflight and before any edits. The SDK covers many
 features — push, in-app, mobile inbox, embedded, deep links, event tracking,
 user profiles. Do **not** assume the developer wants all of them, and do **not**
-start implementing on a guessed scope. Ask which features they want via
-`AskUserQuestion`. Set `multiSelect: true` so they can pick several, and offer
-**at most 4 options** (the tool rejects more than 4 per question) — group the
-long tail under one bucket, e.g.:
+start implementing on a guessed scope. Ask which features they want. If your
+host exposes an interactive multi-select question tool (in Claude Code,
+`AskUserQuestion` with `multiSelect: true`), use it and offer **at most 4
+options** (that tool rejects more than 4 per question); otherwise ask in plain
+text. Either way, group the long tail under one bucket, e.g.:
 
 - Push notifications (FCM)
 - In-app messages
@@ -88,17 +89,19 @@ pauses for a missing input is **always better** than one that compiles by
 faking the input — the latter ships a broken or misleading state that looks
 done.
 
-> **Always ask via selectable options, not prose — every time.** For *any*
-> question to the developer — the Step 0 scope question, the inputs below, the
-> identity model, region, and "what would you like to do next?" — use the
-> `AskUserQuestion` tool so they get interactive choices, not a plain-text list
-> they must answer by typing. Offer realistic options with a short description
-> each (e.g. identity: "Stable per-install UUID via `setUserId`" / "Account
-> email via `setEmail`"; region: "US" / "EU"). **Offer at most 4 options per
-> question** — the tool rejects more than 4 and the call fails with an
-> "invalid parameters" error. If you have more than 4, group them or split into
-> a second question. Only fall back to plain text if the question genuinely has
-> no enumerable options.
+> **Prefer selectable options over prose — every time.** For *any* question to
+> the developer — the Step 0 scope question, the inputs below, the identity
+> model, region, and "what would you like to do next?" — if your host exposes an
+> interactive question tool (in Claude Code, `AskUserQuestion`), use it so they
+> get interactive choices instead of a plain-text list they must answer by
+> typing. Offer realistic options with a short description each (e.g. identity:
+> "Stable per-install UUID via `setUserId`" / "Account email via `setEmail`";
+> region: "US" / "EU"). With `AskUserQuestion`, **offer at most 4 options per
+> question** — it rejects more than 4 and the call fails with an "invalid
+> parameters" error; if you have more than 4, group them or split into a second
+> question. If no such tool is available, ask in plain text with the options
+> clearly enumerated. Only skip options entirely if the question genuinely has
+> none.
 
 | Input | Needed when | If missing |
 |---|---|---|
