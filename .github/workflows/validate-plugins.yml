@@ -1,0 +1,57 @@
+name: Validate plugin manifests
+
+# Lightweight gate for Cursor/Claude plugin packaging — no Java/Kotlin needed.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .cursor-plugin/**
+      - .claude-plugin/**
+      - mcp.json
+      - .mcp.json
+      - pipeline/src/validate-plugins.ts
+      - pipeline/package.json
+      - .github/workflows/validate-plugins.yml
+  pull_request:
+    branches: [main]
+    paths:
+      - .cursor-plugin/**
+      - .claude-plugin/**
+      - mcp.json
+      - .mcp.json
+      - pipeline/src/validate-plugins.ts
+      - pipeline/package.json
+      - .github/workflows/validate-plugins.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-plugins:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: pipeline/pnpm-lock.yaml
+
+      - name: Install pipeline deps
+        working-directory: pipeline
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate plugin manifests
+        working-directory: pipeline
+        run: pnpm validate:plugins

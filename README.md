@@ -63,8 +63,8 @@ latest docs live, with the snapshot as its fallback. No reinstall needed when
 that happens.
 
 > Context7 works without an API key at a lower rate limit. To raise it, get a
-> free key at [context7.com](https://context7.com) and add it as a
-> `CONTEXT7_API_KEY` header on the `context7` MCP server.
+> free key at [context7.com](https://context7.com) and set the `CONTEXT7_API_KEY`
+> environment variable — the bundled MCP config forwards it automatically.
 
 ## What it covers
 
@@ -86,7 +86,8 @@ sources/            raw Iterable docs, fetched at pinned commits
 context7.json       Context7 manifest
 .claude-plugin/     Claude Code plugin + marketplace manifests
 .cursor-plugin/     Cursor plugin + marketplace manifests
-.mcp.json           Context7 MCP server (Claude Code auto-discovery)
+mcp.json            Context7 MCP server (Cursor plugin auto-discovery)
+.mcp.json           same config (Claude Code auto-discovery; kept in sync by CI)
 ```
 
 ## Staying current

@@ -35,9 +35,10 @@ features — push, in-app, mobile inbox, embedded, deep links, event tracking,
 user profiles. Do **not** assume the developer wants all of them, and do **not**
 start implementing on a guessed scope. Ask which features they want. If your
 host exposes an interactive multi-select question tool (in Claude Code,
-`AskUserQuestion` with `multiSelect: true`), use it and offer **at most 4
-options** (that tool rejects more than 4 per question); otherwise ask in plain
-text. Either way, group the long tail under one bucket, e.g.:
+`AskUserQuestion` with `multiSelect: true`; in Cursor, `AskQuestion` with
+`allow_multiple: true`), use it and offer **at most 4 options** (those tools
+reject more than 4 per question); otherwise ask in plain text. Either way, group
+the long tail under one bucket, e.g.:
 
 - Push notifications (FCM)
 - In-app messages
@@ -92,16 +93,16 @@ done.
 > **Prefer selectable options over prose — every time.** For *any* question to
 > the developer — the Step 0 scope question, the inputs below, the identity
 > model, region, and "what would you like to do next?" — if your host exposes an
-> interactive question tool (in Claude Code, `AskUserQuestion`), use it so they
-> get interactive choices instead of a plain-text list they must answer by
-> typing. Offer realistic options with a short description each (e.g. identity:
-> "Stable per-install UUID via `setUserId`" / "Account email via `setEmail`";
-> region: "US" / "EU"). With `AskUserQuestion`, **offer at most 4 options per
-> question** — it rejects more than 4 and the call fails with an "invalid
-> parameters" error; if you have more than 4, group them or split into a second
-> question. If no such tool is available, ask in plain text with the options
-> clearly enumerated. Only skip options entirely if the question genuinely has
-> none.
+> interactive question tool (in Claude Code, `AskUserQuestion`; in Cursor,
+> `AskQuestion`), use it so they get interactive choices instead of a plain-text
+> list they must answer by typing. Offer realistic options with a short
+> description each (e.g. identity: "Stable per-install UUID via `setUserId`" /
+> "Account email via `setEmail`"; region: "US" / "EU"). With those tools,
+> **offer at most 4 options per question** — they reject more than 4 and the
+> call fails with an "invalid parameters" error; if you have more than 4, group
+> them or split into a second question. If no such tool is available, ask in
+> plain text with the options clearly enumerated. Only skip options entirely if
+> the question genuinely has none.
 
 | Input | Needed when | If missing |
 |---|---|---|

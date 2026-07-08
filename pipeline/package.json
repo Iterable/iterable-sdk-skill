@@ -10,6 +10,7 @@
     "fetch:sources": "tsx src/fetch.ts",
     "polish:a": "tsx src/polish-layer-a.ts",
     "validate:polished": "tsx src/validate-polished.ts",
+    "validate:plugins": "tsx src/validate-plugins.ts",
     "check:snippets": "tsx src/check-snippets.ts",
     "lint:chunking": "tsx src/lint-chunking.ts",
     "recompute:manifest": "tsx src/recompute-manifest.ts",
@@ -20,7 +21,7 @@
     "eval:run": "tsx src/eval-run.ts run",
     "eval:report": "tsx src/eval-report.ts",
     "typecheck": "tsc --noEmit",
-    "check:all": "pnpm typecheck && pnpm validate:polished && pnpm snapshot:verify && pnpm check:snippets && pnpm lint:chunking"
+    "check:all": "pnpm typecheck && pnpm validate:polished && pnpm validate:plugins && pnpm snapshot:verify && pnpm check:snippets && pnpm lint:chunking"
   },
   "devDependencies": {
     "@types/node": "^22.7.0",
