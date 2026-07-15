@@ -2,6 +2,8 @@
   "$schema": "https://context7.com/schema/context7.json",
   "projectTitle": "Iterable Mobile SDKs",
   "description": "Agent-facing reference for Iterable's mobile SDKs. Polished from Iterable's canonical docs with version-pinned snippets, decision tiers, and Kotlin-preferred Android examples. Covers push notifications, in-app messages, mobile inbox, embedded messaging, deep linking, JWT authentication, event tracking, user profiles, and unknown user activation.",
+  "url": "https://context7.com/iterable/iterable-sdk-skill",
+  "public_key": "pk_JMMoVfKCtHoC5E3alGPcX",
   "folders": [
     "polished"
   ],

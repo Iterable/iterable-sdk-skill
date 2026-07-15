@@ -62,9 +62,11 @@ Iterable's curated library is published there; once it is, the skill fetches the
 latest docs live, with the snapshot as its fallback. No reinstall needed when
 that happens.
 
-> Context7 works without an API key at a lower rate limit. To raise it, get a
-> free key at [context7.com](https://context7.com) and set the `CONTEXT7_API_KEY`
-> environment variable — the bundled MCP config forwards it automatically.
+> Context7 works without an API key at a lower rate limit, which is how the
+> bundled config ships. To raise the limit, get a free key at
+> [context7.com](https://context7.com) and add it as a `CONTEXT7_API_KEY` header
+> on the `context7` MCP server, using your assistant's env-var syntax
+> (`${CONTEXT7_API_KEY}` in Claude Code, `${env:CONTEXT7_API_KEY}` in Cursor).
 
 ## What it covers
 
