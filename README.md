@@ -21,33 +21,22 @@ callback, and more).
 
 This installs the skill and wires up its documentation source in one step.
 
-**Cursor** — install it as a plugin, which wires up the skill **and** its
-documentation source (the Context7 MCP server) in one step. Cursor 3.9+ supports
-Agent Skills and plugins natively.
-
-Clone the repo and symlink it into Cursor's local-plugins folder, then restart
-Cursor (or reload the window):
+**Cursor** — requires [Cursor 3.9+](https://cursor.com). Symlink the skill
+directory into `~/.cursor/skills/` (not `~/.cursor/plugins/local/` — that
+path alone does not load the skill):
 
 ```bash
 git clone --depth 1 https://github.com/Iterable/iterable-sdk-skill.git ~/iterable-skills
-ln -s ~/iterable-skills ~/.cursor/plugins/local/iterable-sdk
+mkdir -p ~/.cursor/skills
+ln -sf ~/iterable-skills/iterable-android ~/.cursor/skills/iterable-android
 ```
 
-A Cursor team admin can instead publish it to the whole org via **Dashboard →
-Plugins → Add Marketplace → Import from Repo**, pointing at this repo.
+Reload Cursor (`Cmd+Shift+P` → **Developer: Reload Window**), then start a
+**new Agent chat**. Skills load at session start — an existing chat won't pick
+this up.
 
-> **Just the skill, no plugin?** Cursor 3.9+ auto-loads Agent Skills from
-> `~/.cursor/skills/` — symlink only the skill directory:
-> `ln -s ~/iterable-skills/iterable-android ~/.cursor/skills/iterable-android`.
-> This skips the doc source; to add it, paste this into your browser to install
-> the Context7 MCP server:
-> ```
-> cursor://anysphere.cursor-deeplink/mcp/install?name=context7&config=eyJ1cmwiOiJodHRwczovL21jcC5jb250ZXh0Ny5jb20vbWNwIn0=
-> ```
-
-Either way, the skill activates automatically whenever you mention Iterable: it
-loads its always-on rules and `PITFALLS.md`, then pulls the documentation for
-whatever feature you're working on (see [How it works](#how-it-works)).
+Once loaded, the skill activates whenever you work on Iterable Android SDK
+tasks (see [How it works](#how-it-works)).
 
 ## How it works
 
