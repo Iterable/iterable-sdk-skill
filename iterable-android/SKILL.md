@@ -281,7 +281,8 @@ override fun onCreate() {
 ```
 
 The full per-feature docs (push, in-app, inbox, embedded, deep links, events,
-profiles, UUA) are in the snapshot — see the routing table below.
+profiles, UUA) come from Context7, with the local snapshot as offline fallback —
+see the routing table below.
 
 ---
 
@@ -292,28 +293,26 @@ Task-specific guidance (push, in-app, inbox, embedded, JWT, deep links,
 event tracking, user profiles, UUA, initialization) lives in a polished
 corpus.
 
-### Source today: the local snapshot (authoritative)
+### Source today: Context7 (authoritative)
 
-**Read task docs from [`snapshot/`](snapshot/).** It's a byte-for-byte mirror
-of the polished corpus at last release, kept honest by CI (`pnpm
-snapshot:verify`). Match the task to a slug (table below) and open
-`snapshot/<slug>.md`. This is the canonical source right now — don't try
-Context7 first.
+**Fetch task docs from Context7.** Iterable's curated library is published and
+live: the ID is in [`.context7-library-id`](.context7-library-id) (first
+non-comment line — currently `/iterable/iterable-sdk-skill`). The Context7 MCP
+server is connected (the plugin bundles it). The flow: read the ID from that
+file, match the task to a slug (table below), fetch that one doc via the
+Context7 MCP `query-docs` tool (self-contained — one doc per task, don't
+bulk-load), use its snippets verbatim, and surface any `sdk_min_version`
+mismatch. You don't need `resolve-library-id` — the ID is known; pass it
+straight to `query-docs`.
 
-### Source later: Context7 *(curated library not published yet — do not fetch)*
+### Fallback: the local snapshot
 
-The Context7 MCP server **is** connected (the plugin bundles it), but Iterable's
-curated library is **not published there yet** — [`.context7-library-id`](.context7-library-id)
-is still the placeholder `TODO-PHASE-3/...`. So do **not** call Context7 for
-Iterable docs right now: a `resolve-library-id` / `query-docs` lookup would
-return some *unrelated public* library, not this skill's vetted corpus. The
-[`snapshot/`](snapshot/) is authoritative until the real ID lands.
-
-Once a real library ID is dropped into that file (first non-comment line; one
-that does **not** start with `TODO-`), the flow becomes: read the ID, fetch the
-matching slug via the Context7 MCP tool (self-contained — one doc per task,
-don't bulk-load), use its snippets verbatim, and surface any `sdk_min_version`
-mismatch.
+If Context7 is unreachable (offline, MCP not connected, rate-limited), read from
+[`snapshot/`](snapshot/) instead. It's a byte-for-byte mirror of the polished
+corpus at last release, kept honest by CI (`pnpm snapshot:verify`) — match the
+task to a slug and open `snapshot/<slug>.md`. The snapshot may lag Context7
+between releases, so prefer Context7 when it's available; the snapshot exists so
+the skill still works with no network.
 
 ### Slug routing
 
@@ -354,9 +353,9 @@ order.
 2. **Check rules 1–5 above** against whatever the user already has. Many
    "the SDK isn't working" reports are rule violations.
 3. **Read the matching slug for the task** before writing code, from whichever
-   source the "How to use this skill" section marks authoritative (the
-   `snapshot/` today). Each doc has its own gotchas section that supersedes
-   generic advice.
+   source the "How to use this skill" section marks authoritative (Context7,
+   with the `snapshot/` as offline fallback). Each doc has its own gotchas
+   section that supersedes generic advice.
 4. **For non-obvious traps not covered in the polished doc**, consult
    [`PITFALLS.md`](PITFALLS.md).
 5. **Version-check.** If the user is on an older SDK version than the doc's

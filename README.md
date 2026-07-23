@@ -40,16 +40,17 @@ tasks (see [How it works](#how-it-works)).
 
 ## How it works
 
-The skill carries a copy of the Iterable documentation inside it
-(`iterable-android/snapshot/`), so it always has the docs on hand — even offline.
-This snapshot is the active source today.
-
-The plugin (both Claude Code and Cursor) also connects to
+The skill fetches Iterable's documentation live from
 [Context7](https://context7.com), a service that hosts docs for AI assistants to
-query on demand. That connection is bundled and ready, but stays dormant until
-Iterable's curated library is published there; once it is, the skill fetches the
-latest docs live, with the snapshot as its fallback. No reinstall needed when
-that happens.
+query on demand. Iterable's curated library is published there
+([`/iterable/iterable-sdk-skill`](https://context7.com/iterable/iterable-sdk-skill)),
+and the plugin (both Claude Code and Cursor) bundles the connection to it, so the
+assistant always pulls the latest vetted snippets for whatever feature you're on.
+
+The skill also carries a byte-for-byte copy of that corpus inside it
+(`iterable-android/snapshot/`) as an offline fallback — if Context7 is
+unreachable, it reads from the snapshot instead, so the skill still works with no
+network.
 
 > Context7 works without an API key at a lower rate limit, which is how the
 > bundled config ships. To raise the limit, get a free key at
@@ -92,5 +93,3 @@ See [`REVIEW.md`](REVIEW.md).
 - **Android only.** iOS, React Native, and Web are not yet covered.
 - **Some docs carry foreign snippets.** A few articles come from shared "Mobile
   SDKs" pages and still contain iOS/JS code an Android agent must ignore.
-- **Context7 fetch is not live yet.** The skill works today from its bundled
-  snapshot; on-demand Context7 fetching turns on in an upcoming release.
