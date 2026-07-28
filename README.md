@@ -38,32 +38,45 @@ this up.
 Once loaded, the skill activates whenever you work on Iterable Android SDK
 tasks (see [How it works](#how-it-works)).
 
-**Codex** — Codex has no skill/plugin loader, so you wire it up in two parts:
-the docs source and the guidance.
+**Codex** — install the plugin from this repo's marketplace:
 
-1. Add the Context7 docs server to `~/.codex/config.toml`:
+```bash
+codex plugin marketplace add Iterable/iterable-sdk-skill
+codex plugin add iterable-sdk@iterable
+```
 
-   ```toml
-   [mcp_servers.context7]
-   url = "https://mcp.context7.com/mcp"
-   ```
+Then start a new Codex session. The plugin installs the `iterable-android`
+skill and exposes the bundled Context7 docs server. To verify:
 
-2. Point Codex at the skill's guidance from your project's `AGENTS.md` (Codex
-   reads it automatically). Clone the repo, then add a line like:
+```bash
+codex plugin list
+codex mcp list
+```
 
-   ```bash
-   git clone --depth 1 https://github.com/Iterable/iterable-sdk-skill.git ~/iterable-skills
-   ```
+`codex mcp list` should include `context7` at
+`https://mcp.context7.com/mcp`.
 
-   ```markdown
-   For Iterable Android SDK work, follow the guidance in
-   ~/iterable-skills/iterable-android/SKILL.md and its PITFALLS.md.
-   Use the `context7` MCP server (library `/iterable/iterable-sdk-skill`)
-   for the latest Iterable docs.
-   ```
+For local development on this repo, add the checkout as the marketplace source
+instead of GitHub:
 
-Codex then follows the skill's routing and pitfalls and queries Iterable's docs
-through Context7 (see [How it works](#how-it-works)), without a plugin install.
+```bash
+codex plugin marketplace add .
+codex plugin add iterable-sdk@iterable
+```
+
+If you only need the raw skill folder and do not want the plugin marketplace
+flow, symlink it directly into Codex's skills directory and add Context7
+yourself:
+
+```bash
+git clone --depth 1 https://github.com/Iterable/iterable-sdk-skill.git ~/iterable-skills
+mkdir -p ~/.codex/skills
+ln -sfn ~/iterable-skills/iterable-android ~/.codex/skills/iterable-android
+codex mcp add context7 --url https://mcp.context7.com/mcp
+```
+
+Start a new Codex session after the symlink; skills are loaded at session
+start.
 
 ## How it works
 
@@ -71,9 +84,9 @@ The skill carries a copy of the Iterable documentation inside it
 (`iterable-android/snapshot/`), so it always has the docs on hand — even offline.
 This snapshot is the active source today.
 
-The plugin (Claude Code and Cursor) — and the Codex config above — also connect
-to [Context7](https://context7.com), a service that hosts docs for AI assistants
-to query on demand. That connection is bundled and ready, but stays dormant until
+The plugin also connects Claude Code, Cursor, and Codex to
+[Context7](https://context7.com), a service that hosts docs for AI assistants to
+query on demand. That connection is bundled and ready, but stays dormant until
 Iterable's curated library is published there; once it is, the skill fetches the
 latest docs live, with the snapshot as its fallback. No reinstall needed when
 that happens.
