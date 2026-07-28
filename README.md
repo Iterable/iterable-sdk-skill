@@ -1,6 +1,6 @@
 # iterable-sdk-skill
 
-A skill that turns your AI coding assistant (Cursor, Claude Code) into a
+A skill that turns your AI coding assistant (Cursor, Claude Code, Codex) into a
 reliable guide for integrating the **Iterable Android SDK**. It's derived from
 Iterable's official documentation, so the code your assistant writes matches how
 the SDK actually works — not the model's stale guess at it.
@@ -38,13 +38,53 @@ this up.
 Once loaded, the skill activates whenever you work on Iterable Android SDK
 tasks (see [How it works](#how-it-works)).
 
+**Codex** — install the plugin from this repo's marketplace:
+
+```bash
+codex plugin marketplace add Iterable/iterable-sdk-skill
+codex plugin add iterable-sdk@iterable
+```
+
+Then start a new Codex session. The plugin installs the `iterable-android`
+skill and exposes the bundled Context7 docs server. To verify:
+
+```bash
+codex plugin list
+codex mcp list
+```
+
+`codex mcp list` should include `context7` at
+`https://mcp.context7.com/mcp`.
+
+For local development on this repo, add the checkout as the marketplace source
+instead of GitHub:
+
+```bash
+codex plugin marketplace add .
+codex plugin add iterable-sdk@iterable
+```
+
+If you only need the raw skill folder and do not want the plugin marketplace
+flow, symlink it directly into Codex's skills directory and add Context7
+yourself:
+
+```bash
+git clone --depth 1 https://github.com/Iterable/iterable-sdk-skill.git ~/iterable-skills
+mkdir -p ~/.codex/skills
+ln -sfn ~/iterable-skills/iterable-android ~/.codex/skills/iterable-android
+codex mcp add context7 --url https://mcp.context7.com/mcp
+```
+
+Start a new Codex session after the symlink; skills are loaded at session
+start.
+
 ## How it works
 
 The skill carries a copy of the Iterable documentation inside it
 (`iterable-android/snapshot/`), so it always has the docs on hand — even offline.
 This snapshot is the active source today.
 
-The plugin (both Claude Code and Cursor) also connects to
+The plugin also connects Claude Code, Cursor, and Codex to
 [Context7](https://context7.com), a service that hosts docs for AI assistants to
 query on demand. That connection is bundled and ready, but stays dormant until
 Iterable's curated library is published there; once it is, the skill fetches the
@@ -55,7 +95,8 @@ that happens.
 > bundled config ships. To raise the limit, get a free key at
 > [context7.com](https://context7.com) and add it as a `CONTEXT7_API_KEY` header
 > on the `context7` MCP server, using your assistant's env-var syntax
-> (`${CONTEXT7_API_KEY}` in Claude Code, `${env:CONTEXT7_API_KEY}` in Cursor).
+> (`${CONTEXT7_API_KEY}` in Claude Code, `${env:CONTEXT7_API_KEY}` in Cursor, or
+> `bearer_token_env_var = "CONTEXT7_API_KEY"` in Codex's `config.toml`).
 
 ## What it covers
 
