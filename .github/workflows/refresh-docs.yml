@@ -1,10 +1,13 @@
 name: Refresh docs
 
 # Triggered when Iterable/iterable-docs publishes a change to an SDK doc
-# path. The docs repo dispatches `iterable-docs-changed`; this workflow
-# pulls the fresh markdown, runs the deterministic transform, and opens a
-# PR. There is no LLM step — the corpus is the docs reshaped. A reviewer
-# refreshes the snapshot and merges.
+# path. The docs repo dispatches `iterable-docs-changed` (optionally with a
+# `client_payload.ref` = the docs commit); this workflow resolves that ref
+# (or the docs default-branch head on a manual run), fetches the fresh
+# markdown at that commit, runs the deterministic transform, bumps the
+# pinned `source.ref` in pipeline/config to match, and opens a PR. There is
+# no LLM step — the corpus is the docs reshaped. A reviewer refreshes the
+# snapshot and merges.
 #
 # `workflow_dispatch` is kept as a manual fallback for re-running a
 # refresh outside of a docs-side trigger (e.g. when validating a config
@@ -50,10 +53,32 @@ jobs:
         working-directory: pipeline
         run: pnpm install --frozen-lockfile
 
+      - name: Resolve source ref
+        id: ref
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The docs commit that triggered the dispatch, if any. Empty on a
+          # manual workflow_dispatch → we resolve the docs default branch head.
+          PAYLOAD_REF: ${{ github.event.client_payload.ref }}
+        run: |
+          set -euo pipefail
+          docs_repo="Iterable/iterable-docs"
+          req="${PAYLOAD_REF:-}"
+          if [[ -z "$req" ]]; then
+            req=$(gh api "repos/${docs_repo}" --jq '.default_branch')
+          fi
+          # Resolve whatever we have (branch name or sha) to a full commit sha,
+          # so the pin we write back is immutable and reproducible.
+          sha=$(gh api "repos/${docs_repo}/commits/${req}" --jq '.sha')
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+          echo "label=master @ $(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+          echo "Resolved ${req} → ${sha}"
+
       - name: Fetch sources (uses GITHUB_TOKEN for gh api)
         working-directory: pipeline
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_REF: ${{ steps.ref.outputs.sha }}
         run: pnpm fetch:sources -- ${{ github.event.inputs.platform || github.event.client_payload.platform || 'android' }}
 
       - name: Polish Layer A
@@ -74,6 +99,15 @@ jobs:
             | sort -u | paste -sd ', ' -)
           echo "slugs=${slugs}" >> "$GITHUB_OUTPUT"
 
+      - name: Bump pinned source ref
+        if: steps.changes.outputs.changed == 'true'
+        working-directory: pipeline
+        run: >-
+          pnpm set:source-ref --
+          ${{ github.event.inputs.platform || github.event.client_payload.platform || 'android' }}
+          ${{ steps.ref.outputs.sha }}
+          "${{ steps.ref.outputs.label }}"
+
       - name: Open refresh PR
         if: steps.changes.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v6
@@ -93,6 +127,8 @@ jobs:
             a deterministic transform of the docs.
 
             **Slugs touched:** ${{ steps.changes.outputs.slugs }}
+            **Docs commit:** `${{ steps.ref.outputs.sha }}`
+            (`source.ref` in `pipeline/config` is bumped to this in the diff).
 
             ## Reviewer steps
 
@@ -100,11 +136,13 @@ jobs:
             2. Spot-check the diff against `sources/` for content fidelity —
                the transform only strips boilerplate / normalizes structure,
                so headings and code should match the upstream docs.
-            3. Run `pnpm snapshot:refresh` and commit the resulting
+            3. Confirm the `source.ref` bump in `pipeline/config` matches the
+               docs commit above (provenance stays honest).
+            4. Run `pnpm snapshot:refresh` and commit the resulting
                `iterable-android/snapshot/` changes. CI's `snapshot:verify`
                gate will fail the build otherwise.
-            4. Confirm `pnpm check:all` is green locally.
-            5. Merge to `main`. Context7 picks up the change on its next
+            5. Confirm `pnpm check:all` is green locally.
+            6. Merge to `main`. Context7 picks up the change on its next
                crawl (`context7.json` controls scope).
           labels: |
             docs-refresh
