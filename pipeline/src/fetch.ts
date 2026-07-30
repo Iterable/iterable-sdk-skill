@@ -102,7 +102,9 @@ function resolveConfigPath(platformArg: string | undefined): string {
 }
 
 function main() {
-  const configPath = resolveConfigPath(process.argv[2]);
+  // pnpm may forward the `--` separator through to the script, so drop it.
+  const args = process.argv.slice(2).filter((a) => a !== "--");
+  const configPath = resolveConfigPath(args[0]);
   if (!existsSync(configPath)) {
     console.error(`Config not found: ${configPath}`);
     process.exit(1);
