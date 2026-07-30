@@ -56,7 +56,10 @@ jobs:
       - name: Resolve source ref
         id: ref
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # iterable-docs is a PRIVATE repo, so the built-in GITHUB_TOKEN (scoped
+          # to this repo only) 404s on it. DOCS_READ_TOKEN is a fine-grained PAT
+          # with Contents+Metadata read on Iterable/iterable-docs.
+          GH_TOKEN: ${{ secrets.DOCS_READ_TOKEN }}
           # The docs commit that triggered the dispatch, if any. Empty on a
           # manual workflow_dispatch → we resolve the docs default branch head.
           PAYLOAD_REF: ${{ github.event.client_payload.ref }}
@@ -74,10 +77,10 @@ jobs:
           echo "label=master @ $(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
           echo "Resolved ${req} → ${sha}"
 
-      - name: Fetch sources (uses GITHUB_TOKEN for gh api)
+      - name: Fetch sources (reads private iterable-docs via gh api)
         working-directory: pipeline
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.DOCS_READ_TOKEN }}
           SOURCE_REF: ${{ steps.ref.outputs.sha }}
         run: pnpm fetch:sources -- ${{ github.event.inputs.platform || github.event.client_payload.platform || 'android' }}
 
