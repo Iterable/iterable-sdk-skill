@@ -12,6 +12,12 @@
  * Usage:
  *   pnpm fetch:sources              # picks the single config in pipeline/config
  *   pnpm fetch:sources -- android   # explicit platform when several configs exist
+ *
+ * Ref override: set SOURCE_REF to fetch from a specific commit/branch instead
+ * of the config's pinned `source.ref`. The auto-refresh workflow passes the
+ * docs commit that triggered it (or `master`) so a dispatch actually pulls the
+ * new docs; `set-source-ref.ts` then writes the resolved SHA back into the
+ * config. Unset (local/manual runs) → the config pin is used, unchanged.
  */
 
 import { execFileSync } from "node:child_process";
@@ -106,9 +112,15 @@ function main() {
   const outDir = resolve(REPO_ROOT, config.paths.sources_dir);
   mkdirSync(outDir, { recursive: true });
 
-  const refDisplay = config.source.ref_label
-    ? `${config.source.ref.slice(0, 7)} (${config.source.ref_label})`
-    : config.source.ref.slice(0, 7);
+  // SOURCE_REF overrides the pinned config ref (see header). A branch name
+  // (e.g. "master") resolves to its head at fetch time via the contents API.
+  const refOverride = process.env.SOURCE_REF?.trim();
+  const sourceRef = refOverride || config.source.ref;
+  const refDisplay = refOverride
+    ? `${sourceRef} (SOURCE_REF override)`
+    : config.source.ref_label
+      ? `${config.source.ref.slice(0, 7)} (${config.source.ref_label})`
+      : config.source.ref.slice(0, 7);
   console.log(
     `Fetching ${config.articles.length} ${config.platform} articles from ${config.source.repo}@${refDisplay}`,
   );
@@ -119,7 +131,7 @@ function main() {
   for (const article of config.articles) {
     const outPath = resolve(outDir, `${article.slug}.md`);
     const previous = existingSourceSha(outPath);
-    const { sha, body } = fetchArticle(config.source.repo, config.source.ref, article.source_path);
+    const { sha, body } = fetchArticle(config.source.repo, sourceRef, article.source_path);
 
     if (previous === sha) {
       console.log(`  skip   ${article.slug}  (unchanged)`);
@@ -129,7 +141,9 @@ function main() {
     const stamped = stampedSource(body, {
       sourceRepo: config.source.repo,
       sourcePath: article.source_path,
-      sourceRef: config.source.ref,
+      // Record the resolved ref: when SOURCE_REF is a branch, the blob sha is
+      // per-file, so keep source_ref as what was requested for provenance.
+      sourceRef,
       sourceSha: sha,
     });
     writeFileSync(outPath, stamped, "utf8");

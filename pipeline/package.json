@@ -8,6 +8,7 @@
   },
   "scripts": {
     "fetch:sources": "tsx src/fetch.ts",
+    "set:source-ref": "tsx src/set-source-ref.ts",
     "polish:a": "tsx src/polish-layer-a.ts",
     "validate:polished": "tsx src/validate-polished.ts",
     "validate:plugins": "tsx src/validate-plugins.ts",
