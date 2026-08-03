@@ -11,7 +11,7 @@ source_path: docs/developer-and-api-docs/in-app-messages/setting-up-mobile-inbox
 source_ref: 59c40504c91bc0b13751c5ef5f348810eb0fd4f2
 source_sha: 9b54bece973b76efd0e1eaec0494b0e9d2c2af7c
 fetched_at: 2026-08-03T20:41:29.000Z
-polished_at: 2026-08-03T20:42:14.566Z
+polished_at: 2026-08-03T23:37:53.298Z
 layer: a
 snippets: []
 summary: Apps using version 3.2.0 and later of Iterable's [Android

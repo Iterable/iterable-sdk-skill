@@ -11,7 +11,7 @@ source_path: docs/developer-and-api-docs/deep-links/android-app-links/index.md
 source_ref: 16ae7f4a908f84d6eb15fe6f5390f07cc5afe20d
 source_sha: 3c933bbc8661bddfeaa8914f3dbb8233d98469c6
 fetched_at: 2026-05-25T15:11:45.366Z
-polished_at: 2026-08-03T20:42:14.571Z
+polished_at: 2026-08-03T23:37:53.311Z
 layer: a
 snippets:
   - index: 0

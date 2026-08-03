@@ -11,7 +11,7 @@ source_path: docs/developer-and-api-docs/iterables-ios-and-android-sdks/android-
 source_ref: 59c40504c91bc0b13751c5ef5f348810eb0fd4f2
 source_sha: de67a132360a33146dae801ab62c3de1d6846ba9
 fetched_at: 2026-08-03T20:41:28.018Z
-polished_at: 2026-08-03T20:42:14.561Z
+polished_at: 2026-08-03T23:37:53.287Z
 layer: a
 snippets:
   - index: 0

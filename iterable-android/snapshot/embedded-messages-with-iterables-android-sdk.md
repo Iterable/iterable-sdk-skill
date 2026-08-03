@@ -11,7 +11,7 @@ source_path: docs/developer-and-api-docs/embedded-messaging/embedded-messages-wi
 source_ref: 59c40504c91bc0b13751c5ef5f348810eb0fd4f2
 source_sha: 576150056520b366d5190411e9f28198e70bbeaf
 fetched_at: 2026-08-03T20:41:31.068Z
-polished_at: 2026-08-03T20:42:14.570Z
+polished_at: 2026-08-03T23:37:53.308Z
 layer: a
 snippets:
   - index: 0

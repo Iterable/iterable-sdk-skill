@@ -11,7 +11,7 @@ source_path: docs/developer-and-api-docs/in-app-messages/in-app-messages-on-andr
 source_ref: 59c40504c91bc0b13751c5ef5f348810eb0fd4f2
 source_sha: 65412ae773eaca59531243ff4775fd4457b5b608
 fetched_at: 2026-08-03T20:41:28.539Z
-polished_at: 2026-08-03T20:42:14.565Z
+polished_at: 2026-08-03T23:37:53.296Z
 layer: a
 snippets:
   - index: 0

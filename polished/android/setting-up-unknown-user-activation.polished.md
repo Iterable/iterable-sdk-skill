@@ -11,7 +11,7 @@ source_path: docs/developer-and-api-docs/unknown-user-activation-dev/setting-up-
 source_ref: 16ae7f4a908f84d6eb15fe6f5390f07cc5afe20d
 source_sha: 45d0ae07bce89a4a4156c3b5e46f6bd4136d41b2
 fetched_at: 2026-05-25T15:11:49.365Z
-polished_at: 2026-08-03T20:42:14.575Z
+polished_at: 2026-08-03T23:37:53.321Z
 layer: a
 snippets: []
 summary: Unknown User Activation makes it possible to learn about, message, and

@@ -11,7 +11,7 @@ source_path: docs/developer-and-api-docs/in-app-messages/customizing-mobile-inbo
 source_ref: 59c40504c91bc0b13751c5ef5f348810eb0fd4f2
 source_sha: e156e9f1bf13e4b41507a53dc10093422c8aefac
 fetched_at: 2026-08-03T20:41:29.489Z
-polished_at: 2026-08-03T20:42:14.567Z
+polished_at: 2026-08-03T23:37:53.300Z
 layer: a
 snippets:
   - index: 0
