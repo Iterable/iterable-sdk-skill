@@ -27,7 +27,8 @@ const CONFIG_DIR = resolve(REPO_ROOT, "pipeline/config");
 const SHA_RE = /^[0-9a-f]{40}$/;
 
 function main(): void {
-  const [platform, sha, label] = process.argv.slice(2);
+  // pnpm may forward the `--` separator through to the script, so drop it.
+  const [platform, sha, label] = process.argv.slice(2).filter((a) => a !== "--");
   if (!platform || !sha) {
     console.error("Usage: set-source-ref.ts <platform> <sha> [label]");
     process.exit(1);

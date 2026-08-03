@@ -11,7 +11,7 @@ source_path: docs/developer-and-api-docs/event-tracking/tracking-events-with-ite
 source_ref: 16ae7f4a908f84d6eb15fe6f5390f07cc5afe20d
 source_sha: 0dbb170bfbd574bf405b33990d2c288ad8dcd153
 fetched_at: 2026-05-25T15:11:48.241Z
-polished_at: 2026-06-05T13:59:18.319Z
+polished_at: 2026-08-03T20:42:14.574Z
 layer: a
 snippets:
   - index: 0

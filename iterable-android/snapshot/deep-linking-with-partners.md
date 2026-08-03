@@ -11,7 +11,7 @@ source_path: docs/developer-and-api-docs/deep-links/deep-linking-with-partners/i
 source_ref: 16ae7f4a908f84d6eb15fe6f5390f07cc5afe20d
 source_sha: 7473a924f2b7eac5a08f7ec66c3fbf60d07089e4
 fetched_at: 2026-05-25T15:11:46.035Z
-polished_at: 2026-06-05T13:59:18.317Z
+polished_at: 2026-08-03T20:42:14.572Z
 layer: a
 snippets: []
 summary: "Iterable supports deep linking without any third-party

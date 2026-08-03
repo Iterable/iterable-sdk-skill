@@ -111,6 +111,13 @@ jobs:
           ${{ steps.ref.outputs.sha }}
           "${{ steps.ref.outputs.label }}"
 
+      - name: Refresh snapshot
+        if: steps.changes.outputs.changed == 'true'
+        working-directory: pipeline
+        # polish:a wrote the fresh corpus to polished/; the snapshot must be
+        # regenerated from it or the PR fails its own snapshot:verify gate.
+        run: pnpm snapshot:refresh
+
       - name: Open refresh PR
         if: steps.changes.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v6

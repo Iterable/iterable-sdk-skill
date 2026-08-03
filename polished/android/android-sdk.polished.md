@@ -8,10 +8,10 @@ title: Iterable's Android SDK
 source_url: https://support.iterable.com/hc/articles/360035019712
 source_repo: Iterable/iterable-docs
 source_path: docs/developer-and-api-docs/iterables-ios-and-android-sdks/android-sdk/index.md
-source_ref: 16ae7f4a908f84d6eb15fe6f5390f07cc5afe20d
-source_sha: c0ebe8b736d334190bc4fcae820fa386642aa40d
-fetched_at: 2026-05-25T15:11:39.936Z
-polished_at: 2026-06-05T13:59:18.308Z
+source_ref: 59c40504c91bc0b13751c5ef5f348810eb0fd4f2
+source_sha: de67a132360a33146dae801ab62c3de1d6846ba9
+fetched_at: 2026-08-03T20:41:28.018Z
+polished_at: 2026-08-03T20:42:14.561Z
 layer: a
 snippets:
   - index: 0
@@ -92,13 +92,45 @@ snippets:
     line_count: 12
   - index: 19
     lang: java
+    hash: e79d0e004450
+    line_count: 4
+  - index: 20
+    lang: java
+    hash: acfa8af81cce
+    line_count: 5
+  - index: 21
+    lang: kotlin
+    hash: 18b42ba68e56
+    line_count: 5
+  - index: 22
+    lang: java
+    hash: a16ba32ab078
+    line_count: 3
+  - index: 23
+    lang: java
+    hash: 6f27d743e5d6
+    line_count: 1
+  - index: 24
+    lang: java
+    hash: eaacdddcb017
+    line_count: 1
+  - index: 25
+    lang: java
+    hash: 6b21444c769f
+    line_count: 5
+  - index: 26
+    lang: java
+    hash: 2f3eb2cbfb4e
+    line_count: 5
+  - index: 27
+    lang: java
     hash: 1ee664bef567
     line_count: 5
-  - index: 20
+  - index: 28
     lang: java
     hash: 9edce984f563
     line_count: 4
-  - index: 21
+  - index: 29
     lang: groovy
     hash: 744057b87f30
     line_count: 8
@@ -117,7 +149,7 @@ higher.
 ## Encrypted data
 
 Depending on your `minSdkVersion`, Iterable's Android SDK can encrypt some
-data at rest. For more information, read [Upgrading to 3.4.10+](#upgrading-to-3-4-10).
+data at rest. For more information, read [Upgrading to 3.4.10](#upgrading-to-3-4-10).
 
 ## Installing the SDK
 
@@ -125,7 +157,7 @@ Follow these steps to install Iterable's Android SDK. If you're upgrading from
 a previous version, see [Upgrading the SDK](#upgrading-the-sdk).
 
 > [!WARNING]
-> If your app targets API level 22 or lower, read [Upgrading to 3.4.10+](#upgrading-to-3-4-10)
+> If your app targets API level 22 or lower, read [Upgrading to 3.4.10](#upgrading-to-3-4-10)
 > to learn about some adjustments you'll need to make to your Android project.
 
 ### Step 1: Define a mobile app and push integration in Iterable
@@ -309,7 +341,7 @@ IterableConfig config = new IterableConfig.Builder()
 IterableApi.initialize(context, "<YOUR_API_KEY>", config);
 ```
 
-For more information about this option, read [Upgrading to 3.4.10+](#upgrading-to-3-4-10).
+For more information about this option, read [Upgrading to 3.4.10](#upgrading-to-3-4-10).
 
 #### Step 5.5: Specify a push integration name, if necessary 
 
@@ -504,10 +536,13 @@ as configured by your `RetryPolicy`, it stops attempting to refresh the JWT toke
 >
 > In addition to the `RetryPolicy` above (which controls JWT refresh scheduling),
 > the SDK supports automatic retry for offline-queued tasks that fail due to JWT
-> expiration. When enabled via remote configuration, the offline task runner
-> pauses authenticated tasks on a 401 error, refreshes the JWT, and retries
+> expiration. When this feature is enabled, the offline task runner pauses
+> authenticated tasks on a 401 error, refreshes the JWT, and retries
 > automatically. Unauthenticated API calls continue processing while
 > authentication is paused. This feature requires no code changes.
+>
+> This feature is not enabled by default. To turn it on for your project, ask
+> your Iterable customer success manager to enable it for your account.
 
 It's also possible to _manually_ pause JWT token refresh attempts. To do this,
 call:
@@ -657,7 +692,354 @@ To learn how to use Iterable's Android SDK with Embedded Messaging, read
 This section describes how to upgrade from earlier versions of Iterable's
 Android SDK.
 
-### Upgrading to 3.5.12+
+### Upgrading to 3.10.0
+
+[Version 3.10.0](https://github.com/Iterable/iterable-android-sdk/releases/tag/3.10.0)
+of Iterable's Android SDK makes manager getters fail gracefully before
+initialization, and adds a `DEFER` response for in-app handlers, a
+`resumeInAppDisplay()` method, and unknown user criteria fetch callbacks.
+**No action is required to upgrade**—all of these changes are backward
+compatible.
+
+#### Manager getters no longer crash before initialization
+
+In earlier versions, calling `getInAppManager()` or `getEmbeddedManager()`
+before `IterableApi.initialize()` threw a `RuntimeException`, which could crash
+the host app. Starting with version 3.10.0, these methods log an error and
+return a no-op manager instead—it returns empty results and ignores commands, so
+a call-ordering mistake no longer crashes your app.
+
+If you need to detect whether the SDK is initialized before using a manager, use
+the new `getInAppManagerOrNull()` and `getEmbeddedManagerOrNull()` methods, which
+return `null` (rather than a no-op manager) when the SDK isn't initialized yet.
+
+```java
+IterableInAppManager inAppManager = IterableApi.getInstance().getInAppManagerOrNull();
+if (inAppManager != null) {
+    // Safe to use; the SDK is initialized.
+}
+```
+
+As always, initialize the SDK in the `onCreate` method of your `Application`
+class before calling other SDK methods.
+
+#### New: `DEFER` response and `resumeInAppDisplay()` for in-app messages
+
+`IterableInAppHandler.InAppResponse` now includes a `DEFER` value. Unlike `SKIP`
+(which permanently drops a message), `DEFER` keeps the message pending so the
+SDK reconsiders it later—useful for temporary suppression, such as while a
+splash screen is showing. To re-check pending messages on demand once your app
+is ready, call the new `IterableInAppManager.resumeInAppDisplay()` method. For
+more information, read [In-App Messages on Android](https://support.iterable.com/hc/articles/360035537231).
+
+#### New: unknown user criteria fetch callbacks
+
+`IterableUnknownUserHandler` now reports the results of unknown user criteria
+fetches through two optional methods: `onCriteriaReceived(JSONObject criteria)`
+on success and `onCriteriaFetchFailed(String reason)` on failure. Both have
+default, no-op implementations, so existing handlers are unaffected.
+
+For more information, read [In-App Messages on Android](https://support.iterable.com/hc/articles/360035537231)
+and [Configure the Android SDK](https://support.iterable.com/hc/articles/40078934178836)
+in the Unknown User Activation documentation.
+
+### Upgrading to 3.9.0
+
+[Version 3.9.0](https://github.com/Iterable/iterable-android-sdk/releases/tag/3.9.0)
+of Iterable's Android SDK adds in-app message support for Jetpack Compose apps,
+a new opt-in toolbar for the mobile inbox, and additional context for push-open
+tracking. **No action is required to upgrade**—all of these changes are
+backward compatible.
+
+#### In-app messages in Jetpack Compose apps
+
+The SDK can now render in-app messages using a new `Dialog`-based renderer
+(`IterableInAppDialogNotification`) that doesn't require a `FragmentActivity`.
+Apps that host in-app messages in a `FragmentActivity` continue to use the
+existing `Fragment`-based rendering; apps that don't (such as those built fully
+with Jetpack Compose, using a `ComponentActivity`) automatically fall back to
+the `Dialog`-based renderer. As a result, in-app messages now display correctly
+in apps built fully with Jetpack Compose, with no additional setup.
+
+#### New: `IterableInboxToolbarView` for the mobile inbox
+
+If you use Iterable's [Mobile Inbox](https://support.iterable.com/hc/articles/360038744152),
+you can now add an optional toolbar above the inbox list using the new
+`IterableInboxToolbarView`. Configure it with the `InboxToolbarOption` sealed
+interface:
+
+- `None` (default) — No toolbar. The inbox behaves exactly as it did in
+  previous SDK versions.
+- `Default` — A title-only toolbar above the inbox list.
+- `WithBackButton` — A title plus a back-navigation icon. By default, the back
+  action calls `OnBackPressedDispatcher`. To override it, have your host
+  `Activity` or parent `Fragment` implement `IterableInboxToolbarBackListener`.
+- `Custom(layoutRes)` — Inflates your own toolbar layout. Views tagged with the
+  reserved IDs `@id/iterable_reserved_inbox_toolbar_action` and
+  `@id/iterable_reserved_inbox_toolbar_title` are automatically wired to the
+  SDK's back handler and title binding, respectively (both are optional).
+
+Configure the toolbar programmatically with `IterableInboxFragment.newInstance(...)`
+(using the new two- or six-argument overloads), or with `IterableInboxActivity`
+intent extras (`TOOLBAR_OPTION` and `TOOLBAR_TITLE`).
+
+> [!WARNING]
+> When the toolbar is enabled, the host activity must use a `Theme.AppCompat`
+> descendant.
+
+For more information about customizing the inbox, see
+[Customizing Mobile Inbox on Android](https://support.iterable.com/hc/articles/360039189931).
+
+#### New: `appAlreadyRunning` field on `trackPushOpen`
+
+`trackPushOpen` now includes an `appAlreadyRunning` field that indicates whether
+the app was already running when the push notification was received. A new
+`trackPushOpen(int, int, String, boolean, JSONObject)` overload lets you pass
+this value; existing overloads default it to `false`, so no changes are required
+for existing code.
+
+#### Fix: `TransactionTooLargeException` crash for large in-app messages
+
+This release also fixes a `TransactionTooLargeException` crash that could occur
+when displaying in-app messages with oversized HTML payloads. The HTML is no
+longer serialized into the fragment's saved instance state—it's reloaded from
+storage when the fragment is recreated. In-app messages with missing HTML now
+dismiss gracefully without registering tracking events, and a warning is logged
+for HTML payloads that exceed the recommended size.
+
+For more information, read [In-App Messages on Android](https://support.iterable.com/hc/articles/360035537231)
+and [Customizing Mobile Inbox on Android](https://support.iterable.com/hc/articles/360039189931).
+
+### Upgrading to 3.8.0
+
+[Version 3.8.0](https://github.com/Iterable/iterable-android-sdk/releases/tag/3.8.0)
+of Iterable's Android SDK introduces a new configuration option for controlling
+how in-app messages interact with system bars, plus refinements to embedded
+message views and a security cleanup. **No action is required for most apps**—upgrading 
+preserves the existing in-app message behavior introduced in 3.6.1.
+
+#### New: `IterableInAppDisplayMode` for in-app messages
+
+Since 3.6.1, Iterable's Android SDK has always rendered in-app messages
+edge-to-edge, behind the status bar and navigation bar. Starting with 3.8.0,
+you can change that behavior globally by setting an `IterableInAppDisplayMode`
+on `IterableConfig`:
+
+```java
+IterableConfig config = new IterableConfig.Builder()
+    .setInAppDisplayMode(IterableInAppDisplayMode.FORCE_RESPECT_BOUNDS)
+    .build();
+
+IterableApi.initialize(context, apiKey, config);
+```
+
+The available modes are:
+
+- `FORCE_EDGE_TO_EDGE` (default) — Draws in-app content behind the system
+  bars, with transparent status and navigation bars. Preserves the behavior
+  introduced in SDK 3.6.1.
+- `FOLLOW_APP_LAYOUT` — Matches the host app's current system bar
+  configuration.
+- `FORCE_FULLSCREEN` — Hides the status bar entirely while in-app messages
+  are displayed.
+- `FORCE_RESPECT_BOUNDS` — Ensures in-app content never overlaps system bars,
+  keeping UI elements like the close button always accessible.
+
+If the close button on your fullscreen in-app messages is being obscured by
+the status bar on certain devices, switch to `FOLLOW_APP_LAYOUT` or
+`FORCE_RESPECT_BOUNDS`. For more information, see [Configuring how in-app messages interact with system bars](https://support.iterable.com/hc/articles/360035537231#configuring-how-in-app-messages-interact-with-system-bars-sdk-v3-8-0-and-above)
+in the In-App Messages on Android documentation.
+
+#### Other changes in 3.8.0
+
+- **`imageScaleType` option for embedded message views**: `IterableEmbeddedViewConfig`
+  exposes a new `imageScaleType` property that controls how the image is
+  scaled within the 16:9 container of an out-of-the-box embedded message view.
+
+- **Default values for `IterableEmbeddedViewConfig` parameters**: All
+  `IterableEmbeddedViewConfig` constructor parameters now have default values,
+  so you only need to specify the styling options you want to customize.
+  Existing calls that pass every parameter continue to work unchanged.
+
+- **Embedded message card layout fixes**: Out-of-the-box embedded message
+  views render correctly again on cards. The image now displays at a 16:9
+  aspect ratio instead of collapsing to zero height, the card container no
+  longer expands to fill its parent, the missing end margin on the card is
+  applied, bottom spacing on buttons is no longer cut off, and the image is
+  properly clipped to the card's rounded corners.
+
+- **Removed insecure `AES/CBC/PKCS5Padding` encryption**: `IterableDataEncryptor`
+  now exclusively uses `AES/GCM/NoPadding`. The legacy CBC algorithm was only
+  used on Android versions below KitKat (API 19), which have been unsupported
+  since `minSdkVersion` was raised to 21 in SDK 3.5.12. No data migration is
+  required.
+
+### Upgrading to 3.7.0
+
+[Version 3.7.0](https://github.com/Iterable/iterable-android-sdk/releases/tag/3.7.0)
+introduces two opt-in improvements: an automatic JWT-refresh-and-retry flow for the 
+offline event queue, and new callbacks for tracking embedded message sync results.
+No application code changes are required to upgrade—both improvements are opt-in.
+
+#### Opt-in: Auto-retry for JWT failures in offline event processing
+
+When offline event processing is enabled and a queued API call returns a 401
+JWT error, the SDK can now automatically:
+
+1. Pause processing of authenticated tasks in the offline queue.
+2. Refresh the JWT via your registered `IterableAuthHandler`.
+3. Retry the failed task with the new token.
+
+Unauthenticated endpoints (such as `disableDevice`, `mergeUser`, and
+`trackConsent`) continue to be processed while authentication is paused, so
+unrelated traffic isn't blocked behind a stale token.
+
+This behavior is disabled by default for existing customers. To enable it for your 
+project, talk to your Iterable customer success manager. No application code 
+changes are required once the flag is enabled—the SDK starts using the new behavior 
+automatically.
+
+#### Opt-in: Embedded messaging sync callbacks
+
+`IterableEmbeddedUpdateHandler` now exposes two optional callbacks—
+`onEmbeddedMessagingSyncSucceeded()` and `onEmbeddedMessagingSyncFailed(reason)`—
+that let your app react to embedded message syncs. Use them to stop a loading
+spinner on success or to show fallback content on failure. Both methods have
+default empty implementations, so existing code keeps working unchanged.
+
+For more information, read [Embedded Messages with Iterable's Android SDK](https://support.iterable.com/hc/articles/23061877893652#step-8-set-up-sdk-listeners).
+
+### Upgrading to 3.6.6
+
+[Version 3.6.6](https://github.com/Iterable/iterable-android-sdk/releases/tag/3.6.6)
+of Iterable's Android SDK is a maintenance release. No action is required to
+upgrade.
+
+### Upgrading to 3.6.5
+
+Starting with [version 3.6.5](https://github.com/Iterable/iterable-android-sdk/releases/tag/3.6.5),
+the `IterableEmbeddedView` constructor is **deprecated** because it violates 
+Android Fragment best practices: the system can't recreate the fragment after 
+configuration changes or process death, which can cause crashes.
+
+Use the `newInstance` factory method instead:
+
+```kotlin
+// Deprecated:
+val messageView = IterableEmbeddedView(ootbType, message, config)
+
+// Use this instead:
+val messageView = IterableEmbeddedView.newInstance(ootbType, message, config)
+```
+
+The old constructor still works, but it's marked as deprecated and will be
+removed in a future SDK release. Update your application code now to avoid a
+breaking change later.
+
+For more information, read [Embedded Messages with Iterable's Android SDK](https://support.iterable.com/hc/articles/23061877893652).
+
+### Upgrading to 3.6.4
+
+[Version 3.6.4](https://github.com/Iterable/iterable-android-sdk/releases/tag/3.6.4)
+makes the `isIterableDeeplink` method public so you can now check whether a URL is 
+an Iterable deep link before handling it. The method returns `true` when the URL 
+matches the Iterable deep link pattern (URLs containing `/a/` in the path).
+
+`isIterableDeeplink` is a **static** method on `IterableApi`:
+
+```java
+if (IterableApi.isIterableDeeplink(urlString)) {
+    // URL is an Iterable deep link
+}
+```
+
+For more information about deep links in Iterable, read [Android App Links](https://support.iterable.com/hc/articles/360035127392).
+
+### Upgrading to 3.6.3
+
+[Version 3.6.3](https://github.com/Iterable/iterable-android-sdk/releases/tag/3.6.3)
+of Iterable's Android SDK is a maintenance release. No action is required to
+upgrade.
+
+### Upgrading to 3.6.2
+
+[Version 3.6.2](https://github.com/Iterable/iterable-android-sdk/releases/tag/3.6.2)
+adds three opt-in capabilities. No action is required to upgrade.
+
+- **Background initialization to prevent ANRs**: To run SDK initialization on
+  a background thread (with API calls automatically queued until ready), call
+  the new `IterableApi.initializeInBackground()` static method instead of
+  `IterableApi.initialize()`:
+
+  ```java
+  IterableApi.initializeInBackground(context, apiKey, config, callback);
+  ```
+
+  Use this if running initialization on the main thread is contributing to
+  Application Not Responding (ANR) errors during app startup. The optional
+  `callback` (an `IterableInitializationCallback`) is invoked when
+  initialization completes.
+
+- **`onSDKInitialized()` callback**: A new static method on `IterableApi` lets
+  you subscribe a callback to be notified when initialization completes. Use
+  it when you need to defer SDK-dependent work from multiple call sites—for
+  example, posting the first event only after the SDK is fully ready.
+
+  ```java
+  IterableApi.onSDKInitialized(callback);
+  ```
+
+- **`setWebViewBaseUrl()` configuration option**: A new `IterableConfig.Builder`
+  method that sets the base URL used by WebView-based messages (in-app
+  messages, inbox, and embedded messages). Set it when you self-host custom
+  fonts or other external resources that require CORS to load successfully in
+  a WebView:
+
+  ```java
+  IterableConfig config = new IterableConfig.Builder()
+      .setWebViewBaseUrl("https://your-cdn.example.com")
+      .build();
+
+  IterableApi.initialize(context, apiKey, config);
+  ```
+
+  If not set, the base URL defaults to an empty string (the original behavior).
+
+### Upgrading to 3.6.1
+
+Starting with [version 3.6.1](https://github.com/Iterable/iterable-android-sdk/releases/tag/3.6.1),
+in-app messages render edge-to-edge so they display properly on devices with notches, 
+cutouts, and system bars.
+
+By default, the SDK applies white insets to fill the area behind the system
+bars. In dark-themed apps, that white can contrast sharply with your in-app
+message content.
+
+If your app uses a dark theme, consider updating the [background overlay](https://support.iterable.com/hc/articles/360044425951#background-overlay)
+on your in-app templates to a color that complements your app, and test
+existing templates before publishing.
+
+### Upgrading to 3.6.0
+
+To enable Unknown User Activation, upgrade to [version 3.6.0](https://github.com/Iterable/iterable-android-sdk/releases/tag/3.6.0)
+of Iterable's Android SDK and call `setEnableUnknownUserActivation(true)` on
+`IterableConfig.Builder` before initializing the SDK. These code changes are
+only required if you want to use Unknown User Activation; otherwise, no
+changes are required.
+
+```java
+IterableConfig config = new IterableConfig.Builder()
+    .setEnableUnknownUserActivation(true)
+    .build();
+
+IterableApi.initialize(context, "<YOUR_API_KEY>", config);
+```
+
+The SDK also captures user consent on your behalf when this feature is enabled. For full
+setup instructions, read [Configure the Android SDK](https://support.iterable.com/hc/articles/40078934178836)
+in the Unknown User Activation documentation.
+
+### Upgrading to 3.5.12
 
 - **Supported Android versions**: Beginning with [version 3.5.12](https://github.com/Iterable/iterable-android-sdk/releases/tag/3.5.12),
   Iterable's Android SDK supports Android versions 5.0 (API level 21) and 
@@ -675,7 +1057,7 @@ Android SDK.
   IterableApi.initialize(context, apiKey, config);
   ```
 
-### Upgrading to 3.5.3+
+### Upgrading to 3.5.3
 
 Starting with [version 3.5.3](https://github.com/Iterable/iterable-android-sdk/releases/tag/3.5.3), 
 Iterable's Android SDK provides more insight into JWT refresh failures, to help 
@@ -691,9 +1073,9 @@ If you've implemented that method, you'll need to update your application code.
 
 For more information, see [Step 5.6.1: Register an auth handler](#step-5-6-1-register-an-auth-handler).
 
-### Upgrading to 3.5.2+
+### Upgrading to 3.5.2
 
-When upgrading to [version 3.5.2+](https://github.com/Iterable/iterable-android-sdk/releases/tag/3.5.2)
+When upgrading to [version 3.5.2](https://github.com/Iterable/iterable-android-sdk/releases/tag/3.5.2)
 of the SDK, you can make use of the `setAuthRetryPolicy` method on `IterableConfig` 
 to specify:
 
@@ -702,7 +1084,7 @@ to specify:
 - The interval between each retry attempt. Defaults to 6 seconds.
 - A backoff strategy: linear or exponential. Defaults to linear.
 
-### Upgrading to 3.4.10+
+### Upgrading to 3.4.10
 
 In Android apps with `minSdkVersion` 23 or higher ([Android 6.0](https://developer.android.com/studio/releases/platforms#6.0))
 Iterable's Android SDK now encrypts the following fields when storing them at
@@ -753,9 +1135,9 @@ encrypt data):
    - Add `multiDexEnabled true` to the `default` object, under `android`.
    - Add `implementation androidx.multidex:multidex:2.0.1` to the `dependencies`.
 
-### Upgrading to 3.4.0+
+### Upgrading to 3.4.0
 
-- Starting with version [`3.4.0`](https://github.com/Iterable/iterable-android-sdk/releases/tag/3.4.0) 
+- Starting with version [3.4.0](https://github.com/Iterable/iterable-android-sdk/releases/tag/3.4.0) 
   of Iterable's Android SDK, you'll need to declare the URL protocols that
   the SDK should expect to see on incoming links (and then handle as needed). For 
   more information, read about [Step 5.3: Set allowed URL protocols](#step-5-3-set-allowed-url-protocols), 
@@ -766,7 +1148,7 @@ encrypt data):
   need to first grab an instance of the `IterableApi` class by calling 
   `IterableApi.getInstance()`.  For example, `IterableApi.getInstance().handleAppLink(...)`.
 
-### Upgrading to 3.3.1+ 
+### Upgrading to 3.3.1
 
 To resolve a breaking change introduced in Firebase Cloud Messaging 
 [version 22.0.0](https://firebase.google.com/support/release-notes/android#messaging_v22-0-0), 
@@ -788,9 +1170,9 @@ android {
 }
 ```
 
-### Upgrading to 3.2.0+
+### Upgrading to 3.2.0
 
-[Versions 3.2.0+ of the SDK](https://github.com/Iterable/iterable-android-sdk/releases/tag/3.2.0) 
+[Versions 3.2.0 and higher](https://github.com/Iterable/iterable-android-sdk/releases/tag/3.2.0) 
 depend on the [AndroidX](https://developer.android.com/jetpack/androidx) support 
 libraries. To use these versions, you'll need to [migrate your app to use AndroidX](https://developer.android.com/jetpack/androidx/migrate).
 

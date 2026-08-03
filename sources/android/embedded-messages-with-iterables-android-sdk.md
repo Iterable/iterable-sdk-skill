@@ -4,9 +4,9 @@ title: Embedded Messages with Iterable's Android SDK
 useInNovaDocs: true
 source_repo: Iterable/iterable-docs
 source_path: docs/developer-and-api-docs/embedded-messaging/embedded-messages-with-iterables-android-sdk/index.md
-source_ref: 16ae7f4a908f84d6eb15fe6f5390f07cc5afe20d
-source_sha: 6a6d6b5baf76973d611fb7f17785d3b04feeace0
-fetched_at: 2026-05-25T15:11:44.823Z
+source_ref: 59c40504c91bc0b13751c5ef5f348810eb0fd4f2
+source_sha: 576150056520b366d5190411e9f28198e70bbeaf
+fetched_at: 2026-08-03T20:41:31.068Z
 ---
 # Embedded Messages with Iterable's Android SDK
 
@@ -457,18 +457,44 @@ to declare the styles you'd like the view to use:
 ```kotlin
 // Grab your app's colors from wherever it makes sense.
 val config = IterableEmbeddedViewConfig(
-    backgroundColor: Color.parseColor("#FFFFFF"), 
-    borderColor: Color.parseColor("#000000"),
-    borderWidth: 1,
-    borderCornerRadius: 8f,
-    primaryBtnBackgroundColor: Color.parseColor("#0000FF"), 
-    primaryBtnTextColor: Color.parseColor("#FFFFFF"), 
-    secondaryBtnBackgroundColor: Color.parseColor("#FFFFFF"), 
-    secondaryBtnTextColor: Color.parseColor("#000000"), 
-    titleTextColor: Color.parseColor("#000000"), 
-    bodyTextColor: Color.parseColor("#000000")  
+    backgroundColor = Color.parseColor("#FFFFFF"),
+    borderColor = Color.parseColor("#000000"),
+    borderWidth = 1,
+    borderCornerRadius = 8f,
+    primaryBtnBackgroundColor = Color.parseColor("#0000FF"),
+    primaryBtnTextColor = Color.parseColor("#FFFFFF"),
+    secondaryBtnBackgroundColor = Color.parseColor("#FFFFFF"),
+    secondaryBtnTextColor = Color.parseColor("#000000"),
+    titleTextColor = Color.parseColor("#000000"),
+    bodyTextColor = Color.parseColor("#000000"),
+    imageScaleType = ImageView.ScaleType.CENTER_CROP
 )
 ```
+
+:::tip TIP — Default values (SDK v3.8.0 and above)
+Starting with SDK version 3.8.0, all `IterableEmbeddedViewConfig` parameters
+have default values, so you only need to specify the styling options you want
+to customize. The example above shows every option for reference, but you can pass
+just the ones you need. For example:
+
+```kotlin
+val config = IterableEmbeddedViewConfig(
+    backgroundColor = Color.parseColor("#FFFFFF"),
+    borderCornerRadius = 8f
+)
+```
+
+All color, border, and text-color parameters default to `null` (which falls
+back to the view's built-in styling). The `imageScaleType` parameter defaults
+to `ImageView.ScaleType.CENTER_CROP`.
+:::
+
+The `imageScaleType` parameter (added in SDK v3.8.0) controls how the image is
+scaled within the 16:9 image container of `CARD` and `BANNER` views. It accepts
+any standard Android [`ImageView.ScaleType`](https://developer.android.com/reference/android/widget/ImageView.ScaleType)
+value (for example, `CENTER_CROP`, `FIT_CENTER`, or `FIT_XY`). The
+`NOTIFICATION` view type does not display an image, so this parameter has no
+effect on that view type.
 
 Then, when it's time to display a message, create the `IterableEmbeddedView`
 using the `newInstance` factory method:

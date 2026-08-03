@@ -8,10 +8,10 @@ title: Embedded Messages with Iterable's Android SDK
 source_url: https://support.iterable.com/hc/articles/23061877893652
 source_repo: Iterable/iterable-docs
 source_path: docs/developer-and-api-docs/embedded-messaging/embedded-messages-with-iterables-android-sdk/index.md
-source_ref: 16ae7f4a908f84d6eb15fe6f5390f07cc5afe20d
-source_sha: 6a6d6b5baf76973d611fb7f17785d3b04feeace0
-fetched_at: 2026-05-25T15:11:44.823Z
-polished_at: 2026-06-05T13:59:18.315Z
+source_ref: 59c40504c91bc0b13751c5ef5f348810eb0fd4f2
+source_sha: 576150056520b366d5190411e9f28198e70bbeaf
+fetched_at: 2026-08-03T20:41:31.068Z
+polished_at: 2026-08-03T20:42:14.570Z
 layer: a
 snippets:
   - index: 0
@@ -52,41 +52,45 @@ snippets:
     line_count: 23
   - index: 9
     lang: kotlin
-    hash: b21729c5cb5d
-    line_count: 13
+    hash: b259e6a45e17
+    line_count: 14
   - index: 10
+    lang: kotlin
+    hash: a2932531b4f0
+    line_count: 4
+  - index: 11
     lang: kotlin
     hash: 38e520b049c7
     line_count: 1
-  - index: 11
+  - index: 12
     lang: kotlin
     hash: 48c85c7cb874
     line_count: 2
-  - index: 12
+  - index: 13
     lang: xml
     hash: d9b27fbb15f5
     line_count: 12
-  - index: 13
+  - index: 14
     lang: kotlin
     hash: 3887b4569179
     line_count: 3
-  - index: 14
+  - index: 15
     lang: kotlin
     hash: b64c0dd160ee
     line_count: 7
-  - index: 15
+  - index: 16
     lang: kotlin
     hash: a8b0449c17f6
     line_count: 13
-  - index: 16
+  - index: 17
     lang: kotlin
     hash: 97d5fb776fc9
     line_count: 7
-  - index: 17
+  - index: 18
     lang: kotlin
     hash: 1048049cb459
     line_count: 8
-  - index: 18
+  - index: 19
     lang: kotlin
     hash: 820e05f6b034
     line_count: 7
@@ -529,18 +533,44 @@ to declare the styles you'd like the view to use:
 ```kotlin
 // Grab your app's colors from wherever it makes sense.
 val config = IterableEmbeddedViewConfig(
-    backgroundColor: Color.parseColor("#FFFFFF"), 
-    borderColor: Color.parseColor("#000000"),
-    borderWidth: 1,
-    borderCornerRadius: 8f,
-    primaryBtnBackgroundColor: Color.parseColor("#0000FF"), 
-    primaryBtnTextColor: Color.parseColor("#FFFFFF"), 
-    secondaryBtnBackgroundColor: Color.parseColor("#FFFFFF"), 
-    secondaryBtnTextColor: Color.parseColor("#000000"), 
-    titleTextColor: Color.parseColor("#000000"), 
-    bodyTextColor: Color.parseColor("#000000")  
+    backgroundColor = Color.parseColor("#FFFFFF"),
+    borderColor = Color.parseColor("#000000"),
+    borderWidth = 1,
+    borderCornerRadius = 8f,
+    primaryBtnBackgroundColor = Color.parseColor("#0000FF"),
+    primaryBtnTextColor = Color.parseColor("#FFFFFF"),
+    secondaryBtnBackgroundColor = Color.parseColor("#FFFFFF"),
+    secondaryBtnTextColor = Color.parseColor("#000000"),
+    titleTextColor = Color.parseColor("#000000"),
+    bodyTextColor = Color.parseColor("#000000"),
+    imageScaleType = ImageView.ScaleType.CENTER_CROP
 )
 ```
+
+**💡 TIP — Default values (SDK v3.8.0 and above)**
+
+Starting with SDK version 3.8.0, all `IterableEmbeddedViewConfig` parameters
+have default values, so you only need to specify the styling options you want
+to customize. The example above shows every option for reference, but you can pass
+just the ones you need. For example:
+
+```kotlin
+val config = IterableEmbeddedViewConfig(
+    backgroundColor = Color.parseColor("#FFFFFF"),
+    borderCornerRadius = 8f
+)
+```
+
+All color, border, and text-color parameters default to `null` (which falls
+back to the view's built-in styling). The `imageScaleType` parameter defaults
+to `ImageView.ScaleType.CENTER_CROP`.
+
+The `imageScaleType` parameter (added in SDK v3.8.0) controls how the image is
+scaled within the 16:9 image container of `CARD` and `BANNER` views. It accepts
+any standard Android [`ImageView.ScaleType`](https://developer.android.com/reference/android/widget/ImageView.ScaleType)
+value (for example, `CENTER_CROP`, `FIT_CENTER`, or `FIT_XY`). The
+`NOTIFICATION` view type does not display an image, so this parameter has no
+effect on that view type.
 
 Then, when it's time to display a message, create the `IterableEmbeddedView`
 using the `newInstance` factory method:

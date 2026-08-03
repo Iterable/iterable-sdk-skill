@@ -8,10 +8,10 @@ title: In-App Messages on Android
 source_url: https://support.iterable.com/hc/articles/360035537231
 source_repo: Iterable/iterable-docs
 source_path: docs/developer-and-api-docs/in-app-messages/in-app-messages-on-android/index.md
-source_ref: 16ae7f4a908f84d6eb15fe6f5390f07cc5afe20d
-source_sha: 67ade49d8716b4d65cdb7779eb210afa0b5054da
-fetched_at: 2026-05-27T12:44:52.898Z
-polished_at: 2026-06-05T13:59:18.311Z
+source_ref: 59c40504c91bc0b13751c5ef5f348810eb0fd4f2
+source_sha: 65412ae773eaca59531243ff4775fd4457b5b608
+fetched_at: 2026-08-03T20:41:28.539Z
+polished_at: 2026-08-03T20:42:14.565Z
 layer: a
 snippets:
   - index: 0
@@ -20,15 +20,31 @@ snippets:
     line_count: 18
   - index: 1
     lang: java
+    hash: 41e8696aa8cc
+    line_count: 9
+  - index: 2
+    lang: java
     hash: bcfe488ba3d1
     line_count: 10
-  - index: 2
+  - index: 3
+    lang: java
+    hash: a903f600bb27
+    line_count: 4
+  - index: 4
     lang: kotlin
     hash: 28725ee7538d
     line_count: 1
-  - index: 3
+  - index: 5
     lang: java
     hash: 265c585feb80
+    line_count: 1
+  - index: 6
+    lang: kotlin
+    hash: 34caae496955
+    line_count: 1
+  - index: 7
+    lang: java
+    hash: e4f4f768e9bb
     line_count: 1
 summary: By default, when an in-app message arrives from the server, the SDK
   automatically shows it if the app is in the foreground. If an in-app message
@@ -83,6 +99,36 @@ IterableConfig config = new IterableConfig.Builder()
 IterableApi.initialize(context, "<your-api-key>", config);
 ```
 
+### Deferring an in-app message (SDK v3.10.0 and above)
+
+Starting with SDK version 3.10.0, `onNewInApp` can also return
+`InAppResponse.DEFER`. Unlike `SKIP`, which permanently drops the message,
+`DEFER` keeps the message pending so the SDK reconsiders it on a later display
+pass (for example, on the next foreground, sync, or newly arrived message). This
+is useful for temporary, per-message suppression—for example, while a splash
+screen is showing.
+
+```java
+class MyInAppHandler implements IterableInAppHandler {
+    @Override
+    public InAppResponse onNewInApp(IterableInAppMessage message) {
+        if (appIsShowingSplashScreen()) {
+            return InAppResponse.DEFER;
+        }
+        return InAppResponse.SHOW;
+    }
+}
+```
+
+Once your app is ready to display in-app messages, call
+`resumeInAppDisplay()` (see [Pausing the display of in-app messages](#pausing-the-display-of-in-app-messages-sdk-v3-2-6-and-above))
+to re-check pending messages immediately, instead of waiting for the next
+foreground or sync trigger.
+
+> [!NOTE]
+> In Kotlin, add a `DEFER` branch to any exhaustive `when` expression over
+> `InAppResponse`.
+
 ## Getting the local queue of in-app messages
 
 The SDK keeps the local in-app message queue in sync by checking the server queue
@@ -131,6 +177,69 @@ The SDK handles in-app message buttons and links as follows:
   returns `false` for the provided URL, the URL will be opened by the system
   (using a web browser or other application, as applicable).
 
+## Configuring how in-app messages interact with system bars (SDK v3.8.0 and above)
+
+By default, Iterable's Android SDK draws in-app messages edge-to-edge, with
+content extending behind the status bar and navigation bar. This was the only
+behavior in SDK versions 3.6.1 through 3.7.0.
+
+Starting with SDK version 3.8.0, you can configure how in-app messages interact
+with system bars by setting `IterableInAppDisplayMode` on `IterableConfig`.
+This setting applies globally to all in-app messages displayed by the SDK.
+
+The available modes are:
+
+- `FORCE_EDGE_TO_EDGE` (default) — Forces in-app messages to display
+  edge-to-edge, drawing content behind the status bar and navigation bar.
+  This preserves the behavior of previous SDK versions.
+- `FOLLOW_APP_LAYOUT` — Matches the host app's current layout configuration.
+  If your app is edge-to-edge, in-app messages display edge-to-edge; if your
+  app respects system bar bounds, so do in-app messages.
+- `FORCE_FULLSCREEN` — Hides the status bar entirely while in-app messages
+  are displayed. Uses the legacy `FLAG_FULLSCREEN` on API levels below 30 and
+  `WindowInsetsController` on API 30 and above.
+- `FORCE_RESPECT_BOUNDS` — Ensures in-app content never draws behind the
+  status bar or navigation bar, keeping UI elements like the close button
+  always accessible.
+
+To configure the display mode, call `setInAppDisplayMode()` on
+`IterableConfig.Builder`:
+
+```java
+IterableConfig config = new IterableConfig.Builder()
+    .setInAppDisplayMode(IterableInAppDisplayMode.FOLLOW_APP_LAYOUT)
+    .build();
+IterableApi.initialize(context, "<your-api-key>", config);
+```
+
+> [!TIP]
+> If the close button (or other interactive elements) in your fullscreen in-app
+> messages is being obscured by the status bar, switch to `FOLLOW_APP_LAYOUT`
+> or `FORCE_RESPECT_BOUNDS`.
+
+## Displaying in-app messages in Jetpack Compose apps (SDK v3.9.0 and above)
+
+In SDK versions before 3.9.0, displaying an in-app message required a
+`FragmentActivity`, because the SDK rendered in-app messages using a `Fragment`.
+This meant that apps built fully with [Jetpack Compose](https://developer.android.com/compose)
+(and without the Android fragment framework) couldn't display in-app messages.
+
+Starting with SDK version 3.9.0, the SDK can also render in-app messages using a
+`Dialog`-based renderer (`IterableInAppDialogNotification`) that doesn't require
+a `FragmentActivity`. When the current activity is a `FragmentActivity`, the SDK
+continues to use the existing `Fragment`-based rendering; when it isn't (for
+example, a Compose-based `ComponentActivity`), the SDK falls back to the
+`Dialog`-based renderer. As a result, in-app messages now display correctly in
+apps built fully with Jetpack Compose.
+
+No code changes are required to take advantage of this—just upgrade to SDK
+version 3.9.0 or later. (The host must still be an `Activity`.)
+
+> [!WARNING]
+> This Compose compatibility applies to **in-app message rendering** only. Iterable's
+> mobile inbox UI is still fragment-based and requires a `FragmentActivity` host. For
+> more information, see [Setting up Mobile Inbox on Android](https://support.iterable.com/hc/articles/360038744152#displaying-the-mobile-inbox).
+
 ## Changing the display interval between in-app messages
 
 To customize the time delay between successive in-app messages, set
@@ -162,4 +271,30 @@ However, it will keep the local queue of in-app messages in sync.
 > method on `IterableInAppManager` to manually display messages.
 
 To resume the display of in-app messages from your app's queue, call 
-`setAutoDisplayPaused(false)`.
+`setAutoDisplayPaused(false)`. 
+
+### Re-evaluating pending in-app messages on demand (SDK v3.10.0 and above)
+
+Starting with SDK version 3.10.0, you can call `resumeInAppDisplay()` to prompt
+the SDK to re-evaluate pending in-app messages once your app is ready to display
+them—for example, after a splash screen is dismissed, or after you deferred a
+message by returning `InAppResponse.DEFER` from `onNewInApp` (see
+[Deferring an in-app message](#deferring-an-in-app-message-sdk-v3-10-0-and-above)).
+Without this call, the SDK re-checks pending messages only on its own triggers
+(foreground, sync, or a newly arrived message).
+
+_Kotlin_
+
+```kotlin
+IterableApi.getInstance().inAppManager.resumeInAppDisplay()
+```
+
+_Java_
+
+```java
+IterableApi.getInstance().getInAppManager().resumeInAppDisplay();
+```
+
+`resumeInAppDisplay()` is independent of `setAutoDisplayPaused(boolean)`: if
+automatic display is paused, this call won't show anything (and logs a warning)
+until you also call `setAutoDisplayPaused(false)`.
