@@ -10,3 +10,6 @@ proposals/
 eval/prompts/
 eval/results/
 eval/report/
+
+# JetBrains IDE files
+.idea/
