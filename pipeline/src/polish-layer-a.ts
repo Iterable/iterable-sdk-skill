@@ -2,10 +2,10 @@
  * Stage 2 — Polish, Layer A CLI.
  *
  * Reads sources/<platform>/<slug>.md, applies the Layer A deterministic
- * transforms, and writes the intermediate result to
- * <paths.polished_dir>/<slug>.layer-a.md. The `.layer-a.md` suffix marks
- * the file as Layer A only — Layer B (LLM polish) overwrites without the
- * suffix when it lands.
+ * transforms, and writes the polished corpus to
+ * <paths.polished_dir>/<slug>.polished.md — the file every downstream stage
+ * (snapshot, validate, manifest) consumes. v1 has no Layer B, so Layer A
+ * output IS the polished corpus; there is no separate promote step.
  *
  * Usage:
  *   pnpm polish:a                                # all articles in the config
@@ -102,7 +102,7 @@ function main() {
       sdkArtifact: SDK_ARTIFACT,
     };
     const { output, snippets } = applyLayerA(raw, ctx);
-    const outPath = resolve(outDir, `${article.slug}.layer-a.md`);
+    const outPath = resolve(outDir, `${article.slug}.polished.md`);
     writeFileSync(outPath, output, "utf8");
     console.log(`  write  ${article.slug}  (${snippets.length} snippet${snippets.length === 1 ? "" : "s"})`);
   }
