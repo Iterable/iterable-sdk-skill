@@ -16,8 +16,8 @@ platform: android
 
 source:
   repo: Iterable/iterable-docs
-  ref: 59c40504c91bc0b13751c5ef5f348810eb0fd4f2
-  ref_label: "master @ 2026-08-03"
+  ref: 16ae7f4a908f84d6eb15fe6f5390f07cc5afe20d
+  ref_label: "master @ 2026-05-21 (e2e test back-pin)"
 
 sdk:
   repo: Iterable/iterable-android-sdk
