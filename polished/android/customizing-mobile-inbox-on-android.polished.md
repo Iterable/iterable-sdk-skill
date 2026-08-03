@@ -5,13 +5,13 @@ archetype: feature
 sdk_min_version: 3.7.0
 sdk_artifact: iterableapi
 title: Customizing Mobile Inbox on Android
-source_url: https://iterable.zendesk.com/hc/articles/360039189931
+source_url: https://support.iterable.com/hc/articles/360039189931
 source_repo: Iterable/iterable-docs
 source_path: docs/developer-and-api-docs/in-app-messages/customizing-mobile-inbox-on-android/index.md
-source_ref: 16ae7f4a908f84d6eb15fe6f5390f07cc5afe20d
-source_sha: 502be69e2212a0540bcaaad80299d4e3936bb656
-fetched_at: 2026-05-25T15:11:42.777Z
-polished_at: 2026-06-05T13:59:18.313Z
+source_ref: 59c40504c91bc0b13751c5ef5f348810eb0fd4f2
+source_sha: e156e9f1bf13e4b41507a53dc10093422c8aefac
+fetched_at: 2026-08-03T20:41:29.489Z
+polished_at: 2026-08-03T20:42:14.567Z
 layer: a
 snippets:
   - index: 0
@@ -36,41 +36,57 @@ snippets:
     line_count: 3
   - index: 5
     lang: kotlin
+    hash: d7b7d23c4c48
+    line_count: 4
+  - index: 6
+    lang: java
+    hash: d46242e73662
+    line_count: 4
+  - index: 7
+    lang: kotlin
+    hash: 689b12ae918a
+    line_count: 4
+  - index: 8
+    lang: java
+    hash: 584a986d1076
+    line_count: 4
+  - index: 9
+    lang: kotlin
     hash: edcae1e6e4de
     line_count: 13
-  - index: 6
+  - index: 10
     lang: java
     hash: ef4f78408c7b
     line_count: 18
-  - index: 7
+  - index: 11
     lang: kotlin
     hash: d121dfcd6053
     line_count: 6
-  - index: 8
+  - index: 12
     lang: kotlin
     hash: 6bb02c0de57c
     line_count: 10
-  - index: 9
+  - index: 13
     lang: java
     hash: 80dd3262733b
     line_count: 13
-  - index: 10
+  - index: 14
     lang: kotlin
     hash: 3cbc544d3efa
     line_count: 8
-  - index: 11
+  - index: 15
     lang: kotlin
     hash: 8a0fe4b9b840
     line_count: 10
-  - index: 12
+  - index: 16
     lang: java
     hash: 8f7a8b76a82d
     line_count: 13
-  - index: 13
+  - index: 17
     lang: kotlin
     hash: a28bb9940c6d
     line_count: 48
-  - index: 14
+  - index: 18
     lang: java
     hash: 1ff85a5943c1
     line_count: 53
@@ -157,7 +173,7 @@ default) or as standalone activities. To change this setting, either:
 
 - Set an extra for the activity's intent:
 
-    Kotlin:
+    _Kotlin_
 
     ```kotlin
     val intent = Intent(context, IterableInboxActivity::class.java)
@@ -165,7 +181,7 @@ default) or as standalone activities. To change this setting, either:
     startActivity(intent)
     ```
 
-    Java:
+    _Java_
 
     ```java
     Intent intent = new Intent(getContext(), IterableInboxActivity.class);
@@ -175,13 +191,13 @@ default) or as standalone activities. To change this setting, either:
 
 - Pass constructor parameters to the fragment:
 
-    Kotlin:
+    _Kotlin_
 
     ```kotlin
     val inboxFragment = IterableInboxFragment.newInstance(InboxMode.ACTIVITY, 0)
     ```
 
-    Java:
+    _Java_
 
     ```java
     IterableInboxFragment inboxFragment = IterableInboxFragment.newInstance(InboxMode.ACTIVITY)
@@ -192,7 +208,7 @@ default) or as standalone activities. To change this setting, either:
 When launching the mobile inbox as an activity, change the title by passing an
 `activityTitle` argument in the intent:
 
-Kotlin:
+_Kotlin_
 
 ```kotlin
 val intent = Intent(context, IterableInboxActivity::class.java)
@@ -200,7 +216,7 @@ intent.putExtra("activityTitle", "My Inbox")
 startActivity(intent)
 ```
 
-Java:
+_Java_
 
 ```java
 Intent intent = new Intent(getContext(), IterableInboxActivity.class);
@@ -208,7 +224,79 @@ intent.putExtra("activityTitle", "My Inbox");
 startActivity(intent);
 ```
 
-### Cell layout, colors and font
+### Inbox toolbar (SDK v3.9.0 and above)
+
+Starting with SDK version 3.9.0, you can display an optional toolbar above the
+inbox list using `IterableInboxToolbarView`. The toolbar is off by default,
+so the inbox behaves exactly as it did in previous SDK versions unless you opt
+in.
+
+Configure the toolbar with the `InboxToolbarOption` sealed interface, which has
+these options:
+
+- `None` (default) — No toolbar.
+- `Default` — A title-only toolbar above the inbox list.
+- `WithBackButton` — A title plus a back-navigation icon. By default, the back
+  action calls `OnBackPressedDispatcher`. To customize it, have your host
+  `Activity` or parent `Fragment` implement `IterableInboxToolbarBackListener`.
+- `Custom(layoutRes)` — Inflates your own toolbar layout. To wire your layout to
+  the SDK, tag views with these reserved IDs (both are optional):
+  - `@id/iterable_reserved_inbox_toolbar_action` — Automatically wired to the
+    SDK's back handler.
+  - `@id/iterable_reserved_inbox_toolbar_title` — Automatically bound to the
+    toolbar title.
+
+> [!WARNING]
+> When the toolbar is enabled, the host activity must use a `Theme.AppCompat`
+> descendant.
+
+#### Configure the toolbar on the fragment
+
+Pass an `InboxToolbarOption` (and, optionally, a title) to
+`IterableInboxFragment.newInstance(...)`:
+
+_Kotlin_
+
+```kotlin
+val inboxFragment = IterableInboxFragment.newInstance(
+    InboxToolbarOption.WithBackButton,
+    "My Inbox"
+)
+```
+
+_Java_
+
+```java
+IterableInboxFragment inboxFragment = IterableInboxFragment.newInstance(
+    InboxToolbarOption.WithBackButton.INSTANCE,
+    "My Inbox"
+);
+```
+
+#### Configure the toolbar on the activity
+
+When launching the inbox as an activity, set the `TOOLBAR_OPTION` and
+`TOOLBAR_TITLE` intent extras:
+
+_Kotlin_
+
+```kotlin
+val intent = Intent(context, IterableInboxActivity::class.java)
+intent.putExtra(IterableInboxFragment.TOOLBAR_OPTION, InboxToolbarOption.WithBackButton)
+intent.putExtra(IterableInboxFragment.TOOLBAR_TITLE, "My Inbox")
+startActivity(intent)
+```
+
+_Java_
+
+```java
+Intent intent = new Intent(getContext(), IterableInboxActivity.class);
+intent.putExtra(IterableInboxFragment.TOOLBAR_OPTION, InboxToolbarOption.WithBackButton.INSTANCE);
+intent.putExtra(IterableInboxFragment.TOOLBAR_TITLE, "My Inbox");
+startActivity(intent);
+```
+
+### Cell layout, colors, and font
 
 > [!TIP]
 > In the [sample app](#sample-app), tap **Inbox with Custom Cell** to see an
@@ -225,7 +313,7 @@ To modify the font, color or layout of inbox cells:
 
 3. Specify this layout ID when launching the activity:
 
-    Kotlin:
+    _Kotlin_
 
     ```kotlin
     val intent = Intent(context, IterableInboxActivity::class.java)
@@ -233,7 +321,7 @@ To modify the font, color or layout of inbox cells:
     startActivity(intent)
     ```
 
-    Java:
+    _Java_
 
     ```java
     Intent intent = new Intent(getContext(), IterableInboxActivity.class);
@@ -243,13 +331,13 @@ To modify the font, color or layout of inbox cells:
 
 4. Alternatively, create the fragment with custom parameters:
 
-    Kotlin:
+    _Kotlin_
 
     ```kotlin
     val inboxFragment = IterableInboxFragment.newInstance(InboxMode.POPUP, R.layout.custom_inbox_item)
     ```
 
-    Java:
+    _Java_
 
     ```java
     IterableInboxFragment inboxFragment = IterableInboxFragment.newInstance(InboxMode.POPUP, R.layout.custom_inbox_item);
@@ -266,7 +354,7 @@ subclass `IterableInboxFragment` and set a date mapper in `onCreate`. The date
 mapper takes an `IterableInAppMessage` and returns a string representing the 
 creation date of the message. If the date field should be blank, return `null`.
 
-Kotlin:
+_Kotlin_
 
 ```kotlin
 class CustomInboxDateMapperFragment : IterableInboxFragment() {
@@ -284,7 +372,7 @@ class CustomInboxDateMapperFragment : IterableInboxFragment() {
 }
 ```
 
-Java:
+_Java_
 
 ```java
 public class CustomInboxDateMapperJavaFragment extends IterableInboxFragment implements IterableInboxDateMapper {
@@ -321,7 +409,7 @@ the message, `false` otherwise.
 
 `IterableInboxFilter` is an interface that declares a filter method.
 
-Kotlin:
+_Kotlin_
 
 ```kotlin
 class CustomInboxFilterFragment : IterableInboxFragment() {
@@ -347,7 +435,7 @@ class CustomInboxFilterFragment : IterableInboxFragment(), IterableInboxFilter {
 }
 ```
 
-Java:
+_Java_
 
 ```java
 public class CustomInboxFilterFragment extends IterableInboxFragment implements IterableInboxFilter {
@@ -380,7 +468,7 @@ set a comparator in `onCreate`. `IterableInboxComparator` is a standard Java
 `Comparator` interface: return a negative integer, zero, or a positive integer 
 when the first message is less than, equal to, or greater than the second.
 
-Kotlin:
+_Kotlin_
 
 ```kotlin
 class CustomInboxComparatorFragment : IterableInboxFragment() {
@@ -480,7 +568,7 @@ To display different inbox items with different interfaces, follow these steps:
 5. The same constants will then be passed to `getLayoutForViewType`. Use them to
    return different layouts based on the view type.
 
-Kotlin:
+_Kotlin_
 
 ```kotlin
 class CustomInboxFieldsFragment : IterableInboxFragment(), IterableInboxAdapterExtension<CustomInboxFieldsFragment.ViewHolder> {
@@ -533,7 +621,7 @@ class CustomInboxFieldsFragment : IterableInboxFragment(), IterableInboxAdapterE
 }
 ```
 
-Java:
+_Java_
 
 ```java
  public class CustomInboxFieldsJavaFragment extends IterableInboxFragment implements IterableInboxAdapterExtension<CustomInboxFieldsJavaFragment.ViewHolder> {

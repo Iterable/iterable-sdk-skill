@@ -8,10 +8,10 @@ title: Setting up Mobile Inbox on Android
 source_url: https://support.iterable.com/hc/articles/360038744152
 source_repo: Iterable/iterable-docs
 source_path: docs/developer-and-api-docs/in-app-messages/setting-up-mobile-inbox-on-android/index.md
-source_ref: 16ae7f4a908f84d6eb15fe6f5390f07cc5afe20d
-source_sha: 968c6cc97c2aec2e8e4124b5ef18aa9a000a139d
-fetched_at: 2026-05-25T15:11:41.984Z
-polished_at: 2026-06-05T13:59:18.312Z
+source_ref: 59c40504c91bc0b13751c5ef5f348810eb0fd4f2
+source_sha: 9b54bece973b76efd0e1eaec0494b0e9d2c2af7c
+fetched_at: 2026-08-03T20:41:29.000Z
+polished_at: 2026-08-03T20:42:14.566Z
 layer: a
 snippets: []
 summary: Apps using version 3.2.0 and later of Iterable's [Android
@@ -46,6 +46,20 @@ To add a mobile inbox to your Android app, first install Iterable's
 
 ## Displaying the mobile inbox
 
+> [!WARNING]
+> Iterable's mobile inbox UI is fragment-based: `IterableInboxFragment` requires a
+> `FragmentManager`, so its host must be a `FragmentActivity` (or its descendant,
+> `AppCompatActivity`). Compose-first apps often use a plain `ComponentActivity` as
+> their host, which has no `FragmentManager`—hosting the inbox fragment there
+> crashes when the fragment is attached. If your app is Compose-first, change the
+> host activity's base class to `FragmentActivity` / `AppCompatActivity` before
+> adding the inbox. (Iterable's Android SDK doesn't currently provide a
+> Compose-native inbox.)
+>
+> Note that this requirement applies to the inbox UI only. Starting with SDK
+> version 3.9.0, in-app messages themselves render correctly in Compose-first
+> apps. For more information, see [In-App Messages on Android](https://support.iterable.com/hc/articles/360035537231#displaying-in-app-messages-in-jetpack-compose-apps-sdk-v3-9-0-and-above).
+
 In your app, show the mobile inbox when the user selects a specific tab or taps
 a particular button.
 
@@ -66,13 +80,13 @@ a particular button.
 
     Use the provided `InboxActivity` wrapper:
 
-    Kotlin:
+    _Kotlin_
 
     ```kotlin
     startActivity(Intent(context, IterableInboxActivity::class.java))
     ```
 
-    Java:
+    _Java_
 
     ```java
     startActivity(new Intent(getContext(), IterableInboxActivity.class));
@@ -98,4 +112,4 @@ If you're not using one of Iterable's mobile SDKs:
 ## Customizing the mobile inbox
 
 To learn how to customize the mobile inbox in an Android app, read 
-[Customizing Mobile Inbox on Android](https://support.iterable.com/hc/articles/360039091471).
+[Customizing Mobile Inbox on Android](https://support.iterable.com/hc/articles/360039189931).
