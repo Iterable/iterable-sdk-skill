@@ -48,6 +48,14 @@ the long tail under one bucket, e.g.:
 (If they just want the basics, that's the "init + identify only" path — let
 them say so via the free-form "Other" the tool always provides.)
 
+**First check whether this is an upgrade, not a new integration.** If the
+project already depends on `com.iterable:iterableapi`, the scope question above
+is the wrong one — they have working code and a version to move off. Ask which
+version they're on and what they want out of the upgrade, then follow the
+upgrade row in the slug table. The always-on rules still apply (existing
+integrations frequently violate rules 2 and 3), but don't re-derive their
+integration from scratch.
+
 Confirm the scope, *then* run Preflight for the inputs that scope needs, *then*
 build. "Finish, don't stub" (below) applies to **the scope you agreed on** —
 it is not licence to implement every feature unprompted. After delivering the
@@ -292,6 +300,14 @@ Task-specific guidance (push, in-app, inbox, embedded, JWT, deep links,
 event tracking, user profiles, UUA, initialization) lives in a polished
 corpus.
 
+> **Say what you're about to read and why — before you read it.** This
+> applies to every lookup: a snapshot doc, a version check, a URL you found
+> inside a doc. One line each, naming the thing and what you need from it —
+> e.g. "Reading `snapshot/setting-up-android-push-notifications.md` for the
+> FCM service registration and notification-channel setup." A silent run of
+> back-to-back fetches leaves the developer watching commands scroll by with
+> no idea what you're pursuing. One line per lookup, not a status report.
+
 ### Source today: the local snapshot (authoritative)
 
 **Read task docs from [`snapshot/`](snapshot/).** It's a byte-for-byte mirror
@@ -299,6 +315,22 @@ of the polished corpus at last release, kept honest by CI (`pnpm
 snapshot:verify`). Match the task to a slug (table below) and open
 `snapshot/<slug>.md`. This is the canonical source right now — don't try
 Context7 first.
+
+**One doc per task — don't bulk-load.** Open only the slugs the agreed scope
+needs, one at a time. The full corpus is ~50k tokens; reading it wholesale
+forces a context compaction mid-task, which costs you the detail of what you
+and the developer agreed in Step 0. Two or three slugs is a normal task. If a
+doc turns out to be the wrong one, say so and open the right one — don't open
+several as a hedge.
+
+**Read only the part of a doc the task needs.** These are long reference
+articles, not briefings. In particular, roughly half of `android-sdk.md` is
+release-by-release upgrade history under `## Upgrading the SDK` — **skip that
+section** unless the developer is upgrading from a specific older version. For
+a new integration, `## Installing the SDK` is the part that matters. Where a
+doc shows the same snippet in both Java and Kotlin, read the one matching the
+host project. The `snippets:` block in each doc's YAML frontmatter is CI
+validation metadata (hashes, line counts) — it tells you nothing; skip it.
 
 ### Source later: Context7 *(curated library not published yet — do not fetch)*
 
@@ -319,7 +351,8 @@ mismatch.
 
 | If the user is asking about… | Slug |
 | ---------------------------- | ---- |
-| First-time setup, dependencies, gradle setup, `IterableApi.initializeInBackground`, `IterableConfig` builder | `android-sdk` |
+| First-time setup, dependencies, gradle setup, `IterableApi.initializeInBackground`, `IterableConfig` builder | `android-sdk` (read `## Installing the SDK`; skip `## Upgrading the SDK`) |
+| Upgrading an existing integration from an older SDK version | `android-sdk` → `## Upgrading the SDK`. Entries run newest-first (`### Upgrading to 3.10.0` down to `3.2.0`); read every entry **newer than** the version they're on and stop there. Ask their current version first — don't guess it. |
 | Configuration deep-dive (every `IterableConfig` option, `setDataRegion`, allowed protocols, log level) | `configure-the-android-sdk` |
 | FCM push, notification channels, `POST_NOTIFICATIONS`, device registration | `setting-up-android-push-notifications` |
 | Push behavior overview (silent push, foreground vs background, deep link from notification) | `push-notification-overview` |
@@ -342,15 +375,19 @@ mismatch.
 > no Compose-native inbox; switch the host activity's base class before adding it.
 
 For tasks that span multiple areas (e.g. "wire up the whole SDK end to end"),
-fetch `android-sdk` first — it tells you which others to load and in what
-order.
+read `android-sdk` (install section only) first — it tells you which others to
+load and in what order. Load those others **as you reach each feature**, not
+all up front: finish push before you open the in-app doc. Opening five docs
+before writing any code is the fastest way to compact mid-task.
 
 ---
 
 ## Decision flow
 
-1. **Identify the user's goal.** New integration, single feature, debugging,
-   or "what does this code do?"
+1. **Identify the user's goal.** New integration, **upgrade of an existing
+   one**, single feature, debugging, or "what does this code do?" Check the
+   project's existing Iterable dependency before deciding — an upgrade takes
+   the upgrade path (Step 0), not the new-integration path.
 2. **Check rules 1–5 above** against whatever the user already has. Many
    "the SDK isn't working" reports are rule violations.
 3. **Read the matching slug for the task** before writing code, from whichever
@@ -360,8 +397,11 @@ order.
 4. **For non-obvious traps not covered in the polished doc**, consult
    [`PITFALLS.md`](PITFALLS.md).
 5. **Version-check.** If the user is on an older SDK version than the doc's
-   `sdk_min_version`, note any breaking changes from the upstream
-   `CHANGELOG.md` before generating code.
+   `sdk_min_version`, check the breaking changes before generating code. The
+   `## Upgrading the SDK` section of `android-sdk` is the local, already-vetted
+   source for this and covers 3.2.0 → 3.10.0 — read it there first. Only fetch
+   the upstream `CHANGELOG.md` if their version or target falls outside that
+   range, and say why before you do.
 
 ---
 
