@@ -52,14 +52,8 @@ Cursor, Claude Code, and Codex are supported. Each has an install path below.
 
 ## Before you begin
 
-1. Set up an Iterable project with the necessary
-   [API key](https://support.iterable.com/hc/en-us/articles/360043464871).
-2. Install the skill for your agent (see [Install](#install)). The Cursor
-   symlink path requires cloning this repo first:
-
-   ```bash
-   git clone --depth 1 https://github.com/Iterable/iterable-sdk-skill.git ~/iterable-skills
-   ```
+Set up an Iterable project with the necessary
+[API key](https://support.iterable.com/hc/en-us/articles/360043464871).
 
 ## Install
 
@@ -77,11 +71,12 @@ session — skills load at session start.
 
 ### Cursor
 
-Requires [Cursor 3.9+](https://cursor.com). Symlink the skill directory into
-`~/.cursor/skills/` (not `~/.cursor/plugins/local/` — that path alone does not
-load the skill):
+Requires [Cursor 3.9+](https://cursor.com). Clone this repo, then symlink the
+skill directory into `~/.cursor/skills/` (not `~/.cursor/plugins/local/` —
+that path alone does not load the skill):
 
 ```bash
+git clone --depth 1 https://github.com/Iterable/iterable-sdk-skill.git ~/iterable-skills
 mkdir -p ~/.cursor/skills
 ln -sf ~/iterable-skills/iterable-android ~/.cursor/skills/iterable-android
 ```
