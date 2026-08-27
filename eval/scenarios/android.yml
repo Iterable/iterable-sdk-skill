@@ -10,7 +10,7 @@
 #   - require: the pattern SHOULD appear. Present = pass.
 #   - forbid:  the pattern should NOT appear (a known foot-gun). Absent = pass.
 # Each check carries a `weight` and, where it maps to a documented trap, a
-# `pitfall` id from iterable-android/PITFALLS.md. The scorer (eval/src/score.ts)
+# `pitfall` id from iterable-android/PITFALLS.md. The scorer (pipeline/src/lib/score.ts)
 # is the only consumer; it never calls a model, so scores are reproducible.
 #
 # Authoring rules:
@@ -24,7 +24,7 @@
 platform: android
 skill: iterable-android
 # Snapshot of the corpus/skill version these expectations were written against.
-# Bump when PITFALLS.md or the polished corpus changes the expected behavior.
+# Bump when PITFALLS.md or the reference corpus changes the expected behavior.
 expectations_version: 2026-06-16-a
 
 scenarios:

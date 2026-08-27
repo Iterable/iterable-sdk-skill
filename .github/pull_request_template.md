@@ -8,8 +8,8 @@ Full reviewer guide: REVIEW.md
 ## Type
 
 - [ ] Docs refresh (automated, opened by `refresh-docs.yml`)
-- [ ] Manual polished-content edit
-- [ ] Pipeline / schema / CI / skill change
+- [ ] Manual reference-content edit
+- [ ] Skill / pipeline / CI change
 
 ---
 
@@ -19,35 +19,33 @@ Full reviewer guide: REVIEW.md
 
 Reviewer checklist (see [`REVIEW.md`](../REVIEW.md) for the full version):
 
-- [ ] Source diff looks sane; `source_ref` is a commit SHA, not a branch
-- [ ] `pnpm snapshot:refresh` committed
+- [ ] `source_ref` is a commit SHA, not a branch; the `source.ref` bump matches the docs commit in the body
 - [ ] `pnpm check:all` green locally
-- [ ] Corpus diff read against `sources/`: the transform only reshaped (boilerplate stripped, callouts converted) — no content added, weakened, or reversed
+- [ ] **Changed guidance still agrees with `PITFALLS.md`** — if the docs now contradict a pitfall, resolve it in this PR
+- [ ] If a referenced heading moved, `SKILL.md`'s routing table updated to match
+- [ ] Diff read as documentation: the transform only reshaped (boilerplate stripped, callouts converted) — no content added, weakened, or reversed
 - [ ] Upstream snippet bugs (if any) tracked as separate issues against `Iterable/iterable-docs` — **not** hand-fixed here
 
 ---
 
-## If this is a manual polished-content edit
+## If this is a manual reference-content edit
 
 Why is the deterministic transform insufficient for this change? (One sentence.)
 
 <!-- e.g. "Foreign-language stripping of a cross-platform doc — the transform
 doesn't do this yet." -->
 
-- [ ] `pnpm recompute:manifest` run for every edited corpus file
-- [ ] `pnpm snapshot:refresh` committed
 - [ ] `pnpm check:all` green locally
 - [ ] Considered whether the transform (`pipeline/src/lib/layer-a.ts`) could be updated instead of editing by hand
+- [ ] Noted that the next `pnpm refresh:docs` will overwrite this file if upstream changes
 
 ---
 
-## If this is a pipeline / schema / CI / skill change
+## If this is a skill / pipeline / CI change
 
-- [ ] `pnpm typecheck` green
 - [ ] `pnpm check:all` green
 - [ ] If changing the schema or a validator, tested both the success and the failure case locally
-- [ ] If changing `iterable-android/SKILL.md`, sanity-checked the routing table against `polished/<platform>/`
-- [ ] If changing the snippet manifest format, ran `pnpm recompute:manifest polished/**/*.polished.md` and confirmed no semantic drift
+- [ ] If changing `iterable-android/SKILL.md`, sanity-checked the routing table against `iterable-android/reference/`
 
 ---
 

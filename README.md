@@ -19,9 +19,9 @@ when integrating Iterable's SDK into your Android app — push, in-app messages,
 user identity, and more. Because this skill is built specifically for the
 Iterable Android SDK, you get:
 
-- **Official docs, always available.** The skill ships a documentation snapshot
-  (`iterable-android/snapshot/`), so your assistant can reference Iterable's
-  content even when you're offline.
+- **Official docs, always available.** The skill ships Iterable's documentation
+  inside it (`iterable-android/reference/`), so your assistant can reference
+  Iterable's content even when you're offline.
 - **Kotlin-first, version-pinned examples.** Snippets target the Android SDK
   releases they were validated against — not generic pseudocode.
 - **Pitfall-aware answers.** The skill includes Iterable-supplied guidance for
@@ -126,15 +126,15 @@ start.
 ## How it works
 
 The skill carries a copy of the Iterable documentation inside it
-(`iterable-android/snapshot/`), so it always has the docs on hand — even offline.
-When your assistant works on an Iterable Android SDK task, the skill activates
-and routes it to the right doc slug, pitfalls, and integration checklist in
-[`iterable-android/SKILL.md`](iterable-android/SKILL.md).
+(`iterable-android/reference/`), so it always has the docs on hand — even
+offline. When your assistant works on an Iterable Android SDK task, the skill
+activates and routes it to the right doc slug, pitfalls, and integration
+checklist in [`iterable-android/SKILL.md`](iterable-android/SKILL.md).
 
-The bundled snapshot is the authoritative doc source today. When Iterable's
-source documentation changes, an automated pipeline refreshes the skill's
-content (see [Staying current](#staying-current)); pick up updates by updating
-your plugin or re-pulling the repo.
+That bundled copy is the authoritative doc source — there is nothing to fetch at
+runtime. When Iterable's source documentation changes, an automated workflow
+refreshes it (see [Staying current](#staying-current)); pick up updates by
+updating your plugin or re-pulling the repo.
 
 ## What it covers
 
@@ -151,19 +151,19 @@ routing table.
 When Iterable's docs change, a workflow rebuilds the skill's content and opens a
 PR for a reviewer to check and merge — updates are never applied automatically.
 After a release lands, update your plugin install (or re-pull if you cloned) to
-pick up the latest snapshot. See [`REVIEW.md`](REVIEW.md) for the reviewer
+pick up the latest docs. See [`REVIEW.md`](REVIEW.md) for the reviewer
 playbook.
 
 ## Repo layout
 
 ```
-iterable-android/   the installable skill (SKILL.md + PITFALLS.md + snapshot/)
-polished/           the docs in agent-ready form
-pipeline/           tooling that builds polished/ from sources/, CI-gated
-sources/            raw Iterable docs, fetched at pinned commits
+iterable-android/   the installable skill — SKILL.md + PITFALLS.md + reference/
+                    (reference/ is Iterable's docs in agent-ready form)
+pipeline/           refresh tooling + validation gates, CI-run
+eval/               scenario definitions for scoring skill vs. no-skill answers
 .claude-plugin/     Claude Code + Codex plugin + marketplace manifests
 .cursor-plugin/     Cursor plugin + marketplace manifests
-context7.json       Context7 manifest (future live-doc indexing)
+context7.json       Context7 indexing manifest
 mcp.json            Context7 MCP server config (Cursor plugin auto-discovery)
-.mcp.json           same config (Claude Code auto-discovery; kept in sync by CI)
+.mcp.json           same config (Claude Code auto-discovery)
 ```

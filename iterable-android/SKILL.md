@@ -148,9 +148,9 @@ part of the work** — don't silently degrade the integration to keep compiling.
     — the first `## [x.y.z]` after `## [Unreleased]` is authoritative.
 
   If the host project already pins a version (e.g. in a Gradle version
-  catalog), match it unless the developer asks to upgrade. Known latest as of
-  this skill revision: **3.8.0** (2026-05) — treat as a floor to sanity-check
-  the fetch against, not as the answer.
+  catalog), match it unless the developer asks to upgrade. No latest-version
+  number is recorded here on purpose — one would go stale between releases and
+  contradict the rule above. Look it up.
 - **Minimum Android API:** 21 (Android 5.0).
 - **Initialize with:** `IterableApi.initializeInBackground(context, apiKey, config, callback)`
   — this is the **default**; prefer it over the synchronous `initialize(...)`
@@ -289,7 +289,7 @@ override fun onCreate() {
 ```
 
 The full per-feature docs (push, in-app, inbox, embedded, deep links, events,
-profiles, UUA) are in the snapshot — see the routing table below.
+profiles, UUA) are in `reference/` — see the routing table below.
 
 ---
 
@@ -297,24 +297,23 @@ profiles, UUA) are in the snapshot — see the routing table below.
 
 This skill keeps only the always-on rules above and `PITFALLS.md` inline.
 Task-specific guidance (push, in-app, inbox, embedded, JWT, deep links,
-event tracking, user profiles, UUA, initialization) lives in a polished
-corpus.
+event tracking, user profiles, UUA, initialization) lives in `reference/`.
 
 > **Say what you're about to read and why — before you read it.** This
-> applies to every lookup: a snapshot doc, a version check, a URL you found
+> applies to every lookup: a reference doc, a version check, a URL you found
 > inside a doc. One line each, naming the thing and what you need from it —
-> e.g. "Reading `snapshot/setting-up-android-push-notifications.md` for the
+> e.g. "Reading `reference/setting-up-android-push-notifications.md` for the
 > FCM service registration and notification-channel setup." A silent run of
 > back-to-back fetches leaves the developer watching commands scroll by with
 > no idea what you're pursuing. One line per lookup, not a status report.
 
-### Source today: the local snapshot (authoritative)
+### Read task docs from `reference/`
 
-**Read task docs from [`snapshot/`](snapshot/).** It's a byte-for-byte mirror
-of the polished corpus at last release, kept honest by CI (`pnpm
-snapshot:verify`). Match the task to a slug (table below) and open
-`snapshot/<slug>.md`. This is the canonical source right now — don't try
-Context7 first.
+[`reference/`](reference/) is Iterable's published documentation, transformed
+deterministically and shipped with the skill. Match the task to a slug (table
+below) and open `reference/<slug>.md`. **This is the authoritative source — it
+is already on disk, so there is nothing to fetch and no reason to reach for
+Context7 or the web for content that lives here.**
 
 **One doc per task — don't bulk-load.** Open only the slugs the agreed scope
 needs, one at a time. The full corpus is ~50k tokens; reading it wholesale
@@ -329,23 +328,12 @@ release-by-release upgrade history under `## Upgrading the SDK` — **skip that
 section** unless the developer is upgrading from a specific older version. For
 a new integration, `## Installing the SDK` is the part that matters. Where a
 doc shows the same snippet in both Java and Kotlin, read the one matching the
-host project. The `snippets:` block in each doc's YAML frontmatter is CI
-validation metadata (hashes, line counts) — it tells you nothing; skip it.
+host project.
 
-### Source later: Context7 *(curated library not published yet — do not fetch)*
-
-The Context7 MCP server **is** connected (the plugin bundles it), but Iterable's
-curated library is **not published there yet** — [`.context7-library-id`](.context7-library-id)
-is still the placeholder `TODO-PHASE-3/...`. So do **not** call Context7 for
-Iterable docs right now: a `resolve-library-id` / `query-docs` lookup would
-return some *unrelated public* library, not this skill's vetted corpus. The
-[`snapshot/`](snapshot/) is authoritative until the real ID lands.
-
-Once a real library ID is dropped into that file (first non-comment line; one
-that does **not** start with `TODO-`), the flow becomes: read the ID, fetch the
-matching slug via the Context7 MCP tool (self-contained — one doc per task,
-don't bulk-load), use its snippets verbatim, and surface any `sdk_min_version`
-mismatch.
+Each doc's YAML frontmatter carries provenance (`source_url`, `source_ref`,
+`fetched_at`) and an `sdk_min_version` pin. Cite `source_url` when the developer
+asks where guidance came from; surface `sdk_min_version` when it's older than
+the version they're on.
 
 ### Slug routing
 
@@ -390,11 +378,9 @@ before writing any code is the fastest way to compact mid-task.
    the upgrade path (Step 0), not the new-integration path.
 2. **Check rules 1–5 above** against whatever the user already has. Many
    "the SDK isn't working" reports are rule violations.
-3. **Read the matching slug for the task** before writing code, from whichever
-   source the "How to use this skill" section marks authoritative (the
-   `snapshot/` today). Each doc has its own gotchas section that supersedes
-   generic advice.
-4. **For non-obvious traps not covered in the polished doc**, consult
+3. **Read the matching slug for the task** from `reference/` before writing
+   code. Each doc has its own gotchas section that supersedes generic advice.
+4. **For non-obvious traps not covered in the reference doc**, consult
    [`PITFALLS.md`](PITFALLS.md).
 5. **Version-check.** If the user is on an older SDK version than the doc's
    `sdk_min_version`, check the breaking changes before generating code. The
@@ -419,10 +405,8 @@ before writing any code is the fastest way to compact mid-task.
 
 ## Versioning
 
-This skill is versioned alongside the SDK. Each release of the SDK that
-changes public API or agent-relevant behavior triggers a corresponding update
-in the polished corpus (`polished/android/`), Context7 re-crawls on its
-normal cadence, and `snapshot:refresh` runs as part of the merge to keep
-the local fallback aligned. If you see drift between this skill's snippets
-and the SDK's current `CHANGELOG.md`, **trust `CHANGELOG.md`** and report
-the drift.
+This skill is versioned alongside the SDK. When Iterable's docs change, a
+refresh PR rewrites `reference/` from the docs at that commit; each doc records
+the exact `source_ref` it came from. If you see drift between this skill's
+snippets and the SDK's current `CHANGELOG.md`, **trust `CHANGELOG.md`** and
+report the drift.

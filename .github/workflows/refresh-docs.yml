@@ -3,11 +3,10 @@ name: Refresh docs
 # Triggered when Iterable/iterable-docs publishes a change to an SDK doc
 # path. The docs repo dispatches `iterable-docs-changed` (optionally with a
 # `client_payload.ref` = the docs commit); this workflow resolves that ref
-# (or the docs default-branch head on a manual run), fetches the fresh
-# markdown at that commit, runs the deterministic transform, bumps the
-# pinned `source.ref` in pipeline/config to match, and opens a PR. There is
-# no LLM step — the corpus is the docs reshaped. A reviewer refreshes the
-# snapshot and merges.
+# (or the docs default-branch head on a manual run), rewrites
+# `iterable-android/reference/` from the docs at that commit, bumps the pinned
+# `source.ref` in pipeline/config to match, and opens a PR. There is no LLM
+# step — the corpus is the docs reshaped.
 #
 # `workflow_dispatch` is kept as a manual fallback for re-running a
 # refresh outside of a docs-side trigger (e.g. when validating a config
@@ -77,28 +76,24 @@ jobs:
           echo "label=master @ $(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
           echo "Resolved ${req} → ${sha}"
 
-      - name: Fetch sources (reads private iterable-docs via gh api)
+      - name: Refresh reference corpus (reads private iterable-docs via gh api)
         working-directory: pipeline
         env:
           GH_TOKEN: ${{ secrets.DOCS_READ_TOKEN }}
           SOURCE_REF: ${{ steps.ref.outputs.sha }}
-        run: pnpm fetch:sources -- ${{ github.event.inputs.platform || github.event.client_payload.platform || 'android' }}
-
-      - name: Polish Layer A
-        working-directory: pipeline
-        run: pnpm polish:a -- --platform=${{ github.event.inputs.platform || github.event.client_payload.platform || 'android' }}
+        run: pnpm refresh:docs -- ${{ github.event.inputs.platform || github.event.client_payload.platform || 'android' }}
 
       - name: Detect changes
         id: changes
         run: |
-          if git diff --quiet sources/ polished/; then
+          ref_dir=iterable-android/reference
+          if git diff --quiet "$ref_dir"; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           echo "changed=true" >> "$GITHUB_OUTPUT"
-          # Slugs touched in sources/ this run
-          slugs=$(git diff --name-only sources/ \
-            | sed -E 's|sources/[^/]+/([^/]+)\.md|\1|' \
+          slugs=$(git diff --name-only "$ref_dir" \
+            | sed -E "s|.*/([^/]+)\.md|\1|" \
             | sort -u | paste -sd ', ' -)
           echo "slugs=${slugs}" >> "$GITHUB_OUTPUT"
 
@@ -110,13 +105,6 @@ jobs:
           ${{ github.event.inputs.platform || github.event.client_payload.platform || 'android' }}
           ${{ steps.ref.outputs.sha }}
           "${{ steps.ref.outputs.label }}"
-
-      - name: Refresh snapshot
-        if: steps.changes.outputs.changed == 'true'
-        working-directory: pipeline
-        # polish:a wrote the fresh corpus to polished/; the snapshot must be
-        # regenerated from it or the PR fails its own snapshot:verify gate.
-        run: pnpm snapshot:refresh
 
       - name: Open refresh PR
         if: steps.changes.outputs.changed == 'true'
@@ -132,9 +120,9 @@ jobs:
 
             Slugs: ${{ steps.changes.outputs.slugs }}
           body: |
-            Automated refresh of `sources/` and the deterministic `polished/`
-            corpus (Layer A). **No LLM rewrite step** — the polished corpus is
-            a deterministic transform of the docs.
+            Automated refresh of `iterable-android/reference/` — the docs corpus
+            the skill reads. **No LLM step**: the corpus is a deterministic
+            transform of Iterable's published docs.
 
             **Slugs touched:** ${{ steps.changes.outputs.slugs }}
             **Docs commit:** `${{ steps.ref.outputs.sha }}`
@@ -142,18 +130,16 @@ jobs:
 
             ## Reviewer steps
 
-            1. Check out this branch.
-            2. Spot-check the diff against `sources/` for content fidelity —
-               the transform only strips boilerplate / normalizes structure,
-               so headings and code should match the upstream docs.
+            1. Read the diff as docs, not code — this is what the agent will
+               tell developers to do. Check that changed guidance still agrees
+               with `iterable-android/PITFALLS.md`; if the docs now contradict a
+               pitfall, the pitfall needs updating in the same PR.
+            2. If a slug's headings moved, check the routing table in
+               `iterable-android/SKILL.md` still points at sections that exist.
             3. Confirm the `source.ref` bump in `pipeline/config` matches the
                docs commit above (provenance stays honest).
-            4. Run `pnpm snapshot:refresh` and commit the resulting
-               `iterable-android/snapshot/` changes. CI's `snapshot:verify`
-               gate will fail the build otherwise.
-            5. Confirm `pnpm check:all` is green locally.
-            6. Merge to `main`. Context7 picks up the change on its next
-               crawl (`context7.json` controls scope).
+            4. Merge to `main`. Context7 re-indexes on its next crawl
+               (`context7.json` controls scope).
           labels: |
             docs-refresh
             automated
