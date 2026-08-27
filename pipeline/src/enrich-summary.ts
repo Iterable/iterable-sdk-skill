@@ -1,11 +1,11 @@
 /**
- * Populates the `summary` frontmatter field on polished/layer-a markdown
- * files using `extractSummary`. Idempotent: skips files whose existing
- * summary already matches what the extractor would produce.
+ * Populates the `summary` frontmatter field on reference markdown files using
+ * `extractSummary`. Idempotent: skips files whose existing summary already
+ * matches what the extractor would produce.
  *
  * Usage:
  *   pnpm enrich:summary <path...>
- *   pnpm enrich:summary ../polished/android/*.md
+ *   pnpm enrich:summary ../iterable-android/reference/*.md
  *
  * Pass `--overwrite` to replace hand-edited summaries with the extractor's
  * output. By default, files with an existing summary are left alone.

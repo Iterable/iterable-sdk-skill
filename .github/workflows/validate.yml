@@ -1,27 +1,30 @@
-name: Validate polished corpus
+name: Validate
 
-# Runs the pipeline's full validation suite on every push to main and every PR.
-# Blocking gates: typecheck, polished-frontmatter schema, layer-a vs polished
-# structural diff. Advisory (always exit 0): chunking lint and kotlinc snippet
-# check. The snippet check is advisory in v1 because kotlinc -script runs full
-# semantic analysis and floods on "unresolved reference" without a classpath;
-# tracked follow-up loads the Iterable SDK + android.jar so it can become
-# blocking in v2.
+# Blocking gates only: typecheck, reference-corpus frontmatter + config/corpus
+# slug agreement, and plugin manifests. Every gate here can actually fail.
 
 on:
   push:
     branches: [main]
     paths:
-      - polished/**
+      - iterable-android/**
       - pipeline/**
-      - iterable-android/snapshot/**
+      - .claude-plugin/**
+      - .cursor-plugin/**
+      - mcp.json
+      - .mcp.json
+      - context7.json
       - .github/workflows/validate.yml
   pull_request:
     branches: [main]
     paths:
-      - polished/**
+      - iterable-android/**
       - pipeline/**
-      - iterable-android/snapshot/**
+      - .claude-plugin/**
+      - .cursor-plugin/**
+      - mcp.json
+      - .mcp.json
+      - context7.json
       - .github/workflows/validate.yml
   workflow_dispatch:
 
@@ -47,22 +50,6 @@ jobs:
           node-version: 20
           cache: pnpm
           cache-dependency-path: pipeline/pnpm-lock.yaml
-
-      - name: Setup Java (kotlinc dependency)
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-
-      - name: Install Kotlin compiler
-        run: |
-          set -euo pipefail
-          curl -sL "https://github.com/JetBrains/kotlin/releases/download/v1.9.24/kotlin-compiler-1.9.24.zip" -o /tmp/kotlinc.zip
-          unzip -q /tmp/kotlinc.zip -d "$HOME"
-          echo "$HOME/kotlinc/bin" >> "$GITHUB_PATH"
-
-      - name: Verify kotlinc
-        run: kotlinc -version
 
       - name: Install pipeline deps
         working-directory: pipeline

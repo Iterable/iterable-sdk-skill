@@ -1,15 +1,10 @@
 /**
- * Stage 2 — Polish, Layer A.
- *
- * Deterministic markdown transforms applied to a `sources/<platform>/<slug>.md`
- * file before the LLM polish step. Each transform is small, reversible, and
- * easy to unit-test. Editorial decisions (drop Java when Kotlin sibling
- * exists, etc.) are deferred to Layer B.
- *
- * The output is "Layer A intermediate" markdown — not yet the final polish.
+ * Deterministic markdown transforms applied to a doc fetched from
+ * Iterable/iterable-docs before it lands in `iterable-android/reference/`.
+ * Each transform is small, reversible, and easy to unit-test. There is no LLM
+ * stage — the reference corpus is the docs reshaped, nothing more.
  */
 
-import { createHash } from "node:crypto";
 import { splitFrontmatter, joinFrontmatter, type Frontmatter } from "./frontmatter.ts";
 import { extractSummary } from "./summary.ts";
 
@@ -28,25 +23,14 @@ export interface LayerAContext {
   sdkArtifact: string;
 }
 
-export interface SnippetEntry {
-  index: number;
-  lang: string;
-  hash: string;
-  line_count: number;
-}
-
 export interface LayerAResult {
   output: string;
-  snippets: SnippetEntry[];
+  snippetCount: number;
 }
 
 export function applyLayerA(raw: string, ctx: LayerAContext): LayerAResult {
   const { frontmatter, body } = splitFrontmatter(raw);
-
-  // Manifest is computed against the source body so it captures every
-  // original snippet — including fences inside containers — regardless of
-  // how the structural transforms below reshape them.
-  const snippets = collectSnippets(body);
+  const snippetCount = countSnippets(body);
 
   let working = body;
   working = stripTocMarker(working);
@@ -61,16 +45,18 @@ export function applyLayerA(raw: string, ctx: LayerAContext): LayerAResult {
   // callouts converted to GH style).
   const summary = extractSummary(working);
 
-  const newFrontmatter = rewriteFrontmatter(frontmatter, ctx, snippets, summary);
-  return { output: joinFrontmatter(newFrontmatter, working), snippets };
+  const newFrontmatter = rewriteFrontmatter(frontmatter, ctx, summary);
+  return { output: joinFrontmatter(newFrontmatter, working), snippetCount };
 }
 
 // ── Frontmatter rewrite ─────────────────────────────────────────────
 
+// No generated-at timestamp here on purpose: it would differ on every run, so
+// a re-fetch of unchanged docs would look like a change to `git diff` and the
+// refresh workflow would open an empty PR every time it fires.
 function rewriteFrontmatter(
   fm: Frontmatter,
   ctx: LayerAContext,
-  snippets: SnippetEntry[],
   summary: string | undefined,
 ): Frontmatter {
   const out: Frontmatter = {
@@ -86,9 +72,6 @@ function rewriteFrontmatter(
     source_ref: fm.source_ref,
     source_sha: fm.source_sha,
     fetched_at: fm.fetched_at,
-    polished_at: new Date().toISOString(),
-    layer: "a",
-    snippets,
   };
   if (summary !== undefined) out.summary = summary;
   return out;
@@ -218,41 +201,17 @@ function collapseBlankLines(text: string): string {
  * Note: fences indented by 4+ spaces are not fences per CommonMark — they
  * are part of an indented code block — and are intentionally not matched.
  */
-export function collectSnippets(text: string): SnippetEntry[] {
-  const out: SnippetEntry[] = [];
-  const lines = text.split("\n");
-  const openRe = /^ {0,3}```([a-zA-Z0-9_+-]*)\s*$/;
-  const closeRe = /^ {0,3}```\s*$/;
+/** Counts fenced code blocks — reported by the CLI so a refresh shows at a
+ *  glance whether a doc's code changed shape. Not persisted anywhere. */
+export function countSnippets(text: string): number {
+  const fenceRe = /^ {0,3}```/;
+  let count = 0;
   let inFence = false;
-  let fenceLang = "";
-  let fenceLines: string[] = [];
-  let index = 0;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i] ?? "";
-    const open = openRe.exec(line);
-    if (!inFence && open) {
-      inFence = true;
-      fenceLang = open[1] ?? "";
-      fenceLines = [];
-      continue;
+  for (const line of text.split("\n")) {
+    if (fenceRe.test(line)) {
+      if (!inFence) count++;
+      inFence = !inFence;
     }
-    if (inFence && closeRe.test(line)) {
-      const content = fenceLines.join("\n");
-      const hash = createHash("sha256").update(content).digest("hex").slice(0, 12);
-      out.push({
-        index,
-        lang: fenceLang || "text",
-        hash,
-        line_count: fenceLines.length,
-      });
-      index++;
-      inFence = false;
-      fenceLang = "";
-      fenceLines = [];
-      continue;
-    }
-    if (inFence) fenceLines.push(line);
   }
-  return out;
+  return count;
 }

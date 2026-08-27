@@ -1,14 +1,14 @@
 # Reviewer guide
 
-The pipeline opens automated PRs whenever Iterable's docs change (see
+A workflow opens an automated PR whenever Iterable's docs change (see
 [`refresh-docs.yml`](.github/workflows/refresh-docs.yml)). This document is
 the reviewer's playbook for those PRs and for any hand-authored change to
-the corpus.
+`iterable-android/reference/`.
 
 The corpus is a **deterministic transform** of Iterable's docs — **no LLM
-rewrites the content**. So review is mostly mechanical: confirm the transform
-faithfully reshaped the upstream docs and didn't lose anything. There is no
-LLM output to second-guess.
+rewrites the content**. There is no LLM output to second-guess, so the review
+is not about hallucination. It's about whether the new guidance is something we
+want the agent handing to a developer.
 
 ---
 
@@ -18,61 +18,56 @@ Three flavors of PR land in this repo:
 
 | PR type | Source | Reviewer focus |
 |---|---|---|
-| **Automated docs refresh** | `refresh-docs.yml` dispatch / `workflow_dispatch` | Source diff fidelity + snapshot refreshed |
-| **Manual content edit** | a contributor hand-edits a corpus doc | Why is hand-editing needed? Should the transform learn it instead? |
-| **Pipeline / schema / CI change** | edits under `pipeline/`, `.github/`, or `iterable-android/` (not snapshot) | Standard code review, plus run `pnpm check:all` |
+| **Automated docs refresh** | `refresh-docs.yml` dispatch / `workflow_dispatch` | Does the new guidance still agree with `PITFALLS.md`? |
+| **Manual content edit** | a contributor hand-edits a reference doc | Why is hand-editing needed? Should the transform learn it instead? |
+| **Skill / pipeline / CI change** | edits to `SKILL.md`, `PITFALLS.md`, `pipeline/`, `.github/` | Standard code review, plus run `pnpm check:all` |
 
 The rest of this document is the **docs-refresh** flow because that's the one
 that happens on cadence. The other two are covered by standard code review.
 
 ---
 
-## Step 1 — Verify the source diff looks sane (2 min)
+## Step 1 — Check provenance (1 min)
 
-Open the PR. The body lists the touched slugs and points at the auto-fetched
-sources. Spot-check:
+Open the PR. The body lists the touched slugs and the docs commit.
 
-- [ ] **Source files match Iterable's docs at the pinned commit.** If
-  `source_ref` in any frontmatter is suspicious (e.g. points to a branch
-  rather than a commit SHA), stop and investigate — the pin is the pipeline's
-  one guarantee against moving-target drift.
-- [ ] **No source file was added or removed unexpectedly.** A new file
-  means the pipeline picked up a new Iterable doc; confirm it's intentional.
-- [ ] **The slug list in the PR title matches the actual `sources/` diff.**
-  Mismatch usually means the workflow misparsed slugs — flag, don't merge.
+- [ ] **`source_ref` in the changed frontmatter is a 40-char commit SHA**, not a
+  branch name. The pin is our one guarantee against moving-target drift.
+- [ ] **The `source.ref` bump in `pipeline/config` matches the docs commit in
+  the PR body.**
+- [ ] **No doc was added or removed unexpectedly.** The corpus only contains
+  slugs listed in `pipeline/config/<platform>.yml`; `validate:reference` fails
+  if they disagree, so an add/remove means someone edited the config too.
 
 ---
 
-## Step 2 — Refresh the snapshot and run the gates (2 min)
-
-The transform runs automatically in the refresh workflow, so the `polished/`
-diff is already in the PR. You just need to keep the installable snapshot in
-sync and confirm the gates pass:
+## Step 2 — Run the gates (1 min)
 
 ```bash
 git checkout <pr-branch>
-cd pipeline
-pnpm snapshot:refresh   # mirror polished/ → iterable-android/snapshot/
-pnpm check:all          # MUST be green before you push
+cd pipeline && pnpm check:all
 ```
-
-Commit any `iterable-android/snapshot/` changes — CI's `snapshot:verify` gate
-will fail the build otherwise.
 
 ---
 
-## Step 3 — Read the diff for what the gates can't catch (5 min)
+## Step 3 — Read the diff as documentation (5 min)
 
-The mechanical gates catch frontmatter validity, snippet-manifest consistency,
-snapshot drift, and (advisory) snippet syntax. Because the transform is
-deterministic, there's no hallucination risk — but it's still worth a human
-read of the diff against `sources/`:
+This is the part no gate can do. The diff is what the agent will tell a
+developer to do, so read it that way:
 
+- [ ] **Does the changed guidance contradict `PITFALLS.md`?** This is the most
+  important question in the review. The pitfalls encode silent-failure traps;
+  if Iterable's docs now recommend something a pitfall warns against, one of the
+  two is wrong. Resolve it in this PR — don't merge a corpus that argues with
+  itself.
+- [ ] **Did headings move?** `SKILL.md`'s routing table points at slugs, and the
+  upgrade row points at `## Upgrading the SDK` inside `android-sdk`. If a
+  referenced section was renamed, update the routing table in the same PR.
 - [ ] **The transform only reshaped, never changed meaning.** Boilerplate
   removed, callouts converted, blank lines collapsed — but no claim added,
-  weakened, or reversed. If the diff shows a *content* change that isn't
-  explained by an upstream edit, the transform has a bug; file it against
-  `pipeline/`, don't hand-patch the output.
+  weakened, or reversed. A *content* change not explained by an upstream edit
+  means the transform has a bug; file it against `pipeline/`, don't hand-patch
+  the output.
 - [ ] **Links still resolve.** The transform doesn't touch URLs, but upstream
   may have changed one. Spot-check any new/changed `support.iterable.com` link.
 
@@ -80,22 +75,19 @@ read of the diff against `sources/`:
 - [ ] **Snippet errors that came from upstream stay in.** The corpus mirrors
   the docs; we don't hand-fix upstream typos here. Track them as issues
   against `Iterable/iterable-docs` and move on.
-- [ ] **Snippet-match ≠ snippet-compiles.** `snapshot:verify` proves the
-  snapshot matches the corpus byte-for-byte; the `kotlinc` gate is advisory
-  (no classpath). Neither proves a snippet compiles against the pinned SDK. A
-  doc can be perfectly faithful and still ship a *wrong-overload* example
-  (real case: the 3-arg `initializeInBackground(context, key, config)` binds
-  config to the callback slot — see PITFALLS.md #18). When a snippet is
-  load-bearing, eyeball it against the actual SDK signatures; if it's an SDK
-  foot-gun rather than a one-doc typo, add it to `PITFALLS.md` rather than
-  patching the doc. (v2: blocking compile check with the SDK aar closes this.)
+- [ ] **Nothing here proves a snippet compiles.** The gates check frontmatter
+  and slug agreement, not code. A doc can be perfectly faithful and still ship a
+  *wrong-overload* example (real case: the 3-arg
+  `initializeInBackground(context, key, config)` binds config to the callback
+  slot — see PITFALLS.md #18). When a snippet is load-bearing, eyeball it
+  against the actual SDK signatures; if it's an SDK foot-gun rather than a
+  one-doc typo, add it to `PITFALLS.md` rather than patching the doc.
 
 ---
 
 ## Step 4 — Final check before merging (1 min)
 
 - [ ] `pnpm check:all` is green locally.
-- [ ] `iterable-android/snapshot/` was refreshed in this PR.
 - [ ] The PR description still accurately describes what changed.
 
 ---
@@ -134,8 +126,10 @@ docs-refresh PR.
   iOS/JavaScript snippets (`identifying-the-user`, `updating-user-profiles`,
   `tracking-events-with-iterables-mobile-sdks`). Deterministic
   foreign-language stripping is a candidate v1.1 transform.
-- `kotlinc -script` snippet check is advisory (no classpath in v1); the
-  "unresolved reference" warnings are expected.
+- **No snippet compile check.** There is no gate that compiles corpus snippets
+  against the pinned SDK; a reviewer's eye on load-bearing snippets is the only
+  check. Adding one means an Android toolchain in CI — worth it only if wrong
+  snippets actually reach developers.
 
 If a fix would touch any of the above, open a separate PR scoped to the
 fix, not a refresh PR.

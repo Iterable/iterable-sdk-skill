@@ -1,13 +1,9 @@
-# Iterable Android SDK — pipeline config.
+# Iterable Android SDK — docs refresh config.
 #
-# Stages 1–3 of the pipeline read this single file:
-#   - Stage 1 (fetch)  : pulls each `articles[].source_path` from `source.repo`
-#                        at `source.ref` into `paths.sources_dir`.
-#   - Stage 2 (polish) : reads `paths.sources_dir`, picks a prompt based on
-#                        `articles[].archetype`, attaches version pins from
-#                        `sdk.changelog_path`, writes `paths.polished_dir`.
-#   - Stage 3 (publish): diffs `paths.polished_dir` against `paths.skill_dir`
-#                        for v1; ships to Context7 once `publish.enabled`.
+# `pnpm refresh:docs` reads this file: it pulls each `articles[].source_path`
+# from `source.repo` at `source.ref`, applies the deterministic transforms, and
+# writes `paths.reference_dir`/<slug>.md — the corpus the skill reads. One
+# stage, no intermediate directories, no LLM.
 #
 # Bump `source.ref` deliberately when re-fetching so diffs against the
 # previous run reflect upstream changes only.
@@ -25,21 +21,7 @@ sdk:
   changelog_path: CHANGELOG.md
 
 paths:
-  sources_dir: sources/android
-  polished_dir: polished/android
-  skill_dir: iterable-android
-
-publish:
-  enabled: false
-  context7:
-    library_name: iterable/android-sdk
-    version_from: sdk.tag
-
-# NOTE: v1 has no LLM rewrite stage. The corpus is the deterministic transform
-# output only. Editorial steps that once lived in an
-# "Layer B" LLM pass — prose voice-shift, Java/Kotlin de-dup, cross-platform code
-# stripping — are intentionally not run; any of them could return later as a
-# deterministic transform without reintroducing an LLM.
+  reference_dir: iterable-android/reference
 
 articles:
   - slug: android-sdk

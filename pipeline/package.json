@@ -7,22 +7,16 @@
     "node": ">=20"
   },
   "scripts": {
-    "fetch:sources": "tsx src/fetch.ts",
+    "refresh:docs": "tsx src/refresh.ts",
     "set:source-ref": "tsx src/set-source-ref.ts",
-    "polish:a": "tsx src/polish-layer-a.ts",
-    "validate:polished": "tsx src/validate-polished.ts",
+    "validate:reference": "tsx src/validate-reference.ts",
     "validate:plugins": "tsx src/validate-plugins.ts",
-    "check:snippets": "tsx src/check-snippets.ts",
-    "lint:chunking": "tsx src/lint-chunking.ts",
-    "recompute:manifest": "tsx src/recompute-manifest.ts",
     "enrich:summary": "tsx src/enrich-summary.ts",
-    "snapshot:refresh": "tsx src/snapshot.ts refresh",
-    "snapshot:verify": "tsx src/snapshot.ts verify",
     "eval:prompts": "tsx src/eval-run.ts prompts",
     "eval:run": "tsx src/eval-run.ts run",
     "eval:report": "tsx src/eval-report.ts",
     "typecheck": "tsc --noEmit",
-    "check:all": "pnpm typecheck && pnpm validate:polished && pnpm validate:plugins && pnpm snapshot:verify && pnpm check:snippets && pnpm lint:chunking"
+    "check:all": "pnpm typecheck && pnpm validate:reference && pnpm validate:plugins"
   },
   "devDependencies": {
     "@types/node": "^22.7.0",
