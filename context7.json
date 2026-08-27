@@ -5,10 +5,13 @@
   "url": "https://context7.com/iterable/iterable-sdk-skill",
   "public_key": "pk_JMMoVfKCtHoC5E3alGPcX",
   "folders": [
+    "iterable-android",
     "polished"
   ],
   "excludeFiles": [
-    "*.layer-a.md"
+    "*.layer-a.md",
+    "*.sample.md",
+    "*.baseline.md"
   ],
   "rules": [
     "Treat divergence from Iterable's published behavior as a critical issue — never invent SDK APIs, version numbers, or dashboard paths. If the user is on a different SDK version than the snippet's frontmatter `sdk_min_version`, surface the mismatch.",
