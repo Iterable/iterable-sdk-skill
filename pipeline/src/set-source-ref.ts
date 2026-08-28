@@ -21,12 +21,7 @@
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { basename } from "node:path";
 import { parseDocument } from "yaml";
-import {
-  listPlatformConfigFiles,
-  resolvePlatformConfigPath,
-} from "./lib/platforms.ts";
-
-const SHA_RE = /^[0-9a-f]{40}$/;
+import { SHA_RE, listPlatformConfigFiles, resolvePlatformConfigPath } from "./lib/platforms.ts";
 
 function pinConfig(configPath: string, sha: string, label: string | undefined): void {
   if (!existsSync(configPath)) {

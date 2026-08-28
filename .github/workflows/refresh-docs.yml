@@ -5,8 +5,9 @@ name: Refresh docs
 # `client_payload.ref` = the docs commit); this workflow resolves that ref
 # (or the docs default-branch head on a manual run), rewrites every
 # configured platform's `reference/` from the docs at that commit, bumps the
-# pinned `source.ref` only for platforms whose corpus changed, and opens one
-# PR. There is no LLM step — the corpus is the docs reshaped.
+# pinned `source.ref` only for platforms whose corpus changed, and opens (or
+# updates) one PR on the stable `refresh/docs` branch. There is no LLM
+# step — the corpus is the docs reshaped.
 #
 # `workflow_dispatch` is kept as a manual fallback for re-running a
 # refresh outside of a docs-side trigger (e.g. when validating a config
@@ -16,6 +17,10 @@ on:
   repository_dispatch:
     types: [iterable-docs-changed]
   workflow_dispatch:
+
+concurrency:
+  group: refresh-docs
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -99,12 +104,12 @@ jobs:
         uses: peter-evans/create-pull-request@v6
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          branch: refresh/${{ github.run_id }}
+          branch: refresh/docs
           base: main
           delete-branch: true
-          title: "docs refresh (${{ steps.changes.outputs.platforms }}): ${{ steps.changes.outputs.slugs }}"
+          title: "docs refresh: ${{ steps.changes.outputs.platforms }}"
           commit-message: |
-            docs refresh (${{ steps.changes.outputs.platforms }}): Layer A only
+            docs refresh: ${{ steps.changes.outputs.platforms }}
 
             Slugs: ${{ steps.changes.outputs.slugs }}
           body: |

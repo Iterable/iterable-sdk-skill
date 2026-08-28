@@ -7,19 +7,21 @@
  * transforms, and writes <paths.reference_dir>/<slug>.md. There is no
  * intermediate directory and no LLM step — the corpus is the docs reshaped.
  *
- * Idempotent: an article whose upstream blob sha matches the `source_sha`
- * already recorded in the reference file is skipped. That's what makes
- * `git diff` after a run mean "upstream actually changed", which the refresh
- * workflow relies on to name the touched slugs.
+ * Idempotent: an article is skipped when the upstream blob sha *and* the
+ * Layer A inputs stamped into frontmatter (sdk tag/artifact, feature,
+ * archetype, source_path) already match. That's what makes `git diff` after
+ * a run mean "upstream or pin actually changed", which the refresh workflow
+ * relies on to name the touched slugs — `fetched_at` is not part of the key.
  *
  * Usage:
  *   pnpm refresh:docs              # every configured platform, one pass
  *   pnpm refresh:docs -- android   # one platform
  *
- * Ref override: set SOURCE_REF to fetch from a specific commit/branch instead
- * of the config's pinned `source.ref`. The auto-refresh workflow passes the
- * docs commit that triggered it; `set-source-ref.ts` then writes the resolved
- * SHA back into the config(s) whose corpus actually changed.
+ * Ref override: set SOURCE_REF to a commit SHA, branch, or tag. It is
+ * resolved to a 40-char SHA before fetch/write so generated `source_ref`
+ * stays schema-valid. The auto-refresh workflow passes the docs commit that
+ * triggered it; `set-source-ref.ts` then writes the resolved SHA back into
+ * the config(s) whose corpus actually changed.
  */
 
 import { execFileSync } from "node:child_process";
@@ -31,6 +33,8 @@ import {
   loadPlatformConfig,
   resolveConfigPaths,
   REPO_ROOT,
+  SHA_RE,
+  type ArticleConfig,
   type PlatformConfig,
 } from "./lib/platforms.ts";
 
@@ -38,6 +42,19 @@ interface ContentApiResponse {
   sha: string;
   content: string;
   encoding: "base64";
+}
+
+interface CommitApiResponse {
+  sha: string;
+}
+
+interface SkipInputs {
+  sourceSha: string;
+  sourcePath: string;
+  sdkVersion: string;
+  sdkArtifact: string;
+  feature: string;
+  archetype: string;
 }
 
 function ghApiJson<T>(path: string): T {
@@ -48,39 +65,62 @@ function ghApiJson<T>(path: string): T {
   return JSON.parse(stdout) as T;
 }
 
+function resolveCommitSha(repo: string, ref: string): string {
+  if (SHA_RE.test(ref)) return ref;
+  const res = ghApiJson<CommitApiResponse>(`repos/${repo}/commits/${encodeURIComponent(ref)}`);
+  if (!SHA_RE.test(res.sha)) {
+    throw new Error(`Could not resolve ${repo}@${ref} to a 40-char commit SHA (got "${res.sha}")`);
+  }
+  return res.sha;
+}
+
 function fetchArticle(repo: string, ref: string, sourcePath: string) {
   const res = ghApiJson<ContentApiResponse>(`repos/${repo}/contents/${sourcePath}?ref=${ref}`);
   return { sha: res.sha, body: Buffer.from(res.content, res.encoding).toString("utf8") };
 }
 
-function existingSourceSha(filePath: string): string | undefined {
+function existingSkipInputs(filePath: string): SkipInputs | undefined {
   if (!existsSync(filePath)) return undefined;
   const { frontmatter } = splitFrontmatter(readFileSync(filePath, "utf8"));
-  return typeof frontmatter.source_sha === "string" ? frontmatter.source_sha : undefined;
+  if (typeof frontmatter.source_sha !== "string") return undefined;
+  if (typeof frontmatter.source_path !== "string") return undefined;
+  if (typeof frontmatter.sdk_min_version !== "string") return undefined;
+  if (typeof frontmatter.sdk_artifact !== "string") return undefined;
+  if (typeof frontmatter.feature !== "string") return undefined;
+  if (typeof frontmatter.archetype !== "string") return undefined;
+  return {
+    sourceSha: frontmatter.source_sha,
+    sourcePath: frontmatter.source_path,
+    sdkVersion: frontmatter.sdk_min_version,
+    sdkArtifact: frontmatter.sdk_artifact,
+    feature: frontmatter.feature,
+    archetype: frontmatter.archetype,
+  };
 }
 
-function requireArtifact(config: PlatformConfig): string {
-  const artifact = config.sdk.artifact;
-  if (typeof artifact !== "string" || artifact.length === 0) {
-    throw new Error(
-      `pipeline/config/${config.platform}.yml: sdk.artifact is required (Maven coordinate or npm package name)`,
-    );
-  }
-  return artifact;
+function shouldSkip(filePath: string, next: SkipInputs): boolean {
+  const existing = existingSkipInputs(filePath);
+  if (!existing) return false;
+  return (
+    existing.sourceSha === next.sourceSha &&
+    existing.sourcePath === next.sourcePath &&
+    existing.sdkVersion === next.sdkVersion &&
+    existing.sdkArtifact === next.sdkArtifact &&
+    existing.feature === next.feature &&
+    existing.archetype === next.archetype
+  );
 }
 
-function refreshConfig(config: PlatformConfig): { written: number; skipped: number } {
-  const artifact = requireArtifact(config);
+function refreshConfig(config: PlatformConfig, sourceRef: string): { written: number; skipped: number } {
   const outDir = resolve(REPO_ROOT, config.paths.reference_dir);
   mkdirSync(outDir, { recursive: true });
 
   const refOverride = process.env.SOURCE_REF?.trim();
-  const sourceRef = refOverride || config.source.ref;
   const refDisplay = refOverride
     ? `${sourceRef} (SOURCE_REF override)`
     : config.source.ref_label
-      ? `${config.source.ref.slice(0, 7)} (${config.source.ref_label})`
-      : config.source.ref.slice(0, 7);
+      ? `${sourceRef.slice(0, 7)} (${config.source.ref_label})`
+      : sourceRef.slice(0, 7);
 
   console.log(
     `Refreshing ${config.articles.length} ${config.platform} articles from ${config.source.repo}@${refDisplay}`,
@@ -92,43 +132,62 @@ function refreshConfig(config: PlatformConfig): { written: number; skipped: numb
   for (const article of config.articles) {
     const outPath = resolve(outDir, `${article.slug}.md`);
     const { sha, body } = fetchArticle(config.source.repo, sourceRef, article.source_path);
+    const skipInputs: SkipInputs = {
+      sourceSha: sha,
+      sourcePath: article.source_path,
+      sdkVersion: config.sdk.tag,
+      sdkArtifact: config.sdk.artifact,
+      feature: article.feature,
+      archetype: article.archetype,
+    };
 
-    if (existingSourceSha(outPath) === sha) {
+    if (shouldSkip(outPath, skipInputs)) {
       console.log(`  skip   ${article.slug}  (unchanged)`);
       skipped++;
       continue;
     }
 
-    const { frontmatter, body: articleBody } = splitFrontmatter(body);
-    const withProvenance = joinFrontmatter(
-      {
-        ...frontmatter,
-        source_repo: config.source.repo,
-        source_path: article.source_path,
-        source_ref: sourceRef,
-        source_sha: sha,
-        fetched_at: new Date().toISOString(),
-      },
-      articleBody,
-    );
-
-    const ctx: LayerAContext = {
-      slug: article.slug,
-      feature: article.feature,
-      archetype: article.archetype,
-      sdkVersion: config.sdk.tag,
-      sdkArtifact: artifact,
-    };
-    const { output, snippetCount } = applyLayerA(withProvenance, ctx);
-    writeFileSync(outPath, output, "utf8");
-    console.log(
-      `  write  ${article.slug}  (${sha.slice(0, 7)}, ${snippetCount} snippet${snippetCount === 1 ? "" : "s"})`,
-    );
+    writeArticle(outPath, article, config, sourceRef, sha, body);
     written++;
   }
 
   console.log(`\nDone ${config.platform}. ${written} written, ${skipped} unchanged.\n`);
   return { written, skipped };
+}
+
+function writeArticle(
+  outPath: string,
+  article: ArticleConfig,
+  config: PlatformConfig,
+  sourceRef: string,
+  sha: string,
+  body: string,
+): void {
+  const { frontmatter, body: articleBody } = splitFrontmatter(body);
+  const withProvenance = joinFrontmatter(
+    {
+      ...frontmatter,
+      source_repo: config.source.repo,
+      source_path: article.source_path,
+      source_ref: sourceRef,
+      source_sha: sha,
+      fetched_at: new Date().toISOString(),
+    },
+    articleBody,
+  );
+
+  const ctx: LayerAContext = {
+    slug: article.slug,
+    feature: article.feature,
+    archetype: article.archetype,
+    sdkVersion: config.sdk.tag,
+    sdkArtifact: config.sdk.artifact,
+  };
+  const { output, snippetCount } = applyLayerA(withProvenance, ctx);
+  writeFileSync(outPath, output, "utf8");
+  console.log(
+    `  write  ${article.slug}  (${sha.slice(0, 7)}, ${snippetCount} snippet${snippetCount === 1 ? "" : "s"})`,
+  );
 }
 
 function main() {
@@ -143,11 +202,35 @@ function main() {
     return;
   }
 
+  const refOverride = process.env.SOURCE_REF?.trim();
+  const shaByRepo = new Map<string, string>();
+
   let written = 0;
   let skipped = 0;
   for (const configPath of configPaths) {
-    const config = loadPlatformConfig(configPath);
-    const result = refreshConfig(config);
+    let config: PlatformConfig;
+    try {
+      config = loadPlatformConfig(configPath);
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exit(1);
+      return;
+    }
+
+    const requested = refOverride || config.source.ref;
+    let sourceRef = shaByRepo.get(`${config.source.repo}@${requested}`);
+    if (!sourceRef) {
+      try {
+        sourceRef = resolveCommitSha(config.source.repo, requested);
+      } catch (error) {
+        console.error(error instanceof Error ? error.message : String(error));
+        process.exit(1);
+        return;
+      }
+      shaByRepo.set(`${config.source.repo}@${requested}`, sourceRef);
+    }
+
+    const result = refreshConfig(config, sourceRef);
     written += result.written;
     skipped += result.skipped;
   }

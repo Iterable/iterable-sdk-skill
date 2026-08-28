@@ -12,7 +12,7 @@
 
 import { appendFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { listPlatformConfigFiles, loadPlatformConfig, REPO_ROOT } from "./lib/platforms.ts";
+import { loadAllPlatformConfigs, REPO_ROOT } from "./lib/platforms.ts";
 
 function git(args: string[]): string {
   return execFileSync("git", args, { cwd: REPO_ROOT, encoding: "utf8" });
@@ -40,8 +40,16 @@ function main(): void {
   const platforms: string[] = [];
   const slugs = new Set<string>();
 
-  for (const configPath of listPlatformConfigFiles()) {
-    const config = loadPlatformConfig(configPath);
+  let loaded;
+  try {
+    loaded = loadAllPlatformConfigs();
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+    return;
+  }
+
+  for (const { config } of loaded) {
     const files = changedFiles(config.paths.reference_dir);
     if (files.length === 0) continue;
     platforms.push(config.platform);
