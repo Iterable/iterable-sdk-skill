@@ -124,7 +124,16 @@ API key, a placeholder `google-services.json`, or a JWT signed in the client.
 - **EU customers** must set `config.dataRegion = IterableDataRegion.EU`
   (default is US).
 - **The JS API is not the native API.** If a method is not in `reference/`,
-  it is not available from JavaScript (pitfall #4).
+  it is not available from JavaScript (pitfall #4). Public exports live on
+  `Iterable`, `IterableConfig`, and the in-app / inbox / embedded modules from
+  `@iterable/react-native-sdk` — not `NativeRNIterableAPI` or `IterableApi`.
+- **Native Android/iOS SDK versions come from this RN package, not from the
+  Android skill.** `@iterable/react-native-sdk` 3.1.0 ships Android `3.6.2`
+  and iOS `6.6.7`. Do not use Kotlin/Swift APIs that only exist on a newer
+  native SDK than the installed RN package pins (the Android skill's pin may
+  be ahead). Confirm in the RN README version table or
+  `node_modules/@iterable/react-native-sdk` (`android/build.gradle`, podspec)
+  for the version they have.
 
 ---
 

@@ -22,6 +22,11 @@
  * stays schema-valid. The auto-refresh workflow passes the docs commit that
  * triggered it; `set-source-ref.ts` then writes the resolved SHA back into
  * the config(s) whose corpus actually changed.
+ *
+ * Local clone: set DOCS_ROOT to a checkout of `source.repo` (same commit as
+ * SOURCE_REF / `source.ref`). Articles are read from disk and blob SHAs come
+ * from `git hash-object`, which matches GitHub's contents API. CI still
+ * uses `gh api`.
  */
 
 import { execFileSync } from "node:child_process";
@@ -57,6 +62,11 @@ interface SkipInputs {
   archetype: string;
 }
 
+function localDocsRoot(): string | undefined {
+  const root = process.env.DOCS_ROOT?.trim();
+  return root || undefined;
+}
+
 function ghApiJson<T>(path: string): T {
   const stdout = execFileSync("gh", ["api", path], {
     encoding: "utf8",
@@ -67,6 +77,16 @@ function ghApiJson<T>(path: string): T {
 
 function resolveCommitSha(repo: string, ref: string): string {
   if (SHA_RE.test(ref)) return ref;
+  const docsRoot = localDocsRoot();
+  if (docsRoot) {
+    const sha = execFileSync("git", ["-C", docsRoot, "rev-parse", `${ref}^{commit}`], {
+      encoding: "utf8",
+    }).trim();
+    if (!SHA_RE.test(sha)) {
+      throw new Error(`Could not resolve ${repo}@${ref} to a 40-char commit SHA (got "${sha}")`);
+    }
+    return sha;
+  }
   const res = ghApiJson<CommitApiResponse>(`repos/${repo}/commits/${encodeURIComponent(ref)}`);
   if (!SHA_RE.test(res.sha)) {
     throw new Error(`Could not resolve ${repo}@${ref} to a 40-char commit SHA (got "${res.sha}")`);
@@ -75,6 +95,18 @@ function resolveCommitSha(repo: string, ref: string): string {
 }
 
 function fetchArticle(repo: string, ref: string, sourcePath: string) {
+  const docsRoot = localDocsRoot();
+  if (docsRoot) {
+    const filePath = resolve(docsRoot, sourcePath);
+    if (!existsSync(filePath)) {
+      throw new Error(`DOCS_ROOT article missing: ${sourcePath} (looked in ${filePath})`);
+    }
+    const body = readFileSync(filePath, "utf8");
+    const sha = execFileSync("git", ["-C", docsRoot, "hash-object", sourcePath], {
+      encoding: "utf8",
+    }).trim();
+    return { sha, body };
+  }
   const res = ghApiJson<ContentApiResponse>(`repos/${repo}/contents/${sourcePath}?ref=${ref}`);
   return { sha: res.sha, body: Buffer.from(res.content, res.encoding).toString("utf8") };
 }
