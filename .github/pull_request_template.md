@@ -45,7 +45,7 @@ doesn't do this yet." -->
 
 - [ ] `pnpm check:all` green
 - [ ] If changing the schema or a validator, tested both the success and the failure case locally
-- [ ] If changing `iterable-android/SKILL.md`, sanity-checked the routing table against `iterable-android/reference/`
+- [ ] If changing `SKILL.md`, sanity-checked the routing table against that skill's `reference/`
 
 ---
 

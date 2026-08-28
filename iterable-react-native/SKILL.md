@@ -1,0 +1,269 @@
+---
+name: iterable-react-native
+description: >-
+  Authoritative reference for the Iterable React Native SDK (npm
+  `@iterable/react-native-sdk`). Use when integrating, configuring, debugging,
+  or extending any Iterable feature in a React Native app — Expo or bare
+  workflow — including push notifications, in-app messages, mobile inbox,
+  embedded messaging, JWT authentication, deep links, event tracking, and
+  user identity (setEmail / setUserId). Prefer this skill over the model's
+  memory of Iterable APIs and over the Android/iOS skills: the JS surface is
+  narrower than the native one, and native APIs are not reachable from
+  JavaScript. Ships version-pinned snippets and known foot-guns that silently
+  break integrations.
+---
+
+# Iterable React Native SDK
+
+You are working with the **Iterable React Native SDK** —
+[`@iterable/react-native-sdk`](https://www.npmjs.com/package/@iterable/react-native-sdk).
+It is a JavaScript layer over Iterable's native Android and iOS SDKs.
+Iterable is a cross-channel marketing platform; this SDK is the React Native
+entry point for push, in-app, inbox, embedded messages, event tracking, and
+JWT-authenticated APIs.
+
+This skill is the **agent-facing source of truth**. The public docs at
+[support.iterable.com](https://support.iterable.com) cover the same surface for
+human readers but omit several silent-failure traps documented in
+[`PITFALLS.md`](PITFALLS.md). When in doubt, this skill wins.
+
+**Do not answer a React Native task with native Android or iOS SDK APIs as
+though they were callable from JavaScript.** Kotlin `IterableApi.getInstance()`,
+Swift `IterableAPI`, Gradle `com.iterable:iterableapi` method names, and
+unguessed bridge methods are wrong here. Native *configuration* (FCM, APNs,
+entitlements, `POST_NOTIFICATIONS`) is still part of a React Native
+integration — it lives in this skill's own `reference/` docs, not in a
+separate skill the developer must ask for.
+
+---
+
+## Step 0 — Agree on scope BEFORE writing code
+
+Do this **first**, before Preflight and before any edits.
+
+**Detect the workflow from the project, do not ask which docs to use.**
+
+- **Expo** if `app.json` / `app.config.js` / `app.config.ts` has an `expo`
+  key, or the app depends on `expo`. Route native setup through
+  `reference/expo.md`. Do not hand-edit `ios/` or `android/` as the primary
+  path.
+- **Bare React Native** otherwise. Route native setup through
+  `reference/installing.md` and the feature slugs (especially
+  `push-notifications`). Do not introduce `@iterable/expo-plugin`.
+
+Then ask which features they want. If your host exposes an interactive
+multi-select question tool (in Claude Code, `AskUserQuestion` with
+`multiSelect: true`; in Cursor, `AskQuestion` with `allow_multiple: true`),
+use it and offer **at most 4 options**; otherwise ask in plain text:
+
+- Push notifications (FCM / APNs)
+- In-app messages
+- Event tracking + user identity
+- Other (inbox, embedded, deep links) — describe in the option
+
+**First check whether this is an upgrade, not a new integration.** If the
+project already depends on `@iterable/react-native-sdk`, ask which version
+they're on and what they want out of the upgrade, then follow the upgrade
+row in the slug table.
+
+Confirm the scope, *then* run Preflight, *then* build.
+
+---
+
+## Definition of done — finish the agreed scope, don't stub it
+
+Within the agreed scope, an integration is finished only when:
+
+- [ ] The SDK is **actually initialized at runtime** —
+  `Iterable.initialize(apiKey, config)` is **called from the host app**, not
+  just defined in a helper nothing imports.
+- [ ] The user is **identified** — `Iterable.setEmail` or `Iterable.setUserId`
+  runs with a real value. If identity is a per-install UUID, **write the
+  UUID-generation/persistence code**.
+- [ ] Native configuration required by the agreed scope is done for the
+  workflow you detected (Expo plugin vs bare `ios/` + `android/`), including
+  push permission on Android 13+ when push is in scope.
+
+Only genuinely developer-supplied inputs (API key, identity model, region,
+JWT, `google-services.json` / APNs key) are legitimate pauses.
+
+---
+
+## Preflight — STOP and gather these before writing any code
+
+> **Prefer selectable options over prose — every time.** Offer at most 4
+> options per question on hosts that reject more.
+
+| Input | Needed when | If missing |
+|---|---|---|
+| **Workflow** — Expo vs bare | Always | Detect from the project (Step 0). If both signals exist, ask. |
+| **Mobile API key** | Always | Ask where it lives; never hardcode into a tracked file. |
+| **Identity model** — `setEmail` vs `setUserId`, and where the value comes from | Always | Ask. Never guess. |
+| **JWT?** — is the mobile key JWT-protected? | Always | Ask. If yes, `authHandler` is mandatory (rule 1). |
+| **Data region** — US or EU | Always | Ask if their dashboard is `app.eu.iterable.com`. See pitfall #2. |
+| **`google-services.json`** (Firebase) | Bare-workflow push on Android | **STOP and ask.** You cannot generate it. |
+| **APNs key / capabilities** | Bare-workflow push on iOS | Ask. Follow `reference/push-notifications.md`. |
+
+**Never fabricate a prerequisite to make the build pass.** Do not invent an
+API key, a placeholder `google-services.json`, or a JWT signed in the client.
+
+---
+
+## Quick facts (always relevant)
+
+- **Latest version: always fetch it — never trust a number baked into this
+  file.** Before writing a dependency line, resolve the current release from
+  npm (`@iterable/react-native-sdk`) or the SDK's
+  [CHANGELOG.md](https://github.com/Iterable/react-native-sdk/blob/master/CHANGELOG.md).
+  If the host project already pins a version, match it unless they ask to
+  upgrade.
+- **Initialize with:** `Iterable.initialize(apiKey, config)` from
+  `@iterable/react-native-sdk`.
+- **Identify users with:** `Iterable.setEmail(email)` or
+  `Iterable.setUserId(userId)`. Pick one mode and use it consistently.
+- **EU customers** must set `config.dataRegion = IterableDataRegion.EU`
+  (default is US).
+- **The JS API is not the native API.** If a method is not in `reference/`,
+  it is not available from JavaScript (pitfall #4).
+
+---
+
+## Always-on rules (read every time)
+
+These rules apply to **every** React Native integration. Full explanations
+are in [`PITFALLS.md`](PITFALLS.md) — read it before generating any
+non-trivial code.
+
+1. **If the API key is JWT-protected, `config.authHandler` is mandatory.**
+   Without one, every SDK call silently fails with no error surface. Never
+   sign JWTs in the app (`signWith`, `HMAC`, a baked-in `jwtSecret`).
+
+2. **EU projects need `dataRegion: IterableDataRegion.EU`.** The default is
+   US; EU projects drop the data with no SDK error.
+
+3. **Android 13+ push needs runtime `POST_NOTIFICATIONS`.** Tokens can
+   register and the dashboard can send while the OS suppresses the shade.
+   This is native Android setup performed as part of the React Native
+   integration — read `reference/push-notifications.md` (bare) or
+   `reference/expo.md` (Expo). Do not skip it, and do not wait for the
+   developer to open the Android skill.
+
+4. **Only call `@iterable/react-native-sdk` JavaScript APIs.** Do not copy
+   `IterableApi.getInstance()`, Kotlin `IterableConfig.Builder()`, or Swift
+   `IterableAPI` into JS. Device attributes and some inbox helpers that
+   exist natively are not on the JS bridge (SDK-593, SDK-594). Do not invent
+   them and do not send the developer to `NativeRNIterableAPI`.
+
+5. **Never hardcode the API key into a tracked file.** Read it from a
+   gitignored env file or the project's existing secrets pattern. An empty
+   fallback is the only acceptable default.
+
+6. **Never assume how the app identifies a user — ask.** Do not wire
+   identity to the first email-shaped field you find.
+
+---
+
+## Canonical minimum integration (start here)
+
+Adapt this; don't bolt the pieces together from scratch. Read
+`reference/installing.md` (bare) or `reference/expo.md` (Expo) before
+writing native project files.
+
+```javascript
+import { Iterable, IterableConfig, IterableDataRegion } from '@iterable/react-native-sdk';
+
+export function initializeIterable(apiKey, { userId, dataRegion } = {}) {
+  const config = new IterableConfig();
+  // config.dataRegion = IterableDataRegion.EU; // EU projects (pitfall #2)
+  // config.authHandler = () => fetchJwtForCurrentUser(); // JWT keys (pitfall #1)
+  Iterable.initialize(apiKey, config);
+  if (userId) {
+    Iterable.setUserId(userId); // or setEmail(...) — pick ONE (rule 6)
+  }
+}
+```
+
+**You are not done until `initialize` is actually called** from the host
+app's startup path.
+
+Native push / APNs / FCM / `POST_NOTIFICATIONS` steps are in the installing
+and push (or expo) reference docs — do them as part of this skill when push
+is in scope. If a React Native article defers to Android-native detail that
+is already shipped in the sibling `iterable-android` skill, you may open
+`../iterable-android/reference/<slug>.md` for that native step. There is no
+iOS skill yet; iOS native setup is only what this corpus includes.
+
+---
+
+## How to use this skill (fetching task-specific docs)
+
+> **Say what you're about to read and why — before you read it.** One line
+> per lookup.
+
+### Read task docs from `reference/`
+
+[`reference/`](reference/) is Iterable's published documentation, transformed
+deterministically and shipped with this skill. Match the task to a slug
+(table below) and open `reference/<slug>.md`. **This is the authoritative
+source — it is already on disk.**
+
+**One doc per task — don't bulk-load.** Two or three slugs is a normal task.
+
+### Slug routing
+
+| If the user is asking about… | Slug |
+| ---------------------------- | ---- |
+| What the RN SDK covers, architecture, JS vs native | `overview` |
+| First-time setup, npm install, iOS + Android native project setup, `Iterable.initialize` | `installing` (skip `## Upgrading the SDK` unless they are upgrading) |
+| Upgrading from an older RN SDK version | `installing` → `## Upgrading the SDK`, or `migrating` |
+| Expo / `expo prebuild` / config plugin | `expo` |
+| JWT, `authHandler`, JWT-enabled API keys | `authentication` |
+| `setEmail`, `setUserId`, login / logout | `managing-user-identity` |
+| `updateUser`, profile fields, subscription preferences | `user-profile-data-and-subscription-preferences` |
+| FCM / APNs push, notification permission, device registration | `push-notifications` |
+| In-app messages | `in-app-messages` |
+| Mobile inbox | `mobile-inbox` |
+| Deep links, custom actions, `urlHandler` | `deep-links-and-custom-actions` |
+| `track`, purchases, custom events | `tracking-events` |
+| Embedded messaging, placements | `embedded-messages-with-iterables-react-native-sdk` |
+
+For "wire up the whole SDK", read `installing` or `expo` first (the workflow
+you detected), then load feature slugs **as you reach each feature**.
+
+---
+
+## Decision flow
+
+1. **Detect Expo vs bare. Identify the goal.** New integration, upgrade,
+   single feature, or debugging.
+2. **Check rules 1–4** against whatever they already have.
+3. **Read the matching slug** from `reference/` before writing code.
+4. **For traps not in the reference doc**, consult [`PITFALLS.md`](PITFALLS.md).
+5. **Version-check.** If they are on an older SDK than the doc's
+   `sdk_min_version`, read the upgrading section of `installing` before
+   generating code.
+
+---
+
+## What's NOT in this skill
+
+- Native Android-only or iOS-only app integrations — those are
+  `iterable-android` and (when authored) `iterable-ios`. If this project is
+  a native Android app with no React Native, stop and use `iterable-android`.
+- Deep Expo config-plugin traps (`@iterable/expo-plugin` version lockstep,
+  Expo Go, `prebuild --clean`) — tracked as SDK-704. Still **detect Expo vs
+  bare** here and read `reference/expo.md` for Expo projects.
+- Iterable platform / dashboard configuration. Direct the user to
+  [support.iterable.com](https://support.iterable.com).
+- JWT *server-side* implementation. Assume the team has, or will build, a
+  token-minting endpoint.
+
+---
+
+## Versioning
+
+This skill is versioned alongside the SDK. When Iterable's docs change, a
+refresh PR rewrites `reference/` from the docs at that commit; each doc
+records the exact `source_ref` it came from. If you see drift between this
+skill's snippets and the SDK's current `CHANGELOG.md`, **trust `CHANGELOG.md`**
+and report the drift.

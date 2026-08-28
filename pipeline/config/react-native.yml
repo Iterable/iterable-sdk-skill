@@ -1,0 +1,95 @@
+# Iterable React Native SDK — docs refresh config.
+#
+# `pnpm refresh:docs` reads this file (and every other top-level platform
+# config) in one pass: it pulls each `articles[].source_path` from
+# `source.repo` at `source.ref`, applies the deterministic transforms, and
+# writes `paths.reference_dir`/<slug>.md — the corpus the skill reads.
+#
+# Bump `source.ref` deliberately when re-fetching so diffs against the
+# previous run reflect upstream changes only. The auto-refresh workflow pins
+# only platforms whose corpus actually changed.
+#
+# Expo is one article in this set, not a separate platform. Deep Expo-plugin
+# traps (`@iterable/expo-plugin`) are SDK-704.
+
+platform: react-native
+
+source:
+  repo: Iterable/iterable-docs
+  ref: 59c40504c91bc0b13751c5ef5f348810eb0fd4f2
+  ref_label: "master @ 2026-08-03"
+
+sdk:
+  repo: Iterable/react-native-sdk
+  tag: 3.1.0
+  artifact: "@iterable/react-native-sdk"
+  changelog_path: CHANGELOG.md
+
+paths:
+  reference_dir: iterable-react-native/reference
+
+articles:
+  - slug: overview
+    source_path: docs/developer-and-api-docs/iterables-react-native-sdk/overview/index.md
+    feature: integration
+    archetype: integration
+
+  - slug: installing
+    source_path: docs/developer-and-api-docs/iterables-react-native-sdk/installing/index.md
+    feature: integration
+    archetype: integration
+
+  - slug: authentication
+    source_path: docs/developer-and-api-docs/iterables-react-native-sdk/authentication/index.md
+    feature: jwt-authentication
+    archetype: identity
+
+  - slug: managing-user-identity
+    source_path: docs/developer-and-api-docs/iterables-react-native-sdk/managing-user-identity/index.md
+    feature: user-profiles
+    archetype: identity
+
+  - slug: push-notifications
+    source_path: docs/developer-and-api-docs/iterables-react-native-sdk/push-notifications/index.md
+    feature: push-notifications
+    archetype: feature
+
+  - slug: in-app-messages
+    source_path: docs/developer-and-api-docs/iterables-react-native-sdk/in-app-messages/index.md
+    feature: in-app-messages
+    archetype: feature
+
+  - slug: mobile-inbox
+    source_path: docs/developer-and-api-docs/iterables-react-native-sdk/mobile-inbox/index.md
+    feature: mobile-inbox
+    archetype: feature
+
+  - slug: deep-links-and-custom-actions
+    source_path: docs/developer-and-api-docs/iterables-react-native-sdk/deep-links-and-custom-actions/index.md
+    feature: deep-linking
+    archetype: feature
+
+  - slug: tracking-events
+    source_path: docs/developer-and-api-docs/iterables-react-native-sdk/tracking-events/index.md
+    feature: event-tracking
+    archetype: feature
+
+  - slug: user-profile-data-and-subscription-preferences
+    source_path: docs/developer-and-api-docs/iterables-react-native-sdk/user-profile-data-and-subscription-preferences/index.md
+    feature: user-profiles
+    archetype: identity
+
+  - slug: expo
+    source_path: docs/developer-and-api-docs/iterables-react-native-sdk/expo/index.md
+    feature: integration
+    archetype: integration
+
+  - slug: migrating
+    source_path: docs/developer-and-api-docs/iterables-react-native-sdk/migrating/index.md
+    feature: integration
+    archetype: integration
+
+  - slug: embedded-messages-with-iterables-react-native-sdk
+    source_path: docs/developer-and-api-docs/embedded-messaging/embedded-messages-with-iterables-react-native-sdk/index.md
+    feature: embedded-messaging
+    archetype: feature

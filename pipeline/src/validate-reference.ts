@@ -1,5 +1,5 @@
 /**
- * Validates the frontmatter of every `iterable-android/reference/<slug>.md`
+ * Validates the frontmatter of every `<platform>/reference/<slug>.md`
  * against `pipeline/schema/reference.schema.json`, and checks that the corpus
  * and the platform config agree on which slugs exist. That second half is what
  * catches a config edit that renames a slug without a refresh — the skill's

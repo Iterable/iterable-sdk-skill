@@ -393,8 +393,10 @@ before writing any code is the fastest way to compact mid-task.
 
 ## What's NOT in this skill
 
-- iOS, React Native, or Web SDKs — those will live in sibling skills
-  (`iterable-ios`, `iterable-react-native`, `iterable-web`) once authored.
+- iOS or Web SDKs — those will live in sibling skills (`iterable-ios`,
+  `iterable-web`) once authored. React Native is `iterable-react-native`;
+  do not load it, and do not emit JS/`@iterable/react-native-sdk` APIs, for
+  a native Android app.
 - Iterable platform / dashboard configuration. Direct the user to
   [support.iterable.com](https://support.iterable.com) for dashboard help.
 - JWT *server-side* implementation. The skill assumes the team has, or will

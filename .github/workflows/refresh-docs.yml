@@ -3,10 +3,10 @@ name: Refresh docs
 # Triggered when Iterable/iterable-docs publishes a change to an SDK doc
 # path. The docs repo dispatches `iterable-docs-changed` (optionally with a
 # `client_payload.ref` = the docs commit); this workflow resolves that ref
-# (or the docs default-branch head on a manual run), rewrites
-# `iterable-android/reference/` from the docs at that commit, bumps the pinned
-# `source.ref` in pipeline/config to match, and opens a PR. There is no LLM
-# step — the corpus is the docs reshaped.
+# (or the docs default-branch head on a manual run), rewrites every
+# configured platform's `reference/` from the docs at that commit, bumps the
+# pinned `source.ref` only for platforms whose corpus changed, and opens one
+# PR. There is no LLM step — the corpus is the docs reshaped.
 #
 # `workflow_dispatch` is kept as a manual fallback for re-running a
 # refresh outside of a docs-side trigger (e.g. when validating a config
@@ -16,14 +16,6 @@ on:
   repository_dispatch:
     types: [iterable-docs-changed]
   workflow_dispatch:
-    inputs:
-      platform:
-        description: "Platform to refresh"
-        required: true
-        default: "android"
-        type: choice
-        options:
-          - android
 
 permissions:
   contents: write
@@ -76,68 +68,67 @@ jobs:
           echo "label=master @ $(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
           echo "Resolved ${req} → ${sha}"
 
-      - name: Refresh reference corpus (reads private iterable-docs via gh api)
+      - name: Refresh reference corpora (reads private iterable-docs via gh api)
         working-directory: pipeline
         env:
           GH_TOKEN: ${{ secrets.DOCS_READ_TOKEN }}
           SOURCE_REF: ${{ steps.ref.outputs.sha }}
-        run: pnpm refresh:docs -- ${{ github.event.inputs.platform || github.event.client_payload.platform || 'android' }}
+        run: pnpm refresh:docs
 
       - name: Detect changes
         id: changes
-        run: |
-          ref_dir=iterable-android/reference
-          if git diff --quiet "$ref_dir"; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          echo "changed=true" >> "$GITHUB_OUTPUT"
-          slugs=$(git diff --name-only "$ref_dir" \
-            | sed -E "s|.*/([^/]+)\.md|\1|" \
-            | sort -u | paste -sd ', ' -)
-          echo "slugs=${slugs}" >> "$GITHUB_OUTPUT"
+        working-directory: pipeline
+        run: pnpm detect:corpus-changes
 
       - name: Bump pinned source ref
         if: steps.changes.outputs.changed == 'true'
         working-directory: pipeline
-        run: >-
-          pnpm set:source-ref --
-          ${{ github.event.inputs.platform || github.event.client_payload.platform || 'android' }}
-          ${{ steps.ref.outputs.sha }}
-          "${{ steps.ref.outputs.label }}"
+        env:
+          SHA: ${{ steps.ref.outputs.sha }}
+          LABEL: ${{ steps.ref.outputs.label }}
+          PLATFORMS: ${{ steps.changes.outputs.platforms }}
+        run: |
+          set -euo pipefail
+          IFS=',' read -ra plats <<< "$PLATFORMS"
+          for p in "${plats[@]}"; do
+            pnpm set:source-ref -- "$p" "$SHA" "$LABEL"
+          done
 
       - name: Open refresh PR
         if: steps.changes.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v6
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          branch: refresh/${{ github.event.inputs.platform || github.event.client_payload.platform || 'android' }}-${{ github.run_id }}
+          branch: refresh/${{ github.run_id }}
           base: main
           delete-branch: true
-          title: "docs refresh (${{ github.event.inputs.platform || github.event.client_payload.platform || 'android' }}): ${{ steps.changes.outputs.slugs }}"
+          title: "docs refresh (${{ steps.changes.outputs.platforms }}): ${{ steps.changes.outputs.slugs }}"
           commit-message: |
-            docs refresh (${{ github.event.inputs.platform || github.event.client_payload.platform || 'android' }}): Layer A only
+            docs refresh (${{ steps.changes.outputs.platforms }}): Layer A only
 
             Slugs: ${{ steps.changes.outputs.slugs }}
           body: |
-            Automated refresh of `iterable-android/reference/` — the docs corpus
-            the skill reads. **No LLM step**: the corpus is a deterministic
+            Automated refresh of platform `reference/` corpora — the docs the
+            skills read. **No LLM step**: the corpus is a deterministic
             transform of Iterable's published docs.
 
+            **Platforms changed:** `${{ steps.changes.outputs.platforms }}`
             **Slugs touched:** ${{ steps.changes.outputs.slugs }}
             **Docs commit:** `${{ steps.ref.outputs.sha }}`
-            (`source.ref` in `pipeline/config` is bumped to this in the diff).
+            (`source.ref` in each changed platform's `pipeline/config/<platform>.yml`
+            is bumped to this in the diff).
 
             ## Reviewer steps
 
             1. Read the diff as docs, not code — this is what the agent will
                tell developers to do. Check that changed guidance still agrees
-               with `iterable-android/PITFALLS.md`; if the docs now contradict a
+               with that platform's `PITFALLS.md`; if the docs now contradict a
                pitfall, the pitfall needs updating in the same PR.
-            2. If a slug's headings moved, check the routing table in
-               `iterable-android/SKILL.md` still points at sections that exist.
+            2. If a slug's headings moved, check the routing table in that
+               platform's `SKILL.md` still points at sections that exist.
             3. Confirm the `source.ref` bump in `pipeline/config` matches the
-               docs commit above (provenance stays honest).
+               docs commit above (provenance stays honest). Unchanged platforms
+               must not appear in the diff.
             4. Merge to `main`. Context7 re-indexes on its next crawl
                (`context7.json` controls scope).
           labels: |

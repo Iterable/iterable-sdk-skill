@@ -1,6 +1,6 @@
 /**
  * Deterministic markdown transforms applied to a doc fetched from
- * Iterable/iterable-docs before it lands in `iterable-android/reference/`.
+ * Iterable/iterable-docs before it lands in a platform `reference/` directory.
  * Each transform is small, reversible, and easy to unit-test. There is no LLM
  * stage — the reference corpus is the docs reshaped, nothing more.
  */
@@ -19,7 +19,7 @@ export interface LayerAContext {
   archetype: "integration" | "feature" | "identity";
   /** SDK version pin (e.g. "3.7.0") from config. */
   sdkVersion: string;
-  /** SDK Maven coordinate base (e.g. "iterableapi") for version banner. */
+  /** SDK artifact name (Maven coordinate or npm package) for version banner. */
   sdkArtifact: string;
 }
 

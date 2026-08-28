@@ -8,6 +8,7 @@ on:
     branches: [main]
     paths:
       - iterable-android/**
+      - iterable-react-native/**
       - pipeline/**
       - .claude-plugin/**
       - .cursor-plugin/**
@@ -19,6 +20,7 @@ on:
     branches: [main]
     paths:
       - iterable-android/**
+      - iterable-react-native/**
       - pipeline/**
       - .claude-plugin/**
       - .cursor-plugin/**

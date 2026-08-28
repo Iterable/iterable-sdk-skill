@@ -18,6 +18,7 @@ source:
 sdk:
   repo: Iterable/iterable-android-sdk
   tag: 3.7.0
+  artifact: iterableapi
   changelog_path: CHANGELOG.md
 
 paths:

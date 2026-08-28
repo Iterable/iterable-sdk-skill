@@ -1,0 +1,47 @@
+# Pitfall index for the React Native SDK skill.
+#
+# Mirrors `iterable-react-native/PITFALLS.md` headings 1..N. Consumer:
+#   - Eval — `triggers` are regex (case-insensitive) matched against a doc or
+#     transcript. If a trigger appears but the relevant pitfall wasn't
+#     surfaced, the eval can flag the omission.
+#
+# Keep `triggers` narrow enough to avoid noise but broad enough to catch
+# the obvious mentions. Over-triggering is fine — a human reviews.
+#
+# Starter set for SDK-425 (transfers from Android + named JS-bridge gaps).
+# Expo config-plugin traps are SDK-704.
+
+platform: react-native
+
+pitfalls:
+  - id: 1
+    title: JWT-required API key with no authHandler
+    triggers:
+      - "JWT-enabled"
+      - "authHandler"
+      - "InvalidJwtPayload"
+    features: [jwt-authentication, integration, user-profiles]
+
+  - id: 2
+    title: EU customer hitting US endpoint
+    triggers:
+      - "dataRegion"
+      - "IterableDataRegion"
+      - "app\\.eu\\.iterable\\.com"
+    features: [integration]
+
+  - id: 3
+    title: POST_NOTIFICATIONS permission not requested on Android 13+
+    triggers:
+      - "POST_NOTIFICATIONS"
+      - "notification permission"
+    features: [push-notifications, integration]
+
+  - id: 4
+    title: Native Android or iOS APIs used as if they were JavaScript
+    triggers:
+      - "IterableApi\\.getInstance"
+      - "setDeviceAttribute"
+      - "getUnreadInboxMessagesCount"
+      - "NativeRNIterableAPI"
+    features: [integration, mobile-inbox, user-profiles]

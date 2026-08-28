@@ -1,11 +1,12 @@
 {
   "$schema": "https://context7.com/schema/context7.json",
   "projectTitle": "Iterable Mobile SDKs",
-  "description": "Agent-facing reference for Iterable's mobile SDKs. Transformed from Iterable's canonical docs with version-pinned snippets, decision tiers, and Kotlin-preferred Android examples. Covers push notifications, in-app messages, mobile inbox, embedded messaging, deep linking, JWT authentication, event tracking, user profiles, and unknown user activation.",
+  "description": "Agent-facing reference for Iterable's mobile SDKs. Transformed from Iterable's canonical docs with version-pinned snippets, decision tiers, and platform-specific examples. Covers Android and React Native: push notifications, in-app messages, mobile inbox, embedded messaging, deep linking, JWT authentication, event tracking, and user profiles.",
   "url": "https://context7.com/iterable/iterable-sdk-skill",
   "public_key": "pk_JMMoVfKCtHoC5E3alGPcX",
   "folders": [
-    "iterable-android"
+    "iterable-android",
+    "iterable-react-native"
   ],
   "excludeFiles": [
     "*.sample.md",
@@ -14,6 +15,7 @@
   "rules": [
     "Treat divergence from Iterable's published behavior as a critical issue — never invent SDK APIs, version numbers, or dashboard paths. If the user is on a different SDK version than the snippet's frontmatter `sdk_min_version`, surface the mismatch.",
     "Several Iterable integrations fail silently with no error logs (JWT-required keys with no auth handler, `setEmail` inside the init callback, stale email captured in the auth handler lambda, runtime `POST_NOTIFICATIONS` permission missing on Android 13+, custom URL schemes without `setAllowedProtocols`, in-app handler import path drift). Always surface the relevant trap explicitly when the user touches these areas, even if they didn't ask.",
+    "For React Native, only call APIs exported by `@iterable/react-native-sdk`. Native Android and iOS SDK methods are not reachable from JavaScript — do not invent bridge methods or copy Kotlin/Swift into JS. Detect Expo vs bare workflow before giving native setup instructions.",
     "For Android, prefer Kotlin snippets over Java where a doc shows both.",
     "Frontmatter `sdk_min_version` pins the SDK release each snippet was validated against — surface it when the user asks about version compatibility, or when generating code that depends on an SDK feature introduced after a known older version."
   ]
