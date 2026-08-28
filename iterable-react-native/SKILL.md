@@ -118,7 +118,9 @@ API key, a placeholder `google-services.json`, or a JWT signed in the client.
   If the host project already pins a version, match it unless they ask to
   upgrade.
 - **Initialize with:** `Iterable.initialize(apiKey, config)` from
-  `@iterable/react-native-sdk`.
+  `@iterable/react-native-sdk`. On 3.1.0+ the promise means native init
+  returned, not that in-app fetch finished (pitfall #6). Identify the user
+  after init, the way `example/src/hooks/useIterableApp.tsx` does.
 - **Identify users with:** `Iterable.setEmail(email)` or
   `Iterable.setUserId(userId)`. Pick one mode and use it consistently.
 - **EU customers** must set `config.dataRegion = IterableDataRegion.EU`
@@ -129,9 +131,9 @@ API key, a placeholder `google-services.json`, or a JWT signed in the client.
   `@iterable/react-native-sdk` — not `NativeRNIterableAPI` or `IterableApi`.
 - **Native Android/iOS SDK versions come from this RN package, not from the
   Android skill.** `@iterable/react-native-sdk` 3.1.0 ships Android `3.6.2`
-  and iOS `6.6.7`. Do not use Kotlin/Swift APIs that only exist on a newer
-  native SDK than the installed RN package pins (the Android skill's pin may
-  be ahead). Confirm in the RN README version table or
+  and iOS `6.6.7` (pitfall #5). Do not use Kotlin/Swift APIs that only exist
+  on a newer native SDK than the installed RN package pins (the Android
+  skill's pin may be ahead). Confirm in the RN README version table or
   `node_modules/@iterable/react-native-sdk` (`android/build.gradle`, podspec)
   for the version they have.
 
@@ -159,9 +161,9 @@ non-trivial code.
 
 4. **Only call `@iterable/react-native-sdk` JavaScript APIs.** Do not copy
    `IterableApi.getInstance()`, Kotlin `IterableConfig.Builder()`, or Swift
-   `IterableAPI` into JS. Device attributes and some inbox helpers that
-   exist natively are not on the JS bridge (SDK-593, SDK-594). Do not invent
-   them and do not send the developer to `NativeRNIterableAPI`.
+   `IterableAPI` into JS. Do not import `NativeRNIterableAPI` or the internal
+   `IterableApi` class. Device attributes and unread-inbox count exist natively
+   but are not on the public JS facade (pitfall #4, SDK-593, SDK-594).
 
 5. **Never hardcode the API key into a tracked file.** Read it from a
    gitignored env file or the project's existing secrets pattern. An empty

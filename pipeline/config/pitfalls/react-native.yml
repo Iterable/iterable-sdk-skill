@@ -8,7 +8,8 @@
 # Keep `triggers` narrow enough to avoid noise but broad enough to catch
 # the obvious mentions. Over-triggering is fine — a human reviews.
 #
-# Starter set for SDK-425 (transfers from Android + named JS-bridge gaps).
+# Sourced from RN SDK 3.1.0 master (public exports vs NativeRNIterableAPI
+# spec, README native-version table, CHANGELOG init-promise fix, example/).
 # Expo config-plugin traps are SDK-704.
 
 platform: react-native
@@ -19,6 +20,8 @@ pitfalls:
     triggers:
       - "JWT-enabled"
       - "authHandler"
+      - "onJwtError"
+      - "NativeJwtTokenModule"
       - "InvalidJwtPayload"
     features: [jwt-authentication, integration, user-profiles]
 
@@ -34,14 +37,34 @@ pitfalls:
     title: POST_NOTIFICATIONS permission not requested on Android 13+
     triggers:
       - "POST_NOTIFICATIONS"
+      - "PermissionsAndroid"
       - "notification permission"
     features: [push-notifications, integration]
 
   - id: 4
-    title: Native Android or iOS APIs used as if they were JavaScript
+    title: Native or bridge APIs used as if they were the public JS SDK
     triggers:
       - "IterableApi\\.getInstance"
       - "setDeviceAttribute"
       - "getUnreadInboxMessagesCount"
       - "NativeRNIterableAPI"
+      - "initialize2"
     features: [integration, mobile-inbox, user-profiles]
+
+  - id: 5
+    title: Native Android/iOS APIs taken from a newer SDK than this RN package pins
+    triggers:
+      - "iterableapi:3\\.7"
+      - "Android SDK Version"
+      - "6\\.6\\.7"
+      - "3\\.6\\.2"
+    features: [integration]
+
+  - id: 6
+    title: Treating await Iterable.initialize as SDK failed or in-app ready
+    triggers:
+      - "Iterable\\.initialize"
+      - "initialize2"
+      - "in-app messages fetch"
+      - "authCallbackTimeoutMs"
+    features: [integration, in-app-messages, jwt-authentication]
