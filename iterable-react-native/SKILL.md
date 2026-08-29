@@ -125,17 +125,21 @@ API key, a placeholder `google-services.json`, or a JWT signed in the client.
   `Iterable.setUserId(userId)`. Pick one mode and use it consistently.
 - **EU customers** must set `config.dataRegion = IterableDataRegion.EU`
   (default is US).
-- **The JS API is not the native API.** If a method is not in `reference/`,
-  it is not available from JavaScript (pitfall #4). Public exports live on
-  `Iterable`, `IterableConfig`, and the in-app / inbox / embedded modules from
-  `@iterable/react-native-sdk` — not `NativeRNIterableAPI` or `IterableApi`.
+- **The JS API is not the native API.** The public contract is the named
+  exports of `@iterable/react-native-sdk`, which are exactly
+  [`src/index.tsx`](https://github.com/Iterable/react-native-sdk/blob/master/src/index.tsx)
+  in the SDK (`Iterable`, `IterableConfig`, `IterableInAppManager`,
+  `IterableInbox`, `IterableEmbeddedManager`, and their types). If a method
+  is not in that file and not in `reference/`, it is not a JS API (pitfall #4).
+  Do not import `NativeRNIterableAPI`, `RNIterableAPI`, or the internal
+  `IterableApi` class.
 - **Native Android/iOS SDK versions come from this RN package, not from the
-  Android skill.** `@iterable/react-native-sdk` 3.1.0 ships Android `3.6.2`
-  and iOS `6.6.7` (pitfall #5). Do not use Kotlin/Swift APIs that only exist
-  on a newer native SDK than the installed RN package pins (the Android
-  skill's pin may be ahead). Confirm in the RN README version table or
+  Android skill.** `@iterable/react-native-sdk` **3.1.0** pins Android
+  **`3.6.2`** and iOS **`6.6.7`**. Do not call Kotlin/Swift APIs that exist
+  only on Android `3.7.0` (the Android skill's pin) or any newer native SDK
+  than this package ships. Confirm in the RN README version table or
   `node_modules/@iterable/react-native-sdk` (`android/build.gradle`, podspec)
-  for the version they have.
+  for the version they have (pitfall #5).
 
 ---
 
@@ -159,11 +163,15 @@ non-trivial code.
    `reference/expo.md` (Expo). Do not skip it, and do not wait for the
    developer to open the Android skill.
 
-4. **Only call `@iterable/react-native-sdk` JavaScript APIs.** Do not copy
-   `IterableApi.getInstance()`, Kotlin `IterableConfig.Builder()`, or Swift
-   `IterableAPI` into JS. Do not import `NativeRNIterableAPI` or the internal
-   `IterableApi` class. Device attributes and unread-inbox count exist natively
-   but are not on the public JS facade (pitfall #4, SDK-593, SDK-594).
+4. **Only call the public JS facade in `src/index.tsx`.** Import from
+   `@iterable/react-native-sdk` (`Iterable`, `IterableConfig`, in-app / inbox /
+   embedded modules). Do not import `NativeRNIterableAPI`, `RNIterableAPI`, or
+   the internal `IterableApi` class. Do not copy Kotlin
+   `IterableApi.getInstance()`, `IterableConfig.Builder()`, or Swift
+   `IterableAPI` into JS. Device attributes and unread-inbox count exist
+   natively but are not on that facade (pitfall #4, SDK-593, SDK-594). This
+   package at 3.1.0 ships Android `3.6.2` / iOS `6.6.7` — do not pull Android
+   `3.7.0` APIs from the Android skill (pitfall #5).
 
 5. **Never hardcode the API key into a tracked file.** Read it from a
    gitignored env file or the project's existing secrets pattern. An empty
