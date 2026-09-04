@@ -2,8 +2,9 @@
 
 A workflow opens an automated PR whenever Iterable's docs change (see
 [`refresh-docs.yml`](.github/workflows/refresh-docs.yml)). This document is
-the reviewer's playbook for those PRs and for any hand-authored change to
-`iterable-android/reference/`.
+the reviewer's playbook for those PRs and for any hand-authored change to a
+platform `reference/` directory (`iterable-android/reference/`,
+`iterable-react-native/reference/`, …).
 
 The corpus is a **deterministic transform** of Iterable's docs — **no LLM
 rewrites the content**. There is no LLM output to second-guess, so the review
@@ -33,9 +34,10 @@ Open the PR. The body lists the touched slugs and the docs commit.
 
 - [ ] **`source_ref` in the changed frontmatter is a 40-char commit SHA**, not a
   branch name. The pin is our one guarantee against moving-target drift.
-- [ ] **The `source.ref` bump in `pipeline/config` matches the docs commit in
-  the PR body.**
-- [ ] **No doc was added or removed unexpectedly.** The corpus only contains
+- [ ] **The `source.ref` bump in the changed `pipeline/config/<platform>.yml`
+  file(s) matches the docs commit in the PR body.** Unchanged platforms must
+  not have a pin bump.
+- [ ] **No doc was added or removed unexpectedly.** Each corpus only contains
   slugs listed in `pipeline/config/<platform>.yml`; `validate:reference` fails
   if they disagree, so an add/remove means someone edited the config too.
 

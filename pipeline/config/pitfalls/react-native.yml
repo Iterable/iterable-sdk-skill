@@ -1,0 +1,126 @@
+# Pitfall index for the React Native SDK skill.
+#
+# Mirrors `iterable-react-native/PITFALLS.md` headings 1..N. Consumer:
+#   - Eval — `triggers` are regex (case-insensitive) matched against a doc or
+#     transcript. If a trigger appears but the relevant pitfall wasn't
+#     surfaced, the eval can flag the omission.
+#
+# Keep `triggers` narrow enough to avoid noise but broad enough to catch
+# the obvious mentions. Over-triggering is fine — a human reviews.
+#
+# Sourced from RN SDK 3.1.0 master (public exports vs NativeRNIterableAPI
+# spec, README native-version table, CHANGELOG init-promise fix, example/).
+# Ids 7–13 are Expo config-plugin traps (`@iterable/expo-plugin`). They
+# apply only after SKILL.md Step 0 classifies the project as Expo.
+
+platform: react-native
+
+pitfalls:
+  - id: 1
+    title: JWT-required API key with no authHandler
+    triggers:
+      - "JWT-enabled"
+      - "authHandler"
+      - "onJwtError"
+      - "NativeJwtTokenModule"
+      - "InvalidJwtPayload"
+    features: [jwt-authentication, integration, user-profiles]
+
+  - id: 2
+    title: EU customer hitting US endpoint
+    triggers:
+      - "dataRegion"
+      - "IterableDataRegion"
+      - "app\\.eu\\.iterable\\.com"
+    features: [integration]
+
+  - id: 3
+    title: POST_NOTIFICATIONS permission not requested on Android 13+
+    triggers:
+      - "POST_NOTIFICATIONS"
+      - "PermissionsAndroid"
+      - "notification permission"
+    features: [push-notifications, integration]
+
+  - id: 4
+    title: Native or bridge APIs used as if they were the public JS SDK
+    triggers:
+      - "IterableApi\\.getInstance"
+      - "setDeviceAttribute"
+      - "getUnreadInboxMessagesCount"
+      - "NativeRNIterableAPI"
+      - "initialize2"
+    features: [integration, mobile-inbox, user-profiles]
+
+  - id: 5
+    title: Native Android/iOS APIs taken from a newer SDK than this RN package pins
+    triggers:
+      - "iterableapi:3\\.7"
+      - "Android SDK Version"
+      - "6\\.6\\.7"
+      - "3\\.6\\.2"
+    features: [integration]
+
+  - id: 6
+    title: Treating await Iterable.initialize as SDK failed or in-app ready
+    triggers:
+      - "Iterable\\.initialize"
+      - "initialize2"
+      - "in-app messages fetch"
+      - "authCallbackTimeoutMs"
+    features: [integration, in-app-messages, jwt-authentication]
+
+  - id: 7
+    title: "Expo: SDK and plugin do not work in Expo Go"
+    triggers:
+      - "Expo Go"
+      - "development build"
+      - "development client"
+    features: [integration]
+
+  - id: 8
+    title: "Expo: expo prebuild --clean wipes ios/ and android/"
+    triggers:
+      - "prebuild --clean"
+      - "expo prebuild"
+      - "npx expo prebuild"
+    features: [integration, push-notifications]
+
+  - id: 9
+    title: "Expo: do not use the plugin when native is configured by hand"
+    triggers:
+      - "manually configuring your native code"
+      - "DO NOT use this plugin"
+    features: [integration]
+
+  - id: 10
+    title: "Expo: two packages, versions move in lockstep"
+    triggers:
+      - "@iterable/expo-plugin"
+      - "expo-plugin 1\\.1"
+      - "Expo SDK 55"
+      - "npx expo install"
+    features: [integration]
+
+  - id: 11
+    title: "Expo: fighting the plugin (New Architecture / fmt)"
+    triggers:
+      - "newArchEnabled"
+      - "withIosFmtWorkaround"
+      - "C\\+\\+17"
+      - "Xcode 26\\.4"
+    features: [integration]
+
+  - id: 12
+    title: "Expo: EAS signing for IterableExpoRichPush"
+    triggers:
+      - "IterableExpoRichPush"
+      - "appExtensions"
+      - "Signing for 'IterableExpoRichPush'"
+    features: [integration, push-notifications]
+
+  - id: 13
+    title: "Expo: requestPermissionsForPushNotifications defaults to false"
+    triggers:
+      - "requestPermissionsForPushNotifications"
+    features: [push-notifications, integration]
