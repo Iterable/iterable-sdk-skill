@@ -10,7 +10,8 @@
 #
 # Sourced from RN SDK 3.1.0 master (public exports vs NativeRNIterableAPI
 # spec, README native-version table, CHANGELOG init-promise fix, example/).
-# Expo config-plugin traps are SDK-704.
+# Ids 7–13 are Expo config-plugin traps (`@iterable/expo-plugin`). They
+# apply only after SKILL.md Step 0 classifies the project as Expo.
 
 platform: react-native
 
@@ -68,3 +69,58 @@ pitfalls:
       - "in-app messages fetch"
       - "authCallbackTimeoutMs"
     features: [integration, in-app-messages, jwt-authentication]
+
+  - id: 7
+    title: "Expo: SDK and plugin do not work in Expo Go"
+    triggers:
+      - "Expo Go"
+      - "development build"
+      - "development client"
+    features: [integration]
+
+  - id: 8
+    title: "Expo: expo prebuild --clean wipes ios/ and android/"
+    triggers:
+      - "prebuild --clean"
+      - "expo prebuild"
+      - "npx expo prebuild"
+    features: [integration, push-notifications]
+
+  - id: 9
+    title: "Expo: do not use the plugin when native is configured by hand"
+    triggers:
+      - "manually configuring your native code"
+      - "DO NOT use this plugin"
+    features: [integration]
+
+  - id: 10
+    title: "Expo: two packages, versions move in lockstep"
+    triggers:
+      - "@iterable/expo-plugin"
+      - "expo-plugin 1\\.1"
+      - "Expo SDK 55"
+      - "npx expo install"
+    features: [integration]
+
+  - id: 11
+    title: "Expo: fighting the plugin (New Architecture / fmt)"
+    triggers:
+      - "newArchEnabled"
+      - "withIosFmtWorkaround"
+      - "C\\+\\+17"
+      - "Xcode 26\\.4"
+    features: [integration]
+
+  - id: 12
+    title: "Expo: EAS signing for IterableExpoRichPush"
+    triggers:
+      - "IterableExpoRichPush"
+      - "appExtensions"
+      - "Signing for 'IterableExpoRichPush'"
+    features: [integration, push-notifications]
+
+  - id: 13
+    title: "Expo: requestPermissionsForPushNotifications defaults to false"
+    triggers:
+      - "requestPermissionsForPushNotifications"
+    features: [push-notifications, integration]

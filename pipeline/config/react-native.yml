@@ -9,8 +9,9 @@
 # previous run reflect upstream changes only. The auto-refresh workflow pins
 # only platforms whose corpus actually changed.
 #
-# Expo is one article in this set, not a separate platform. Deep Expo-plugin
-# traps (`@iterable/expo-plugin`) are SDK-704.
+# Expo is one article in this set, not a separate platform. The second
+# package for Expo projects (`@iterable/expo-plugin`) is recorded in
+# SKILL.md / PITFALLS.md, not in `sdk.tag` (that pin is the RN SDK).
 
 platform: react-native
 

@@ -13,9 +13,16 @@ Sourced from `@iterable/react-native-sdk` **3.1.0** master: public exports in
 `src/index.tsx`, the TurboModule spec in `src/api/NativeRNIterableAPI.ts`,
 CHANGELOG 3.1.0, the README native-version table, and the working sample in
 `example/` (`example/src/hooks/useIterableApp.tsx`,
-`example/src/components/App/App.tsx`). Expo config-plugin traps
-(`@iterable/expo-plugin`, Expo Go, `prebuild --clean`) are SDK-704 and are
-not listed here.
+`example/src/components/App/App.tsx`). Expo items also come from
+`@iterable/expo-plugin` 1.1.0 (`plugin/src/withIterable.ts`) and
+`reference/expo.md`.
+
+**How to read this list.** #1–6 are JavaScript / runtime traps. They apply
+to **every** React Native app, including Expo. #7–13 are Expo
+config-plugin traps (build-time and configuration-time). Use them only
+after Step 0 classified the project as Expo. #3's *symptom* is both
+workflows; its **bare** native fix (manifest + `PermissionsAndroid`) is
+wrong on Expo — branch first.
 
 ---
 
@@ -63,16 +70,22 @@ not listed here.
 - **Cause:** Android 13 (API 33) introduced runtime `POST_NOTIFICATIONS`.
   Without a granted permission, the OS silently suppresses every notification —
   including Iterable's. No error in the JS SDK.
-- **Fix:** This is still a React Native integration step. Copy the sample's
-  two-part pattern, not Kotlin `ActivityResultContracts`:
-  1. Declare `<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />`
-     in the Android manifest (`example/android/app/src/main/AndroidManifest.xml`).
-  2. Request it from JS on API 33+ with `PermissionsAndroid.request`
-     (`example/src/components/App/App.tsx` `requestNotificationPermission`).
-     Call it from a user-facing screen, not at module load.
+- **Fix:** Branch on the workflow from Step 0. Do not apply the bare
+  recipe to an Expo app.
 
-  For Expo, follow `reference/expo.md` instead of hand-editing `android/`.
-  See `reference/push-notifications.md`.
+  - **Expo:** Do not edit `AndroidManifest.xml` or `android/`. Configure
+    push through `@iterable/expo-plugin` and `reference/expo.md` (pitfalls
+    #7–#13). Point `expo.android.googleServicesFile` at the developer-supplied
+    `google-services.json`.
+  - **Bare:** Copy the sample's two-part pattern, not Kotlin
+    `ActivityResultContracts`:
+    1. Declare `<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />`
+       in the Android manifest (`example/android/app/src/main/AndroidManifest.xml`).
+    2. Request it from JS on API 33+ with `PermissionsAndroid.request`
+       (`example/src/components/App/App.tsx` `requestNotificationPermission`).
+       Call it from a user-facing screen, not at module load.
+
+  See `reference/push-notifications.md` (bare) or `reference/expo.md` (Expo).
 
 ## 4. Native or bridge APIs used as if they were the public JS SDK
 
@@ -158,3 +171,112 @@ not listed here.
   do not keep the sample's iOS `.catch` as the long-term fix, and do not call
   `Iterable.initialize2` (internal / staging). See
   `reference/installing.md` → `## Upgrading the SDK`.
+
+---
+
+Pitfalls 7–13 apply only when Step 0 detected Expo. Skip them on a bare
+React Native project. Do not introduce `@iterable/expo-plugin` there.
+
+## 7. Expo: SDK and plugin do not work in Expo Go
+
+- **Symptom:** `Iterable.initialize` appears to run, or the app errors with
+  a missing native module. Push, in-app, and inbox never appear. The agent
+  debugs JavaScript for a cycle whose cause is the runtime.
+- **Cause:** Both `@iterable/expo-plugin` and `@iterable/react-native-sdk`
+  rely on native code. Expo Go [does not ship arbitrary native
+  modules](https://expo.dev/blog/expo-go-vs-development-builds#expo-go-limitations).
+- **Fix:** Run a [development
+  build](https://docs.expo.dev/develop/development-builds/introduction/) —
+  `npx expo run:ios` / `npx expo run:android`, or an EAS development
+  build. Do not keep iterating on JS while they are in Expo Go. See
+  `reference/expo.md` → `### Expo Go`.
+
+## 8. Expo: `expo prebuild --clean` wipes `ios/` and `android/`
+
+- **Symptom:** Hand-edits to native projects (FCM, APNs, entitlements,
+  Iterable native init) disappear after the next prebuild. Or the agent
+  followed `reference/installing.md` in an Expo app and that work vanished
+  on rebuild.
+- **Cause:** The plugin configures native projects during `expo prebuild`.
+  `npx expo prebuild --clean` deletes `ios/` and `android/` and regenerates
+  them. Any file the agent wrote there is gone.
+- **Fix:** Native setup belongs in `app.json` / `app.config.*` and the
+  plugin options, not in `ios/` or `android/` as the source of truth. If
+  those directories must stay hand-maintained, do **not** use the plugin
+  (pitfall #9). See `reference/expo.md` → `### Native code`.
+
+## 9. Expo: do not use the plugin when native is configured by hand
+
+- **Symptom:** Adding `@iterable/expo-plugin` to a project that already
+  customizes `ios/` / `android/` overwrites that work on the next
+  `prebuild --clean`. Or the project is half plugin, half hand-edit, and
+  neither path is stable.
+- **Cause:** The plugin is for managed / continuous-native-generation
+  workflows. Docs state a hard do-not: if they manually configure native
+  code instead of other Expo config plugins, **do not use this plugin**.
+- **Fix:** Ask before adding it. If they maintain native projects by
+  hand, skip `@iterable/expo-plugin` and follow `reference/installing.md`
+  for native steps. If they are on the Expo plugin path, do not hand-edit
+  `ios/` or `android/` (pitfall #8). See `reference/expo.md` →
+  `### Native code`.
+
+## 10. Expo: two packages, versions move in lockstep
+
+- **Symptom:** The build fails after the agent guessed an Expo SDK, React
+  Native, React, Node, `@iterable/react-native-sdk`, or
+  `@iterable/expo-plugin` version. Or it stated only the RN SDK version
+  for an Expo project.
+- **Cause:** Expo apps depend on a **second** published package,
+  `@iterable/expo-plugin` (`Iterable/iterable-expo-plugin`), on its own
+  cadence. It is a peer of the RN SDK, not part of it. Refresh stamps
+  `reference/expo.md` with the RN `sdk.tag` only, so the corpus does not
+  record the plugin pin.
+- **Fix:** When stating versions, give **both** packages and confirm they
+  are compatible. Resolve current releases from npm (or each CHANGELOG);
+  do not bake a "latest" number into the skill. The tested floor in
+  `reference/expo.md` → `## Requirements` is Expo SDK **55+**, React
+  Native **0.83.2+**, React **19.2+**, Node **20.19.4+**,
+  `@iterable/react-native-sdk` **3.0.0+** (this skill is validated against
+  **3.1.0**), `@iterable/expo-plugin` **1.1.0+**. Install with
+  `npx expo install @iterable/expo-plugin @iterable/react-native-sdk`.
+
+## 11. Expo: fighting the plugin (New Architecture / `{fmt}`)
+
+- **Symptom:** The agent sets `newArchEnabled: false` on Expo SDK 55 (no
+  effect, or a broken build), or hand-patches Pods / Xcode settings for a
+  `{fmt}` C++ error on Xcode 26.4+.
+- **Cause:** Expo SDK 55 requires React Native's New Architecture.
+  `@iterable/expo-plugin` **1.1.0+** applies an iOS `{fmt}` C++17
+  workaround during `expo prebuild` (`withIosFmtWorkaround`). Hand-editing
+  either is working against the plugin.
+- **Fix:** Leave `newArchEnabled` **true** on Expo 55+. Do not patch Pods
+  for `{fmt}`. If the workaround is missing, upgrade the plugin to 1.1.0+
+  rather than copying a native fix. See `reference/expo.md` →
+  `### React Native's New Architecture` and `### Xcode 26.4 compatibility`.
+
+## 12. Expo: EAS signing for `IterableExpoRichPush`
+
+- **Symptom:** EAS iOS build fails with "Signing for 'IterableExpoRichPush'
+  requires a development team" (or the NSE target is missing from the
+  EAS profile).
+- **Cause:** The plugin creates a notification-service-extension target
+  named `IterableExpoRichPush`. EAS will not sign it unless it is listed
+  under `expo.extra.eas.build.experimental.ios.appExtensions`.
+- **Fix:** Add that block as in `reference/expo.md` → `### Configuring EAS
+  Builds`. The extension bundle id is
+  `<main-bundle-id>.IterableExpoRichPush`. Do not "fix" this by deleting
+  the extension or hand-editing the Xcode project (pitfall #8).
+
+## 13. Expo: `requestPermissionsForPushNotifications` defaults to `false`
+
+- **Symptom:** The agent omits the plugin option, expecting iOS to prompt
+  for notification permission because the support-doc table says the
+  default is `true`. No prompt. Push looks "set up" and never appears.
+- **Cause:** Plugin source (`plugin/src/withIterable.ts`) defaults
+  `requestPermissionsForPushNotifications` to **`false`**. Bundled
+  `reference/expo.md` (and the upstream article) currently list the
+  default as `true`. That table is wrong. The option is **iOS-only**.
+- **Fix:** Trust the plugin, not the table. Set the option **explicitly**
+  if they want iOS permission prompting. Do not hand-edit
+  `reference/expo.md` to "fix" the table — the next docs refresh will
+  overwrite it. Report the drift against `Iterable/iterable-docs`.

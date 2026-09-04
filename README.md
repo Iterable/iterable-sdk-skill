@@ -16,8 +16,9 @@
 
 The Iterable mobile SDK skills give your AI coding assistant reliable guidance
 when integrating Iterable's SDK into an Android or React Native app — push,
-in-app messages, user identity, and more. Because each skill is built for one
-SDK, you get:
+in-app messages, user identity, and more. The React Native skill covers both
+bare workflow and Expo (`@iterable/expo-plugin`). Because each skill is built
+for one SDK, you get:
 
 - **Official docs, always available.** Each skill ships Iterable's documentation
   inside it (`iterable-android/reference/`, `iterable-react-native/reference/`),
@@ -31,7 +32,9 @@ SDK, you get:
 
 The skills cover push notifications, in-app messages, mobile inbox, embedded
 messaging, deep linking, JWT authentication, event tracking, and user profiles
-(plus unknown-user activation on Android). Android and React Native are
+(plus unknown-user activation on Android). React Native includes Expo-managed
+apps via `@iterable/expo-plugin` in the same skill. Snippets are version-pinned
+to the SDK release each was validated against. Android and React Native are
 available today — iOS and Web are coming soon.
 
 ## Known limitations

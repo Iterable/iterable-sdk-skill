@@ -2,15 +2,16 @@
 name: iterable-react-native
 description: >-
   Authoritative reference for the Iterable React Native SDK (npm
-  `@iterable/react-native-sdk`). Use when integrating, configuring, debugging,
-  or extending any Iterable feature in a React Native app — Expo or bare
-  workflow — including push notifications, in-app messages, mobile inbox,
-  embedded messaging, JWT authentication, deep links, event tracking, and
-  user identity (setEmail / setUserId). Prefer this skill over the model's
-  memory of Iterable APIs and over the Android/iOS skills: the JS surface is
-  narrower than the native one, and native APIs are not reachable from
-  JavaScript. Ships version-pinned snippets and known foot-guns that silently
-  break integrations.
+  `@iterable/react-native-sdk`) and, in Expo apps, the Iterable Expo config
+  plugin (`@iterable/expo-plugin`). Use when integrating, configuring,
+  debugging, or extending any Iterable feature in a React Native app — Expo
+  or bare workflow — including push notifications, in-app messages, mobile
+  inbox, embedded messaging, JWT authentication, deep links, event tracking,
+  and user identity (setEmail / setUserId). Prefer this skill over the
+  model's memory of Iterable APIs and over the Android/iOS skills: the JS
+  surface is narrower than the native one, and native APIs are not reachable
+  from JavaScript. Ships version-pinned snippets and known foot-guns that
+  silently break integrations.
 ---
 
 # Iterable React Native SDK
@@ -20,7 +21,11 @@ You are working with the **Iterable React Native SDK** —
 It is a JavaScript layer over Iterable's native Android and iOS SDKs.
 Iterable is a cross-channel marketing platform; this SDK is the React Native
 entry point for push, in-app, inbox, embedded messages, event tracking, and
-JWT-authenticated APIs.
+JWT-authenticated APIs. Expo apps also need
+[`@iterable/expo-plugin`](https://www.npmjs.com/package/@iterable/expo-plugin)
+for native configuration — that plugin is part of **this** skill, not a
+separate one. The plugin owns `ios/` / `android/` setup; JavaScript init
+is still `Iterable.initialize` from the RN SDK.
 
 This skill is the **agent-facing source of truth**. The public docs at
 [support.iterable.com](https://support.iterable.com) cover the same surface for
@@ -46,7 +51,9 @@ Do this **first**, before Preflight and before any edits.
 - **Expo** if `app.json` / `app.config.js` / `app.config.ts` has an `expo`
   key, or the app depends on `expo`. Route native setup through
   `reference/expo.md`. Do not hand-edit `ios/` or `android/` as the primary
-  path.
+  path. If they already configure native code by hand, do **not** add
+  `@iterable/expo-plugin` — say so and use `reference/installing.md` for
+  native steps (pitfall #9).
 - **Bare React Native** otherwise. Route native setup through
   `reference/installing.md` and the feature slugs (especially
   `push-notifications`). Do not introduce `@iterable/expo-plugin`.
@@ -62,9 +69,9 @@ use it and offer **at most 4 options**; otherwise ask in plain text:
 - Other (inbox, embedded, deep links) — describe in the option
 
 **First check whether this is an upgrade, not a new integration.** If the
-project already depends on `@iterable/react-native-sdk`, ask which version
-they're on and what they want out of the upgrade, then follow the upgrade
-row in the slug table.
+project already depends on `@iterable/react-native-sdk` (and, on Expo,
+`@iterable/expo-plugin`), ask which version they're on and what they want
+out of the upgrade, then follow the upgrade row in the slug table.
 
 Confirm the scope, *then* run Preflight, *then* build.
 
@@ -101,8 +108,9 @@ JWT, `google-services.json` / APNs key) are legitimate pauses.
 | **Identity model** — `setEmail` vs `setUserId`, and where the value comes from | Always | Ask. Never guess. |
 | **JWT?** — is the mobile key JWT-protected? | Always | Ask. If yes, `authHandler` is mandatory (rule 1). |
 | **Data region** — US or EU | Always | Ask if their dashboard is `app.eu.iterable.com`. See pitfall #2. |
-| **`google-services.json`** (Firebase) | Bare-workflow push on Android | **STOP and ask.** You cannot generate it. |
+| **`google-services.json`** (Firebase) | Android push (bare **or** Expo) | **STOP and ask.** You cannot generate it. Expo: path goes in `expo.android.googleServicesFile`, not a hand-edited `android/`. |
 | **APNs key / capabilities** | Bare-workflow push on iOS | Ask. Follow `reference/push-notifications.md`. |
+| **Development build vs Expo Go** | Expo | Expo Go cannot run this SDK (pitfall #7). If they are in Expo Go, stop and move them to a development build before debugging JS. |
 
 **Never fabricate a prerequisite to make the build pass.** Do not invent an
 API key, a placeholder `google-services.json`, or a JWT signed in the client.
@@ -116,7 +124,10 @@ API key, a placeholder `google-services.json`, or a JWT signed in the client.
   npm (`@iterable/react-native-sdk`) or the SDK's
   [CHANGELOG.md](https://github.com/Iterable/react-native-sdk/blob/master/CHANGELOG.md).
   If the host project already pins a version, match it unless they ask to
-  upgrade.
+  upgrade. **Expo:** also resolve `@iterable/expo-plugin` from npm or its
+  [CHANGELOG](https://github.com/Iterable/iterable-expo-plugin/blob/main/CHANGELOG.md).
+  State **both** package versions and check they are compatible (pitfall
+  #10). Do not guess Expo SDK / RN / plugin versions independently.
 - **Initialize with:** `Iterable.initialize(apiKey, config)` from
   `@iterable/react-native-sdk`. On 3.1.0+ the promise means native init
   returned, not that in-app fetch finished (pitfall #6). Identify the user
@@ -145,9 +156,11 @@ API key, a placeholder `google-services.json`, or a JWT signed in the client.
 
 ## Always-on rules (read every time)
 
-These rules apply to **every** React Native integration. Full explanations
-are in [`PITFALLS.md`](PITFALLS.md) — read it before generating any
-non-trivial code.
+These rules apply to **every** React Native integration. Rule 7 applies
+when Step 0 detected Expo. Full explanations are in
+[`PITFALLS.md`](PITFALLS.md) — read it before generating any non-trivial
+code. On Expo, that includes pitfalls #7–#13, not only the JS-runtime
+items.
 
 1. **If the API key is JWT-protected, `config.authHandler` is mandatory.**
    Without one, every SDK call silently fails with no error surface. Never
@@ -180,6 +193,16 @@ non-trivial code.
 6. **Never assume how the app identifies a user — ask.** Do not wire
    identity to the first email-shaped field you find.
 
+7. **Expo: both packages, plugin owns native configuration.** Install with
+   `npx expo install @iterable/expo-plugin @iterable/react-native-sdk`.
+   Never treat Expo Go as a valid runtime (pitfall #7). Do not hand-edit
+   `ios/` or `android/` as the primary path (`prebuild --clean` wipes them
+   — pitfall #8). If they already configure native code by hand, do **not**
+   add the plugin (pitfall #9). When stating versions, give both packages
+   (pitfall #10). Trust plugin source over the support-doc options table
+   (`requestPermissionsForPushNotifications` defaults to `false` — pitfall
+   #13).
+
 ---
 
 ## Canonical minimum integration (start here)
@@ -187,6 +210,16 @@ non-trivial code.
 Adapt this; don't bolt the pieces together from scratch. Read
 `reference/installing.md` (bare) or `reference/expo.md` (Expo) before
 writing native project files.
+
+**Expo — install both packages first** (then the JS below):
+
+```bash
+npx expo install @iterable/expo-plugin @iterable/react-native-sdk
+```
+
+Add `["@iterable/expo-plugin", {}]` to `expo.plugins` in `app.json` /
+`app.config.*`. Do not skip this, and do not treat the JS snippet as the
+whole Expo integration.
 
 ```javascript
 import { Iterable, IterableConfig, IterableDataRegion } from '@iterable/react-native-sdk';
@@ -233,7 +266,7 @@ source — it is already on disk.**
 | If the user is asking about… | Slug |
 | ---------------------------- | ---- |
 | What the RN SDK covers, architecture, JS vs native | `overview` |
-| First-time setup, npm install, iOS + Android native project setup, `Iterable.initialize` | `installing` (skip `## Upgrading the SDK` unless they are upgrading) |
+| First-time setup, npm install, iOS + Android native project setup, `Iterable.initialize` | `installing` (bare; skip `## Upgrading the SDK` unless they are upgrading). Expo: `expo` |
 | Upgrading from an older RN SDK version | `installing` → `## Upgrading the SDK`, or `migrating` |
 | Expo / `expo prebuild` / config plugin | `expo` |
 | JWT, `authHandler`, JWT-enabled API keys | `authentication` |
@@ -255,12 +288,14 @@ you detected), then load feature slugs **as you reach each feature**.
 
 1. **Detect Expo vs bare. Identify the goal.** New integration, upgrade,
    single feature, or debugging.
-2. **Check rules 1–4** against whatever they already have.
+2. **Check always-on rules** against whatever they already have. On Expo,
+   that includes rule 7 (pitfalls #7–#13).
 3. **Read the matching slug** from `reference/` before writing code.
 4. **For traps not in the reference doc**, consult [`PITFALLS.md`](PITFALLS.md).
 5. **Version-check.** If they are on an older SDK than the doc's
    `sdk_min_version`, read the upgrading section of `installing` before
-   generating code.
+   generating code. On Expo, also check `@iterable/expo-plugin` against
+   `reference/expo.md` → `## Requirements` (pitfall #10).
 
 ---
 
@@ -269,9 +304,6 @@ you detected), then load feature slugs **as you reach each feature**.
 - Native Android-only or iOS-only app integrations — those are
   `iterable-android` and (when authored) `iterable-ios`. If this project is
   a native Android app with no React Native, stop and use `iterable-android`.
-- Deep Expo config-plugin traps (`@iterable/expo-plugin` version lockstep,
-  Expo Go, `prebuild --clean`) — tracked as SDK-704. Still **detect Expo vs
-  bare** here and read `reference/expo.md` for Expo projects.
 - Iterable platform / dashboard configuration. Direct the user to
   [support.iterable.com](https://support.iterable.com).
 - JWT *server-side* implementation. Assume the team has, or will build, a
@@ -285,4 +317,6 @@ This skill is versioned alongside the SDK. When Iterable's docs change, a
 refresh PR rewrites `reference/` from the docs at that commit; each doc
 records the exact `source_ref` it came from. If you see drift between this
 skill's snippets and the SDK's current `CHANGELOG.md`, **trust `CHANGELOG.md`**
-and report the drift.
+and report the drift. On Expo, also trust the plugin
+[CHANGELOG](https://github.com/Iterable/iterable-expo-plugin/blob/main/CHANGELOG.md)
+and plugin source over a stale options table in `reference/expo.md`.
