@@ -23,10 +23,10 @@
  * triggered it; `set-source-ref.ts` then writes the resolved SHA back into
  * the config(s) whose corpus actually changed.
  *
- * Local clone: set DOCS_ROOT to a checkout of `source.repo` (same commit as
- * SOURCE_REF / `source.ref`). Articles are read from disk and blob SHAs come
- * from `git hash-object`, which matches GitHub's contents API. CI still
- * uses `gh api`.
+ * Local clone: set DOCS_ROOT to a git checkout of `source.repo` that
+ * contains the resolved commit. Articles and blob SHAs are read from that
+ * commit (`git show` / `git rev-parse <sha>:<path>`), not the working tree,
+ * so they match GitHub's contents API. CI still uses `gh api`.
  */
 
 import { execFileSync } from "node:child_process";
@@ -94,17 +94,27 @@ function resolveCommitSha(repo: string, ref: string): string {
   return res.sha;
 }
 
+function gitC(docsRoot: string, args: string[], maxBuffer?: number): string {
+  return execFileSync("git", ["-C", docsRoot, ...args], {
+    encoding: "utf8",
+    maxBuffer,
+  });
+}
+
 function fetchArticle(repo: string, ref: string, sourcePath: string) {
   const docsRoot = localDocsRoot();
   if (docsRoot) {
-    const filePath = resolve(docsRoot, sourcePath);
-    if (!existsSync(filePath)) {
-      throw new Error(`DOCS_ROOT article missing: ${sourcePath} (looked in ${filePath})`);
+    const spec = `${ref}:${sourcePath}`;
+    let sha: string;
+    try {
+      sha = gitC(docsRoot, ["rev-parse", spec]).trim();
+    } catch {
+      throw new Error(`DOCS_ROOT article missing at ${spec} (clone ${docsRoot})`);
     }
-    const body = readFileSync(filePath, "utf8");
-    const sha = execFileSync("git", ["-C", docsRoot, "hash-object", sourcePath], {
-      encoding: "utf8",
-    }).trim();
+    if (!SHA_RE.test(sha)) {
+      throw new Error(`DOCS_ROOT blob SHA for ${spec} is not 40 hex chars (got "${sha}")`);
+    }
+    const body = gitC(docsRoot, ["show", spec], 64 * 1024 * 1024);
     return { sha, body };
   }
   const res = ghApiJson<ContentApiResponse>(`repos/${repo}/contents/${sourcePath}?ref=${ref}`);
