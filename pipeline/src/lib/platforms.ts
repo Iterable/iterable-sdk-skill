@@ -69,6 +69,9 @@ export function loadPlatformConfig(configPath: string): PlatformConfig {
   }
   const sourceRepo = requireString(parsed.source.repo, `${file}: source.repo`);
   const sourceRef = requireString(parsed.source.ref, `${file}: source.ref`);
+  if (!SHA_RE.test(sourceRef)) {
+    throw new Error(`${file}: source.ref must be a 40-char commit SHA (got "${sourceRef}")`);
+  }
   const refLabel =
     parsed.source.ref_label === undefined
       ? undefined

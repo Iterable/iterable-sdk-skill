@@ -224,11 +224,11 @@ whole Expo integration.
 ```javascript
 import { Iterable, IterableConfig, IterableDataRegion } from '@iterable/react-native-sdk';
 
-export function initializeIterable(apiKey, { userId, dataRegion } = {}) {
+export async function initializeIterable(apiKey, { userId, dataRegion } = {}) {
   const config = new IterableConfig();
   // config.dataRegion = IterableDataRegion.EU; // EU projects (pitfall #2)
   // config.authHandler = () => fetchJwtForCurrentUser(); // JWT keys (pitfall #1)
-  Iterable.initialize(apiKey, config);
+  await Iterable.initialize(apiKey, config); // native init returned, not in-app ready (pitfall #6)
   if (userId) {
     Iterable.setUserId(userId); // or setEmail(...) — pick ONE (rule 6)
   }
