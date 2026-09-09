@@ -1,48 +1,47 @@
 /**
  * Refresh the reference corpus.
  *
- * Reads pipeline/config/<platform>.yml, pulls each listed article from the
- * pinned commit of `source.repo` via `gh api`, applies the deterministic
+ * Reads every top-level `pipeline/config/<platform>.yml` (or one, if a
+ * platform argument is given), pulls each listed article from the pinned
+ * commit of `source.repo` via `gh api`, applies the deterministic
  * transforms, and writes <paths.reference_dir>/<slug>.md. There is no
  * intermediate directory and no LLM step — the corpus is the docs reshaped.
  *
- * Idempotent: an article whose upstream blob sha matches the `source_sha`
- * already recorded in the reference file is skipped. That's what makes
- * `git diff` after a run mean "upstream actually changed", which the refresh
- * workflow relies on to name the touched slugs.
+ * Idempotent: an article is skipped when the upstream blob sha *and* the
+ * Layer A inputs stamped into frontmatter (sdk tag/artifact, feature,
+ * archetype, source_path) already match. That's what makes `git diff` after
+ * a run mean "upstream or pin actually changed", which the refresh workflow
+ * relies on to name the touched slugs — `fetched_at` is not part of the key.
  *
  * Usage:
- *   pnpm refresh:docs              # picks the single config in pipeline/config
- *   pnpm refresh:docs -- android   # explicit platform when several configs exist
+ *   pnpm refresh:docs              # every configured platform, one pass
+ *   pnpm refresh:docs -- android   # one platform
  *
- * Ref override: set SOURCE_REF to fetch from a specific commit/branch instead
- * of the config's pinned `source.ref`. The auto-refresh workflow passes the
- * docs commit that triggered it; `set-source-ref.ts` then writes the resolved
- * SHA back into the config.
+ * Ref override: set SOURCE_REF to a commit SHA, branch, or tag. It is
+ * resolved to a 40-char SHA before fetch/write so generated `source_ref`
+ * stays schema-valid. The auto-refresh workflow passes the docs commit that
+ * triggered it; `set-source-ref.ts` then writes the resolved SHA back into
+ * the config(s) whose corpus actually changed.
+ *
+ * Local clone: set DOCS_ROOT to a git checkout of `source.repo` that
+ * contains the resolved commit. Articles and blob SHAs are read from that
+ * commit (`git show` / `git rev-parse <sha>:<path>`), not the working tree,
+ * so they match GitHub's contents API. CI still uses `gh api`.
  */
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { parse as parseYaml } from "yaml";
+import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { splitFrontmatter, joinFrontmatter } from "./lib/frontmatter.ts";
 import { applyLayerA, type LayerAContext } from "./lib/layer-a.ts";
-
-interface ArticleConfig {
-  slug: string;
-  source_path: string;
-  feature: string;
-  archetype: "integration" | "feature" | "identity";
-}
-
-interface PlatformConfig {
-  platform: string;
-  source: { repo: string; ref: string; ref_label?: string };
-  sdk: { repo: string; tag: string; changelog_path: string };
-  paths: { reference_dir: string };
-  articles: ArticleConfig[];
-}
+import {
+  loadPlatformConfig,
+  resolveConfigPaths,
+  REPO_ROOT,
+  SHA_RE,
+  type ArticleConfig,
+  type PlatformConfig,
+} from "./lib/platforms.ts";
 
 interface ContentApiResponse {
   sha: string;
@@ -50,10 +49,23 @@ interface ContentApiResponse {
   encoding: "base64";
 }
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = resolve(HERE, "../..");
-const CONFIG_DIR = resolve(REPO_ROOT, "pipeline/config");
-const SDK_ARTIFACT = "iterableapi";
+interface CommitApiResponse {
+  sha: string;
+}
+
+interface SkipInputs {
+  sourceSha: string;
+  sourcePath: string;
+  sdkVersion: string;
+  sdkArtifact: string;
+  feature: string;
+  archetype: string;
+}
+
+function localDocsRoot(): string | undefined {
+  const root = process.env.DOCS_ROOT?.trim();
+  return root || undefined;
+}
 
 function ghApiJson<T>(path: string): T {
   const stdout = execFileSync("gh", ["api", path], {
@@ -63,46 +75,94 @@ function ghApiJson<T>(path: string): T {
   return JSON.parse(stdout) as T;
 }
 
+function resolveCommitSha(repo: string, ref: string): string {
+  if (SHA_RE.test(ref)) return ref;
+  const docsRoot = localDocsRoot();
+  if (docsRoot) {
+    const sha = execFileSync("git", ["-C", docsRoot, "rev-parse", `${ref}^{commit}`], {
+      encoding: "utf8",
+    }).trim();
+    if (!SHA_RE.test(sha)) {
+      throw new Error(`Could not resolve ${repo}@${ref} to a 40-char commit SHA (got "${sha}")`);
+    }
+    return sha;
+  }
+  const res = ghApiJson<CommitApiResponse>(`repos/${repo}/commits/${encodeURIComponent(ref)}`);
+  if (!SHA_RE.test(res.sha)) {
+    throw new Error(`Could not resolve ${repo}@${ref} to a 40-char commit SHA (got "${res.sha}")`);
+  }
+  return res.sha;
+}
+
+function gitC(docsRoot: string, args: string[], maxBuffer?: number): string {
+  return execFileSync("git", ["-C", docsRoot, ...args], {
+    encoding: "utf8",
+    maxBuffer,
+  });
+}
+
 function fetchArticle(repo: string, ref: string, sourcePath: string) {
+  const docsRoot = localDocsRoot();
+  if (docsRoot) {
+    const spec = `${ref}:${sourcePath}`;
+    let sha: string;
+    try {
+      sha = gitC(docsRoot, ["rev-parse", spec]).trim();
+    } catch {
+      throw new Error(`DOCS_ROOT article missing at ${spec} (clone ${docsRoot})`);
+    }
+    if (!SHA_RE.test(sha)) {
+      throw new Error(`DOCS_ROOT blob SHA for ${spec} is not 40 hex chars (got "${sha}")`);
+    }
+    const body = gitC(docsRoot, ["show", spec], 64 * 1024 * 1024);
+    return { sha, body };
+  }
   const res = ghApiJson<ContentApiResponse>(`repos/${repo}/contents/${sourcePath}?ref=${ref}`);
   return { sha: res.sha, body: Buffer.from(res.content, res.encoding).toString("utf8") };
 }
 
-function existingSourceSha(filePath: string): string | undefined {
+function existingSkipInputs(filePath: string): SkipInputs | undefined {
   if (!existsSync(filePath)) return undefined;
   const { frontmatter } = splitFrontmatter(readFileSync(filePath, "utf8"));
-  return typeof frontmatter.source_sha === "string" ? frontmatter.source_sha : undefined;
+  if (typeof frontmatter.source_sha !== "string") return undefined;
+  if (typeof frontmatter.source_path !== "string") return undefined;
+  if (typeof frontmatter.sdk_min_version !== "string") return undefined;
+  if (typeof frontmatter.sdk_artifact !== "string") return undefined;
+  if (typeof frontmatter.feature !== "string") return undefined;
+  if (typeof frontmatter.archetype !== "string") return undefined;
+  return {
+    sourceSha: frontmatter.source_sha,
+    sourcePath: frontmatter.source_path,
+    sdkVersion: frontmatter.sdk_min_version,
+    sdkArtifact: frontmatter.sdk_artifact,
+    feature: frontmatter.feature,
+    archetype: frontmatter.archetype,
+  };
 }
 
-function resolveConfigPath(platformArg: string | undefined): string {
-  if (platformArg) return resolve(CONFIG_DIR, `${platformArg}.yml`);
-  const ymls = readdirSync(CONFIG_DIR).filter((f) => f.endsWith(".yml"));
-  if (ymls.length === 1) return resolve(CONFIG_DIR, ymls[0]!);
-  throw new Error(
-    `Multiple configs in ${CONFIG_DIR} (${ymls.join(", ")}). Pass a platform argument.`,
+function shouldSkip(filePath: string, next: SkipInputs): boolean {
+  const existing = existingSkipInputs(filePath);
+  if (!existing) return false;
+  return (
+    existing.sourceSha === next.sourceSha &&
+    existing.sourcePath === next.sourcePath &&
+    existing.sdkVersion === next.sdkVersion &&
+    existing.sdkArtifact === next.sdkArtifact &&
+    existing.feature === next.feature &&
+    existing.archetype === next.archetype
   );
 }
 
-function main() {
-  // pnpm may forward the `--` separator through to the script, so drop it.
-  const args = process.argv.slice(2).filter((a) => a !== "--");
-  const configPath = resolveConfigPath(args[0]);
-  if (!existsSync(configPath)) {
-    console.error(`Config not found: ${configPath}`);
-    process.exit(1);
-  }
-
-  const config = parseYaml(readFileSync(configPath, "utf8")) as PlatformConfig;
+function refreshConfig(config: PlatformConfig, sourceRef: string): { written: number; skipped: number } {
   const outDir = resolve(REPO_ROOT, config.paths.reference_dir);
   mkdirSync(outDir, { recursive: true });
 
   const refOverride = process.env.SOURCE_REF?.trim();
-  const sourceRef = refOverride || config.source.ref;
   const refDisplay = refOverride
     ? `${sourceRef} (SOURCE_REF override)`
     : config.source.ref_label
-      ? `${config.source.ref.slice(0, 7)} (${config.source.ref_label})`
-      : config.source.ref.slice(0, 7);
+      ? `${sourceRef.slice(0, 7)} (${config.source.ref_label})`
+      : sourceRef.slice(0, 7);
 
   console.log(
     `Refreshing ${config.articles.length} ${config.platform} articles from ${config.source.repo}@${refDisplay}`,
@@ -114,42 +174,112 @@ function main() {
   for (const article of config.articles) {
     const outPath = resolve(outDir, `${article.slug}.md`);
     const { sha, body } = fetchArticle(config.source.repo, sourceRef, article.source_path);
+    const skipInputs: SkipInputs = {
+      sourceSha: sha,
+      sourcePath: article.source_path,
+      sdkVersion: config.sdk.tag,
+      sdkArtifact: config.sdk.artifact,
+      feature: article.feature,
+      archetype: article.archetype,
+    };
 
-    if (existingSourceSha(outPath) === sha) {
+    if (shouldSkip(outPath, skipInputs)) {
       console.log(`  skip   ${article.slug}  (unchanged)`);
       skipped++;
       continue;
     }
 
-    const { frontmatter, body: articleBody } = splitFrontmatter(body);
-    const withProvenance = joinFrontmatter(
-      {
-        ...frontmatter,
-        source_repo: config.source.repo,
-        source_path: article.source_path,
-        source_ref: sourceRef,
-        source_sha: sha,
-        fetched_at: new Date().toISOString(),
-      },
-      articleBody,
-    );
-
-    const ctx: LayerAContext = {
-      slug: article.slug,
-      feature: article.feature,
-      archetype: article.archetype,
-      sdkVersion: config.sdk.tag,
-      sdkArtifact: SDK_ARTIFACT,
-    };
-    const { output, snippetCount } = applyLayerA(withProvenance, ctx);
-    writeFileSync(outPath, output, "utf8");
-    console.log(
-      `  write  ${article.slug}  (${sha.slice(0, 7)}, ${snippetCount} snippet${snippetCount === 1 ? "" : "s"})`,
-    );
+    writeArticle(outPath, article, config, sourceRef, sha, body);
     written++;
   }
 
-  console.log(`\nDone. ${written} written, ${skipped} unchanged.`);
+  console.log(`\nDone ${config.platform}. ${written} written, ${skipped} unchanged.\n`);
+  return { written, skipped };
+}
+
+function writeArticle(
+  outPath: string,
+  article: ArticleConfig,
+  config: PlatformConfig,
+  sourceRef: string,
+  sha: string,
+  body: string,
+): void {
+  const { frontmatter, body: articleBody } = splitFrontmatter(body);
+  const withProvenance = joinFrontmatter(
+    {
+      ...frontmatter,
+      source_repo: config.source.repo,
+      source_path: article.source_path,
+      source_ref: sourceRef,
+      source_sha: sha,
+      fetched_at: new Date().toISOString(),
+    },
+    articleBody,
+  );
+
+  const ctx: LayerAContext = {
+    slug: article.slug,
+    feature: article.feature,
+    archetype: article.archetype,
+    sdkVersion: config.sdk.tag,
+    sdkArtifact: config.sdk.artifact,
+  };
+  const { output, snippetCount } = applyLayerA(withProvenance, ctx);
+  writeFileSync(outPath, output, "utf8");
+  console.log(
+    `  write  ${article.slug}  (${sha.slice(0, 7)}, ${snippetCount} snippet${snippetCount === 1 ? "" : "s"})`,
+  );
+}
+
+function main() {
+  // pnpm may forward the `--` separator through to the script, so drop it.
+  const args = process.argv.slice(2).filter((a) => a !== "--");
+  let configPaths: string[];
+  try {
+    configPaths = resolveConfigPaths(args[0]);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+    return;
+  }
+
+  const refOverride = process.env.SOURCE_REF?.trim();
+  const shaByRepo = new Map<string, string>();
+
+  let written = 0;
+  let skipped = 0;
+  for (const configPath of configPaths) {
+    let config: PlatformConfig;
+    try {
+      config = loadPlatformConfig(configPath);
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exit(1);
+      return;
+    }
+
+    const requested = refOverride || config.source.ref;
+    let sourceRef = shaByRepo.get(`${config.source.repo}@${requested}`);
+    if (!sourceRef) {
+      try {
+        sourceRef = resolveCommitSha(config.source.repo, requested);
+      } catch (error) {
+        console.error(error instanceof Error ? error.message : String(error));
+        process.exit(1);
+        return;
+      }
+      shaByRepo.set(`${config.source.repo}@${requested}`, sourceRef);
+    }
+
+    const result = refreshConfig(config, sourceRef);
+    written += result.written;
+    skipped += result.skipped;
+  }
+
+  if (configPaths.length > 1) {
+    console.log(`All platforms. ${written} written, ${skipped} unchanged.`);
+  }
 }
 
 main();

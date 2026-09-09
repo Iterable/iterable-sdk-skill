@@ -9,6 +9,7 @@
   "scripts": {
     "refresh:docs": "tsx src/refresh.ts",
     "set:source-ref": "tsx src/set-source-ref.ts",
+    "detect:corpus-changes": "tsx src/detect-corpus-changes.ts",
     "validate:reference": "tsx src/validate-reference.ts",
     "validate:plugins": "tsx src/validate-plugins.ts",
     "enrich:summary": "tsx src/enrich-summary.ts",

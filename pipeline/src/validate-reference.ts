@@ -1,5 +1,5 @@
 /**
- * Validates the frontmatter of every `iterable-android/reference/<slug>.md`
+ * Validates the frontmatter of every `<platform>/reference/<slug>.md`
  * against `pipeline/schema/reference.schema.json`, and checks that the corpus
  * and the platform config agree on which slugs exist. That second half is what
  * catches a config edit that renames a slug without a refresh — the skill's
@@ -9,23 +9,13 @@
  */
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { parse as parseYaml } from "yaml";
+import { resolve } from "node:path";
 import Ajv2020, { type ErrorObject } from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 import { splitFrontmatter } from "./lib/frontmatter.ts";
+import { loadAllPlatformConfigs, REPO_ROOT } from "./lib/platforms.ts";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = resolve(HERE, "../..");
 const SCHEMA_PATH = resolve(REPO_ROOT, "pipeline/schema/reference.schema.json");
-const CONFIG_DIR = resolve(REPO_ROOT, "pipeline/config");
-
-interface PlatformConfig {
-  platform: string;
-  paths: { reference_dir: string };
-  articles: Array<{ slug: string }>;
-}
 
 interface Issue {
   file: string;
@@ -34,12 +24,6 @@ interface Issue {
 
 function relativeToRoot(absPath: string): string {
   return absPath.startsWith(REPO_ROOT + "/") ? absPath.slice(REPO_ROOT.length + 1) : absPath;
-}
-
-function loadConfigs(): PlatformConfig[] {
-  return readdirSync(CONFIG_DIR)
-    .filter((f) => f.endsWith(".yml"))
-    .map((f) => parseYaml(readFileSync(resolve(CONFIG_DIR, f), "utf8")) as PlatformConfig);
 }
 
 function formatAjvErrors(errors: readonly ErrorObject[] | null | undefined): string[] {
@@ -55,7 +39,16 @@ function main() {
   const issues: Issue[] = [];
   let checked = 0;
 
-  for (const config of loadConfigs()) {
+  let configs;
+  try {
+    configs = loadAllPlatformConfigs();
+  } catch (error) {
+    console.error(`FAIL  ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(1);
+    return;
+  }
+
+  for (const { config } of configs) {
     const refDir = resolve(REPO_ROOT, config.paths.reference_dir);
     if (!existsSync(refDir)) {
       console.error(`FAIL  reference dir not found: ${config.paths.reference_dir}`);

@@ -13,3 +13,11 @@ eval/report/
 
 # JetBrains IDE files
 .idea/
+
+# Agent tooling
+.agent/
+.artifacts/
+.claude/
+.cursor/
+.opencode/
+.pi/

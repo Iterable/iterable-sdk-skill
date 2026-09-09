@@ -14,24 +14,28 @@
 >
 > Current functionality is subject to change.
 
-The Iterable Android SDK skill gives your AI coding assistant reliable guidance
-when integrating Iterable's SDK into your Android app — push, in-app messages,
-user identity, and more. Because this skill is built specifically for the
-Iterable Android SDK, you get:
+The Iterable mobile SDK skills give your AI coding assistant reliable guidance
+when integrating Iterable's SDK into an Android or React Native app — push,
+in-app messages, user identity, and more. The React Native skill covers both
+bare workflow and Expo (`@iterable/expo-plugin`). Because each skill is built
+for one SDK, you get:
 
-- **Official docs, always available.** The skill ships Iterable's documentation
-  inside it (`iterable-android/reference/`), so your assistant can reference
-  Iterable's content even when you're offline.
-- **Kotlin-first, version-pinned examples.** Snippets target the Android SDK
-  releases they were validated against — not generic pseudocode.
-- **Pitfall-aware answers.** The skill includes Iterable-supplied guidance for
+- **Official docs, always available.** Each skill ships Iterable's documentation
+  inside it (`iterable-android/reference/`, `iterable-react-native/reference/`),
+  so your assistant can reference Iterable's content even when you're offline.
+- **Version-pinned examples.** Snippets target the SDK releases they were
+  validated against — Kotlin-first on Android, JavaScript on React Native —
+  not generic pseudocode.
+- **Pitfall-aware answers.** Each skill includes Iterable-supplied guidance for
   common silent failures, so your assistant is less likely to suggest code that
   compiles but doesn't work.
 
-The skill covers push notifications, in-app messages, mobile inbox, embedded
-messaging, deep linking, JWT authentication, event tracking, user profiles,
-and unknown-user activation. It's Android-only today — iOS, React Native, and
-Web are coming soon.
+The skills cover push notifications, in-app messages, mobile inbox, embedded
+messaging, deep linking, JWT authentication, event tracking, and user profiles
+(plus unknown-user activation on Android). React Native includes Expo-managed
+apps via `@iterable/expo-plugin` in the same skill. Snippets are version-pinned
+to the SDK release each was validated against. Android and React Native are
+available today — iOS and Web are coming soon.
 
 ## Known limitations
 
@@ -66,8 +70,8 @@ Install the plugin from this repo's marketplace:
 /plugin install iterable-sdk@iterable
 ```
 
-This installs the `iterable-android` skill in one step. Start a new Claude Code
-session — skills load at session start.
+This installs the `iterable-android` and `iterable-react-native` skills in one
+step. Start a new Claude Code session — skills load at session start.
 
 ### Cursor
 
@@ -79,14 +83,15 @@ that path alone does not load the skill):
 git clone --depth 1 https://github.com/Iterable/iterable-sdk-skill.git ~/iterable-skills
 mkdir -p ~/.cursor/skills
 ln -sf ~/iterable-skills/iterable-android ~/.cursor/skills/iterable-android
+ln -sf ~/iterable-skills/iterable-react-native ~/.cursor/skills/iterable-react-native
 ```
 
 Reload Cursor (`Cmd+Shift+P` → **Developer: Reload Window**), then start a
 **new Agent chat**. Skills load at session start — an existing chat won't pick
 this up.
 
-Once loaded, the skill activates whenever you work on Iterable Android SDK
-tasks (see [How it works](#how-it-works)).
+Once loaded, the matching skill activates when you work on Iterable Android or
+React Native SDK tasks (see [How it works](#how-it-works)).
 
 ### Codex
 
@@ -97,8 +102,8 @@ codex plugin marketplace add Iterable/iterable-sdk-skill
 codex plugin add iterable-sdk@iterable
 ```
 
-Then start a new Codex session. The plugin installs the `iterable-android`
-skill. To verify:
+Then start a new Codex session. The plugin installs the `iterable-android` and
+`iterable-react-native` skills. To verify:
 
 ```bash
 codex plugin list
@@ -118,6 +123,7 @@ flow, symlink it directly into Codex's skills directory:
 ```bash
 mkdir -p ~/.codex/skills
 ln -sfn ~/iterable-skills/iterable-android ~/.codex/skills/iterable-android
+ln -sfn ~/iterable-skills/iterable-react-native ~/.codex/skills/iterable-react-native
 ```
 
 Start a new Codex session after the symlink; skills are loaded at session
@@ -125,11 +131,13 @@ start.
 
 ## How it works
 
-The skill carries a copy of the Iterable documentation inside it
-(`iterable-android/reference/`), so it always has the docs on hand — even
-offline. When your assistant works on an Iterable Android SDK task, the skill
-activates and routes it to the right doc slug, pitfalls, and integration
-checklist in [`iterable-android/SKILL.md`](iterable-android/SKILL.md).
+Each skill carries a copy of the Iterable documentation inside it
+(`iterable-android/reference/` or `iterable-react-native/reference/`), so it
+always has the docs on hand — even offline. When your assistant works on an
+Iterable Android or React Native SDK task, the matching skill activates and
+routes it to the right doc slug, pitfalls, and integration checklist in
+[`iterable-android/SKILL.md`](iterable-android/SKILL.md) or
+[`iterable-react-native/SKILL.md`](iterable-react-native/SKILL.md).
 
 That bundled copy is the authoritative doc source — there is nothing to fetch at
 runtime. When Iterable's source documentation changes, an automated workflow
@@ -139,31 +147,38 @@ updating your plugin or re-pulling the repo.
 ## What it covers
 
 Push notifications, in-app messages, mobile inbox, embedded messaging, deep
-linking, JWT authentication, event tracking, user profiles, and unknown-user
-activation. Snippets are Kotlin-first and version-pinned to the SDK release each
-was validated against.
+linking, JWT authentication, event tracking, and user profiles (plus
+unknown-user activation on Android). Snippets are version-pinned to the SDK
+release each was validated against.
 
-See [`iterable-android/SKILL.md`](iterable-android/SKILL.md) for the full
+See [`iterable-android/SKILL.md`](iterable-android/SKILL.md) or
+[`iterable-react-native/SKILL.md`](iterable-react-native/SKILL.md) for the
 routing table.
 
 ## Staying current
 
-When Iterable's docs change, a workflow rebuilds the skill's content and opens a
-PR for a reviewer to check and merge — updates are never applied automatically.
-After a release lands, update your plugin install (or re-pull if you cloned) to
-pick up the latest docs. See [`REVIEW.md`](REVIEW.md) for the reviewer
-playbook.
+When Iterable's docs change, a workflow rebuilds **every** configured
+platform's corpus in one pass (`pnpm refresh:docs`) and opens a single PR
+naming the platforms that actually changed. Updates are never applied
+automatically. After a release lands, update your plugin install (or re-pull
+if you cloned) to pick up the latest docs. See [`REVIEW.md`](REVIEW.md) for
+the reviewer playbook.
+
+Maintainers: `cd pipeline && pnpm refresh:docs` refreshes Android and React
+Native together. Pass a platform name (`pnpm refresh:docs -- android`) to
+limit the run. Refresh needs `gh` authenticated against private
+`Iterable/iterable-docs` (`DOCS_READ_TOKEN` / `GH_TOKEN`).
 
 ## Repo layout
 
 ```
-iterable-android/   the installable skill — SKILL.md + PITFALLS.md + reference/
-                    (reference/ is Iterable's docs in agent-ready form)
-pipeline/           refresh tooling + validation gates, CI-run
-eval/               scenario definitions for scoring skill vs. no-skill answers
-.claude-plugin/     Claude Code + Codex plugin + marketplace manifests
-.cursor-plugin/     Cursor plugin + marketplace manifests
-context7.json       Context7 indexing manifest
-mcp.json            Context7 MCP server config (Cursor plugin auto-discovery)
-.mcp.json           same config (Claude Code auto-discovery)
+iterable-android/        Android skill — SKILL.md + PITFALLS.md + reference/
+iterable-react-native/   React Native skill — same shape
+pipeline/                refresh tooling + validation gates, CI-run
+eval/                    scenario definitions for scoring skill vs. no-skill answers
+.claude-plugin/          Claude Code + Codex plugin + marketplace manifests
+.cursor-plugin/          Cursor plugin + marketplace manifests
+context7.json            Context7 indexing manifest
+mcp.json                 Context7 MCP server config (Cursor plugin auto-discovery)
+.mcp.json                same config (Claude Code auto-discovery)
 ```
