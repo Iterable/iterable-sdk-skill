@@ -8,9 +8,9 @@ title: Installing Iterable's React Native SDK
 source_url: https://support.iterable.com/hc/articles/360045714132
 source_repo: Iterable/iterable-docs
 source_path: docs/developer-and-api-docs/iterables-react-native-sdk/installing/index.md
-source_ref: 59c40504c91bc0b13751c5ef5f348810eb0fd4f2
-source_sha: 82f9ffcb2c66f522515f9e4a561cd9b88adc0dec
-fetched_at: 2026-08-28T14:44:26.810Z
+source_ref: 275e9063f5aa922a9c282d6d34a8aebec3d15448
+source_sha: 25468f8175b9dd3c3c2ef4eb8115ab9c13f2bbe3
+fetched_at: 2026-09-11T13:22:44.397Z
 summary: This article describes how to install Iterable's React Native SDK in
   your React Native apps, and how to configure your iOS and Android apps to
   support Iterable features like push notifications and in-app messages.
@@ -642,6 +642,22 @@ config.autoPushRegistration = false;
 
 Iterable.initialize('<YOUR_API_KEY>', config);
 ```
+
+> [!NOTE]
+> `Iterable.initialize` is synchronous on both Android and iOS, and the underlying
+> native initializers do not surface init errors. The native SDK is fully usable
+> the moment `Iterable.initialize` returns, and you can call other Iterable APIs
+> on the next line.
+>
+> You may `await` the call for API symmetry, but the returned promise does not
+> gate SDK readiness on any async work and should not be treated as an "SDK
+> ready" signal or as an init-success/failure channel.
+>
+> If you observe an error or a long delay around `Iterable.initialize` on
+> versions of the SDK before this contract was fixed, the source is the first
+> in-app messages fetch (an `InAppManager` signal that the iOS bridge was
+> incorrectly wiring to the JS promise), not initialization itself. To observe
+> in-app message state, use the `inAppManager` APIs and listeners directly.
 
 This example demonstrates how an app that uses a JWT-enabled API key might
 initialize the SDK. To make requests to Iterable's API using a JWT-enabled API
