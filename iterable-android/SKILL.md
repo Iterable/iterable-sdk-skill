@@ -409,7 +409,7 @@ before writing any code is the fastest way to compact mid-task.
 ## Versioning
 
 This skill is versioned alongside the SDK. When Iterable's docs change, a
-refresh PR rewrites `reference/` from the docs at that commit; each doc records
+refresh commit rewrites `reference/` from the docs at that commit; each doc records
 the exact `source_ref` it came from. If you see drift between this skill's
 snippets and the SDK's current `CHANGELOG.md`, **trust `CHANGELOG.md`** and
 report the drift.
