@@ -7,24 +7,14 @@ Full reviewer guide: REVIEW.md
 
 ## Type
 
-- [ ] Docs refresh (automated, opened by `refresh-docs.yml`)
 - [ ] Manual reference-content edit
 - [ ] Skill / pipeline / CI change
 
----
-
-## If this is a docs refresh
-
-**Touched slugs:** <!-- auto-filled by refresh-docs.yml -->
-
-Reviewer checklist (see [`REVIEW.md`](../REVIEW.md) for the full version):
-
-- [ ] `source_ref` is a commit SHA, not a branch; the `source.ref` bump matches the docs commit in the body
-- [ ] `pnpm check:all` green locally
-- [ ] **Changed guidance still agrees with `PITFALLS.md`** — if the docs now contradict a pitfall, resolve it in this PR
-- [ ] If a referenced heading moved, `SKILL.md`'s routing table updated to match
-- [ ] Diff read as documentation: the transform only reshaped (boilerplate stripped, callouts converted) — no content added, weakened, or reversed
-- [ ] Upstream snippet bugs (if any) tracked as separate issues against `Iterable/iterable-docs` — **not** hand-fixed here
+<!--
+Automated docs refreshes do not open PRs — `refresh-docs.yml` validates and
+commits them straight to `main`, and a maintainer audits them afterwards.
+REVIEW.md has that playbook.
+-->
 
 ---
 
