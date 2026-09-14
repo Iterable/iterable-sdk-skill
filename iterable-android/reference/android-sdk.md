@@ -8,9 +8,9 @@ title: Iterable's Android SDK
 source_url: https://support.iterable.com/hc/articles/360035019712
 source_repo: Iterable/iterable-docs
 source_path: docs/developer-and-api-docs/iterables-ios-and-android-sdks/android-sdk/index.md
-source_ref: 59c40504c91bc0b13751c5ef5f348810eb0fd4f2
-source_sha: de67a132360a33146dae801ab62c3de1d6846ba9
-fetched_at: 2026-08-03T20:41:28.018Z
+source_ref: 275e9063f5aa922a9c282d6d34a8aebec3d15448
+source_sha: f3094449749a0fbb538376b2305ed42eb4323b52
+fetched_at: 2026-09-11T13:22:39.216Z
 summary: This article describes how to install and configure Iterable's [Android
   SDK](https://github.com/Iterable/iterable-android-sdk).
 ---
@@ -616,8 +616,8 @@ fetches through two optional methods: `onCriteriaReceived(JSONObject criteria)`
 on success and `onCriteriaFetchFailed(String reason)` on failure. Both have
 default, no-op implementations, so existing handlers are unaffected.
 
-For more information, read [In-App Messages on Android](https://support.iterable.com/hc/articles/360035537231)
-and [Configure the Android SDK](https://support.iterable.com/hc/articles/40078934178836)
+For more information, read
+[Configure the Android SDK](https://support.iterable.com/hc/articles/40078934178836)
 in the Unknown User Activation documentation.
 
 ### Upgrading to 3.9.0

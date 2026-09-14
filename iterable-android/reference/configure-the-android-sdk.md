@@ -8,9 +8,9 @@ title: Configure the Android SDK
 source_url: https://support.iterable.com/hc/articles/40078934178836
 source_repo: Iterable/iterable-docs
 source_path: docs/developer-and-api-docs/unknown-user-activation-dev/configure-the-android-sdk/index.md
-source_ref: 16ae7f4a908f84d6eb15fe6f5390f07cc5afe20d
-source_sha: fa441fa69f35c816affd3df2d565dbfbd2727ca3
-fetched_at: 2026-05-25T15:11:48.790Z
+source_ref: 275e9063f5aa922a9c282d6d34a8aebec3d15448
+source_sha: 4c3fe16cff5f4289ed04bcee8eb2c92f18d7741c
+fetched_at: 2026-09-11T13:22:43.289Z
 summary: Follow these instructions to set up Iterable's Android SDK for Unknown
   User Activation. For general guidance about setting up Iterable's Android SDK,
   see [Iterable's Android
@@ -96,6 +96,29 @@ class MainActivity : AppCompatActivity(), IterableUnknownUserHandler, IterableAu
     override fun onUnknownUserCreated(userId: String) {
         // ...
     }
+
+    //
+    // Optional. Called after a successful criteria fetch has been persisted.
+    // Fires on every fetch (init, foreground, visitor usage tracking), so
+    // guard if you only want to act once per session.
+    //
+    private var didHandleCriteriaThisSession = false
+
+    override fun onCriteriaReceived(criteria: JSONObject) {
+        if (didHandleCriteriaThisSession) return
+        didHandleCriteriaThisSession = true
+        // Safe to track / updateUser — criteria are already persisted.
+        IterableApi.getInstance().updateUser(JSONObject().put("plan", "trial"))
+    }
+
+    //
+    // Optional. Called when a criteria fetch fails. The SDK retries on the
+    // next foreground (if setEnableForegroundCriteriaFetch is true) or when
+    // visitor usage tracking is toggled, so most apps can just log the reason.
+    //
+    override fun onCriteriaFetchFailed(reason: String) {
+        // Log the reason. The SDK will retry later.
+    }
 }
 ```
 
@@ -164,6 +187,38 @@ Create an `IterableConfig` object, and set the following options:
    SDK-generated unknown `userId` values before it can issue tokens for them.
    This callback is the mechanism for that — without it, your JWT server may
    fail to issue tokens for new unknown users.
+   :::
+
+   `IterableUnknownUserHandler` also has two optional methods that report the
+   results of unknown user criteria fetches. Both have default, no-op
+   implementations, so existing handlers do not need to override them.
+
+   - `onCriteriaReceived(JSONObject criteria)` – The SDK calls this method after
+     a successful criteria fetch, and only after the fetched criteria have been
+     persisted to local storage. That means you can safely call `track`,
+     `trackPurchase`, `updateUser`, and similar methods from inside the
+     callback, and the SDK will evaluate those events against the criteria that
+     just arrived. A common use case is updating user data right after SDK
+     initialization, without racing the asynchronous criteria fetch.
+
+     The SDK invokes `onCriteriaReceived` on the main thread, and it may fire
+     on every successful fetch: at initialization, when the app is foregrounded
+     (if `setEnableForegroundCriteriaFetch` is `true`), and when visitor usage
+     tracking is enabled. Implementations should be idempotent — for example,
+     by acting only once per session, as shown in the sample above.
+
+   - `onCriteriaFetchFailed(String reason)` – The SDK calls this method on the
+     main thread when a criteria fetch fails. The `reason` string is the
+     backend's `msg` value when available, or a fallback such as
+     `"Internal Server Error"` on a 5xx response. The SDK retries the fetch on
+     the next foreground (when `setEnableForegroundCriteriaFetch` is `true`) or
+     when visitor usage tracking is toggled, so most apps can simply log the
+     reason.
+
+   :::tip NOTE
+   The iOS SDK exposes the same optional criteria fetch callbacks on
+   `IterableUnknownUserHandler`. For details, see
+   [Configure the iOS SDK](https://support.iterable.com/hc/articles/40078945603860).
    :::
 
 4. Set `setEventThresholdLimit` to indicate how many of a visitor's most recent
