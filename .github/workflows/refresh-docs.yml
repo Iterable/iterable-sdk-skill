@@ -116,14 +116,6 @@ jobs:
         working-directory: pipeline
         run: pnpm detect:corpus-changes
 
-      # A push made with GITHUB_TOKEN does not trigger other workflows, so
-      # validate.yml will not run on the refresh commit. This is the only
-      # validation the corpus gets — it must stay blocking.
-      - name: Validate refreshed corpora
-        if: steps.changes.outputs.changed == 'true'
-        working-directory: pipeline
-        run: pnpm check:all
-
       - name: Bump pinned source ref
         if: steps.changes.outputs.changed == 'true'
         working-directory: pipeline
@@ -138,6 +130,33 @@ jobs:
             pnpm set:source-ref -- "$p" "$SHA" "$LABEL"
           done
 
+      # Hosts skip an update when the manifest version matches what is already
+      # installed, so a refresh that does not move this string rebuilds the
+      # corpus on main and reaches nobody. Gated on publish: a dry run must not
+      # consume a version number.
+      - name: Bump plugin version
+        id: version
+        if: steps.changes.outputs.changed == 'true' && steps.ref.outputs.publish == 'true'
+        working-directory: pipeline
+        run: |
+          set -euo pipefail
+          version=$(pnpm --silent set:version | sed -n 's/^version=//p')
+          if [[ -z "$version" ]]; then
+            echo "::error::set:version did not report a version."
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "Plugin version is now ${version}."
+
+      # A push made with GITHUB_TOKEN does not trigger other workflows, so
+      # validate.yml will not run on the refresh commit. This is the only
+      # validation the corpus gets — it must stay blocking. It runs after the
+      # two bumps above so that what gets validated is what gets committed.
+      - name: Validate refreshed corpora
+        if: steps.changes.outputs.changed == 'true'
+        working-directory: pipeline
+        run: pnpm check:all
+
       # Lands straight on main — no PR. The gate above is therefore the only
       # thing between Iterable's docs and what the skills serve, so keep it
       # ahead of this step. Review is post-hoc; see REVIEW.md.
@@ -148,6 +167,7 @@ jobs:
           LABEL: ${{ steps.ref.outputs.label }}
           PLATFORMS: ${{ steps.changes.outputs.platforms }}
           SLUGS: ${{ steps.changes.outputs.slugs }}
+          VERSION: ${{ steps.version.outputs.version }}
           TRIGGER: ${{ github.event_name }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
@@ -161,12 +181,13 @@ jobs:
           # No PR body to carry provenance any more, so the commit message is
           # the whole audit trail.
           {
-            printf 'docs refresh: %s\n\n' "$PLATFORMS"
+            printf 'docs refresh: %s (v%s)\n\n' "$PLATFORMS" "$VERSION"
             printf 'Deterministic rebuild of the reference corpora from the\n'
             printf 'published Iterable docs. No LLM step: the corpus is the\n'
             printf 'docs reshaped.\n\n'
             printf 'Platforms: %s\n' "$PLATFORMS"
             printf 'Slugs: %s\n' "$SLUGS"
+            printf 'Plugin version: %s\n' "$VERSION"
             printf 'Docs commit: %s (%s)\n' "$SHA" "$LABEL"
             printf 'Trigger: %s\n' "$TRIGGER"
             printf 'Run: %s\n' "$RUN_URL"

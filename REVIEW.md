@@ -58,6 +58,11 @@ was built from, and a link to the run that made it.
 - [ ] **No doc was added or removed unexpectedly.** Each corpus only contains
   slugs listed in `pipeline/config/<platform>.yml`; `validate:reference` fails
   if they disagree, so an add/remove means someone edited the config too.
+- [ ] **The plugin version moved.** A corpus change without a version bump is
+  invisible to every installed plugin — hosts skip an update when the version
+  matches what they already have. `validate:plugins` catches the three manifests
+  disagreeing, but nothing can tell that a bump was skipped entirely, so this is
+  the one delivery check only a human makes.
 
 ---
 

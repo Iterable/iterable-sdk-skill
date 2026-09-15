@@ -7,6 +7,7 @@
  *   - `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` parse.
  *   - `mcp.json` and `.mcp.json` exist and have identical `mcpServers` content.
  *   - Declared skill paths exist on disk.
+ *   - Every manifest declares the same, valid version.
  *
  * Exit code is non-zero on any failure.
  */
@@ -14,6 +15,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { SEMVER_RE, VERSION_FILES } from "./lib/plugin-version.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "../..");
@@ -177,12 +179,55 @@ function validateMcpConfigs(): void {
   }
 }
 
+/**
+ * Hosts decide whether to update by comparing this string to what is already
+ * installed, so a disagreement means some hosts update and others silently do
+ * not — the failure mode is invisible to whoever caused it.
+ */
+function validateVersions(): void {
+  const seen = new Map<string, string>();
+
+  for (const { file, path } of VERSION_FILES) {
+    const manifest = readJson(file);
+    if (manifest === undefined) continue;
+
+    let cursor: unknown = manifest;
+    for (const key of path) {
+      cursor = isRecord(cursor) ? cursor[key] : undefined;
+    }
+
+    const label = path.join(".");
+    if (typeof cursor !== "string" || cursor.length === 0) {
+      fail(file, `\`${label}\` must be a non-empty string`);
+      continue;
+    }
+    if (!SEMVER_RE.test(cursor)) {
+      fail(
+        file,
+        `\`${label}\` "${cursor}" must be MAJOR.MINOR.PATCH with no leading zeros ` +
+          `(semver rejects "26.09.0"; use "26.9.0")`,
+      );
+      continue;
+    }
+    seen.set(file, cursor);
+  }
+
+  const distinct = new Set(seen.values());
+  if (distinct.size > 1) {
+    const listed = [...seen].map(([file, version]) => `${file}=${version}`).join(", ");
+    for (const file of seen.keys()) {
+      fail(file, `version disagrees across manifests (${listed}) — run \`pnpm set:version\``);
+    }
+  }
+}
+
 function main(): void {
   validateCursorPlugin();
   validateCursorMarketplace();
   validateClaudePlugin();
   validateClaudeMarketplace();
   validateMcpConfigs();
+  validateVersions();
 
   if (issues.length === 0) {
     console.log("validate-plugins: OK");
