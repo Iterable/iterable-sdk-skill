@@ -15,9 +15,11 @@
  */
 
 import {
+  PRERELEASE,
   PRIMARY_VERSION_FILE,
   SEMVER_RE,
   VERSION_FILES,
+  hasExpectedPrerelease,
   nextCalVer,
   readVersion,
   writeVersion,
@@ -35,6 +37,15 @@ function main(): void {
     console.error(
       `Refusing to write "${next}": must be MAJOR.MINOR.PATCH with no leading zeros ` +
         `(semver rejects "26.09.0"; use "26.9.0").`,
+    );
+    process.exit(1);
+  }
+
+  if (!hasExpectedPrerelease(next)) {
+    const expected = PRERELEASE === "" ? "no prerelease suffix" : `the "-${PRERELEASE}" suffix`;
+    console.error(
+      `Refusing to write "${next}": this repo ships ${expected} ` +
+        `(PRERELEASE in src/lib/plugin-version.ts). Change that constant to ship otherwise.`,
     );
     process.exit(1);
   }

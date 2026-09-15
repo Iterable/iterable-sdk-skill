@@ -178,9 +178,10 @@ the plugin when they match. So every refresh that changes the corpus also bumps
 that version — otherwise new docs would sit on `main` and never reach a single
 installed plugin.
 
-Versions are calendar-based, `YY.M.PATCH`: `26.9.0` is the first release of
-September 2026, `26.9.1` the next, and the patch resets when the month rolls
-over. The number says *when*, not how much changed — for that, read the commit
+Versions are calendar-based, `YY.M.PATCH`: `26.9.0-beta` is the first release of
+September 2026, `26.9.1-beta` the next, and the patch resets when the month rolls
+over. The `-beta` suffix stays on every release while the skill is in private
+beta. The number says *when*, not how much changed — for that, read the commit
 the version came from:
 
 ```bash

@@ -16,8 +16,27 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { REPO_ROOT } from "./platforms.ts";
 
-/** MAJOR.MINOR.PATCH, no leading zeros, no prerelease/build suffix. */
-export const SEMVER_RE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+/**
+ * Prerelease suffix on every version while the skill is in private beta, so a
+ * developer can see what they installed is not GA. Set to "" to ship without
+ * one — `26.9.5-beta` → `26.9.6` is an upgrade under semver precedence, and
+ * both the writer and the validator follow this constant.
+ *
+ * Prereleases do not affect update detection, which compares version strings
+ * for distinctness. They are excluded from *dependency* semver ranges unless a
+ * consumer opts in, which matters only if another plugin ever depends on this
+ * one.
+ */
+// Typed as `string`, not inferred as the literal, so the `=== ""` branches that
+// handle dropping the suffix stay reachable to the compiler.
+export const PRERELEASE: string = "beta";
+
+/**
+ * MAJOR.MINOR.PATCH with an optional prerelease, no build metadata. Numeric
+ * identifiers reject leading zeros, so `26.09.0` fails.
+ */
+export const SEMVER_RE =
+  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?$/;
 
 /**
  * Every manifest carrying a version, and the key path it lives under.
@@ -68,19 +87,32 @@ export function writeVersion(file: string, path: string[], version: string): voi
   if (updated !== source) writeFileSync(absolute, updated, "utf8");
 }
 
+/** Strips any prerelease suffix, so "26.9.3-beta" parses as "26.9.3". */
+function core(version: unknown): string {
+  return typeof version === "string" ? version.split("-")[0]! : "";
+}
+
+/** True when `version` carries the prerelease suffix this repo currently ships. */
+export function hasExpectedPrerelease(version: string): boolean {
+  return PRERELEASE === "" ? !version.includes("-") : version.endsWith(`-${PRERELEASE}`);
+}
+
 /**
  * Next version for `now`: increments the patch when `current` is already in
  * this month, otherwise starts the month at 0.
  */
 export function nextCalVer(current: unknown, now: Date = new Date()): string {
   const prefix = `${now.getUTCFullYear() % 100}.${now.getUTCMonth() + 1}`;
+  const suffix = PRERELEASE === "" ? "" : `-${PRERELEASE}`;
+  const previous = core(current);
 
   // The trailing dot is load-bearing: without it prefix "26.1" would also
   // match "26.10.0" and October would reuse January's counter.
-  if (typeof current === "string" && current.startsWith(`${prefix}.`)) {
-    const patch = Number(current.slice(prefix.length + 1));
-    if (Number.isInteger(patch) && patch >= 0) return `${prefix}.${patch + 1}`;
+  let patch = 0;
+  if (previous.startsWith(`${prefix}.`)) {
+    const n = Number(previous.slice(prefix.length + 1));
+    if (Number.isInteger(n) && n >= 0) patch = n + 1;
   }
 
-  return `${prefix}.0`;
+  return `${prefix}.${patch}${suffix}`;
 }

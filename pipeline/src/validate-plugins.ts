@@ -15,7 +15,12 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { SEMVER_RE, VERSION_FILES } from "./lib/plugin-version.ts";
+import {
+  PRERELEASE,
+  SEMVER_RE,
+  VERSION_FILES,
+  hasExpectedPrerelease,
+} from "./lib/plugin-version.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "../..");
@@ -206,6 +211,15 @@ function validateVersions(): void {
         file,
         `\`${label}\` "${cursor}" must be MAJOR.MINOR.PATCH with no leading zeros ` +
           `(semver rejects "26.09.0"; use "26.9.0")`,
+      );
+      continue;
+    }
+    if (!hasExpectedPrerelease(cursor)) {
+      const expected = PRERELEASE === "" ? "no prerelease suffix" : `"-${PRERELEASE}"`;
+      fail(
+        file,
+        `\`${label}\` "${cursor}" must end with ${expected} while the skill is in ` +
+          `beta (PRERELEASE in pipeline/src/lib/plugin-version.ts)`,
       );
       continue;
     }
