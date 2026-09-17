@@ -1,0 +1,137 @@
+name: Bump plugin version
+
+# Skill content that lands on main without a version bump reaches nobody: hosts
+# compare the manifest version to what is installed and skip the update when it
+# matches. refresh-docs.yml bumps its own commits, but a hand-merged PR that
+# edits SKILL.md, PITFALLS.md or a reference/ file has no such step — so this
+# catches that case rather than relying on a reviewer to remember.
+#
+# Deliberately not triggered by refresh commits: those are pushed with
+# GITHUB_TOKEN, which does not trigger workflows, so this would never fire for
+# them anyway. That is why refresh-docs.yml bumps inline instead.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      # What actually ships to a developer's machine. Changes confined to
+      # pipeline/, .github/ or the repo's own docs do not affect installed
+      # skills and should not consume a version.
+      - "iterable-android/**"
+      - "iterable-react-native/**"
+      - "mcp.json"
+      - ".mcp.json"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# A second merge landing mid-run would rebase onto a moving main; queue instead.
+concurrency:
+  group: bump-plugin-version
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history: needs the pre-push commit to tell whether the version
+          # already moved, and rebasing a shallow clone is unreliable.
+          fetch-depth: 0
+
+      - name: Skip if the version already moved
+        id: check
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          manifest=".claude-plugin/plugin.json"
+          extract='s/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'
+
+          before="$BEFORE"
+          if [[ -z "$before" || "$before" == "0000000000000000000000000000000000000000" ]] \
+            || ! git cat-file -e "${before}^{commit}" 2>/dev/null; then
+            before="HEAD~1"
+          fi
+
+          current=$(sed -n "$extract" "$manifest" | head -1)
+          previous=$(git show "${before}:${manifest}" 2>/dev/null | sed -n "$extract" | head -1 || true)
+
+          if [[ -n "$previous" && "$previous" != "$current" ]]; then
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+            echo "Version already moved ${previous} → ${current} in this push; nothing to do."
+          else
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+            echo "Version is ${current} and did not move in this push."
+          fi
+
+      - name: Setup pnpm
+        if: steps.check.outputs.needed == 'true'
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        if: steps.check.outputs.needed == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: pipeline/pnpm-lock.yaml
+
+      - name: Install pipeline deps
+        if: steps.check.outputs.needed == 'true'
+        working-directory: pipeline
+        run: pnpm install --frozen-lockfile
+
+      - name: Bump and validate
+        id: bump
+        if: steps.check.outputs.needed == 'true'
+        working-directory: pipeline
+        run: |
+          set -euo pipefail
+          version=$(pnpm --silent set:version | sed -n 's/^version=//p')
+          if [[ -z "$version" ]]; then
+            echo "::error::set:version did not report a version."
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          pnpm check:all
+
+      - name: Commit to main
+        if: steps.check.outputs.needed == 'true'
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No manifest change to commit."
+            exit 0
+          fi
+
+          {
+            printf 'chore: plugin version %s\n\n' "$VERSION"
+            printf 'Skill content changed on main, so installed plugins need a new\n'
+            printf 'version to pick it up: hosts skip an update when the manifest\n'
+            printf 'version matches what is already installed.\n\n'
+            printf 'Triggered by: %s\n' "${GITHUB_SHA}"
+            printf 'Run: %s\n' "$RUN_URL"
+          } > "${RUNNER_TEMP}/bump-msg"
+          git commit -q -F "${RUNNER_TEMP}/bump-msg"
+
+          for _ in 1 2 3; do
+            if git push origin HEAD:main; then
+              echo "Pushed $(git rev-parse --short HEAD) — plugin version ${VERSION}."
+              exit 0
+            fi
+            git fetch origin main
+            git rebase origin/main
+          done
+          echo "::error::Could not push the version bump to main after 3 attempts."
+          exit 1

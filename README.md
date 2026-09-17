@@ -73,6 +73,13 @@ Install the plugin from this repo's marketplace:
 This installs the `iterable-android` and `iterable-react-native` skills in one
 step. Start a new Claude Code session — skills load at session start.
 
+Then turn on auto-update, so corpus refreshes reach you without you asking:
+`/plugin` → **Marketplaces** → **iterable** → **Enable auto-update**. Claude
+Code disables auto-update by default for third-party marketplaces, so without
+this you stay on the version you first installed until you run
+`/plugin update iterable-sdk@iterable` by hand. See
+[Staying current](#staying-current).
+
 ### Cursor
 
 Requires [Cursor 3.9+](https://cursor.com). Clone this repo, then symlink the
@@ -161,8 +168,31 @@ When Iterable's docs change, a workflow rebuilds **every** configured
 platform's corpus in one pass (`pnpm refresh:docs`), validates it, and commits
 to `main` naming the platforms that actually changed — so the corpus tracks the
 docs without waiting on a review. A maintainer audits refreshes after the fact;
-see [`REVIEW.md`](REVIEW.md). Nothing reaches *your* checkout until you update
-your plugin install (or re-pull if you cloned).
+see [`REVIEW.md`](REVIEW.md).
+
+### How a refresh reaches you
+
+Claude Code and Codex decide whether to update by comparing the version in
+`.claude-plugin/plugin.json` against the version you have installed, and skip
+the plugin when they match. So every refresh that changes the corpus also bumps
+that version — otherwise new docs would sit on `main` and never reach a single
+installed plugin.
+
+Versions are calendar-based, `YY.M.PATCH`: `26.9.0-beta` is the first release of
+September 2026, `26.9.1-beta` the next, and the patch resets when the month rolls
+over. The `-beta` suffix stays on every release while the skill is in private
+beta. The number says *when*, not how much changed — for that, read the commit
+the version came from:
+
+```bash
+git log --oneline main --grep '^docs refresh:'
+```
+
+With auto-update enabled, Claude Code refreshes shortly after a session starts
+and prompts you to run `/reload-plugins`; the session you are in keeps what it
+loaded at launch. Without it, run `/plugin update iterable-sdk@iterable`.
+Cursor's install above is a clone and symlink rather than a plugin, so there it
+is `git pull` in your clone and a **Developer: Reload Window**.
 
 Maintainers: `cd pipeline && pnpm refresh:docs` refreshes Android and React
 Native together. Pass a platform name (`pnpm refresh:docs -- android`) to
