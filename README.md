@@ -158,11 +158,11 @@ routing table.
 ## Staying current
 
 When Iterable's docs change, a workflow rebuilds **every** configured
-platform's corpus in one pass (`pnpm refresh:docs`) and opens a single PR
-naming the platforms that actually changed. Updates are never applied
-automatically. After a release lands, update your plugin install (or re-pull
-if you cloned) to pick up the latest docs. See [`REVIEW.md`](REVIEW.md) for
-the reviewer playbook.
+platform's corpus in one pass (`pnpm refresh:docs`), validates it, and commits
+to `main` naming the platforms that actually changed — so the corpus tracks the
+docs without waiting on a review. A maintainer audits refreshes after the fact;
+see [`REVIEW.md`](REVIEW.md). Nothing reaches *your* checkout until you update
+your plugin install (or re-pull if you cloned).
 
 Maintainers: `cd pipeline && pnpm refresh:docs` refreshes Android and React
 Native together. Pass a platform name (`pnpm refresh:docs -- android`) to

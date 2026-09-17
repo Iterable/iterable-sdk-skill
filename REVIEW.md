@@ -1,10 +1,17 @@
 # Reviewer guide
 
-A workflow opens an automated PR whenever Iterable's docs change (see
+A workflow refreshes the corpora whenever Iterable's docs change (see
 [`refresh-docs.yml`](.github/workflows/refresh-docs.yml)). This document is
-the reviewer's playbook for those PRs and for any hand-authored change to a
-platform `reference/` directory (`iterable-android/reference/`,
+the playbook for auditing those refreshes and for reviewing any hand-authored
+change to a platform `reference/` directory (`iterable-android/reference/`,
 `iterable-react-native/reference/`, …).
+
+**Automated refreshes are not pre-reviewed.** They commit straight to `main` as
+soon as `pnpm check:all` passes, so nobody has to be awake for the docs to stay
+current. The trade is deliberate: the checks are the only gate, and everything in
+Step 3 below happens *after* the commit is already live. Audit refreshes on a
+cadence you're comfortable with, and treat anything you find there as a bug to
+fix forward, not a merge to block.
 
 The corpus is a **deterministic transform** of Iterable's docs — **no LLM
 rewrites the content**. There is no LLM output to second-guess, so the review
@@ -15,27 +22,38 @@ want the agent handing to a developer.
 
 ## When you'd be reviewing
 
-Three flavors of PR land in this repo:
+Three flavors of change land in this repo:
 
-| PR type | Source | Reviewer focus |
-|---|---|---|
-| **Automated docs refresh** | `refresh-docs.yml` dispatch / `workflow_dispatch` | Does the new guidance still agree with `PITFALLS.md`? |
-| **Manual content edit** | a contributor hand-edits a reference doc | Why is hand-editing needed? Should the transform learn it instead? |
-| **Skill / pipeline / CI change** | edits to `SKILL.md`, `PITFALLS.md`, `pipeline/`, `.github/` | Standard code review, plus run `pnpm check:all` |
+| Change type | Source | How it lands | Your focus |
+|---|---|---|---|
+| **Automated docs refresh** | `refresh-docs.yml` dispatch / `workflow_dispatch` | commits directly to `main` | Audit after the fact: does the new guidance still agree with `PITFALLS.md`? |
+| **Manual content edit** | a contributor hand-edits a reference doc | PR | Why is hand-editing needed? Should the transform learn it instead? |
+| **Skill / pipeline / CI change** | edits to `SKILL.md`, `PITFALLS.md`, `pipeline/`, `.github/` | PR | Standard code review, plus run `pnpm check:all` |
 
 The rest of this document is the **docs-refresh** flow because that's the one
 that happens on cadence. The other two are covered by standard code review.
+
+To see what has landed unreviewed since you last looked:
+
+```bash
+git log --oneline main --grep '^docs refresh:'
+```
 
 ---
 
 ## Step 1 — Check provenance (1 min)
 
-Open the PR. The body lists the touched slugs and the docs commit.
+```bash
+git show <refresh-commit>
+```
+
+The commit message lists the platforms, the touched slugs, the docs commit it
+was built from, and a link to the run that made it.
 
 - [ ] **`source_ref` in the changed frontmatter is a 40-char commit SHA**, not a
   branch name. The pin is our one guarantee against moving-target drift.
 - [ ] **The `source.ref` bump in the changed `pipeline/config/<platform>.yml`
-  file(s) matches the docs commit in the PR body.** Unchanged platforms must
+  file(s) matches the docs commit in the commit message.** Unchanged platforms must
   not have a pin bump.
 - [ ] **No doc was added or removed unexpectedly.** Each corpus only contains
   slugs listed in `pipeline/config/<platform>.yml`; `validate:reference` fails
@@ -46,25 +64,29 @@ Open the PR. The body lists the touched slugs and the docs commit.
 ## Step 2 — Run the gates (1 min)
 
 ```bash
-git checkout <pr-branch>
 cd pipeline && pnpm check:all
 ```
+
+The refresh already ran these before committing — a red gate here means
+something landed on `main` after it, not that the refresh was wrong.
 
 ---
 
 ## Step 3 — Read the diff as documentation (5 min)
 
-This is the part no gate can do. The diff is what the agent will tell a
-developer to do, so read it that way:
+This is the part no gate can do, which is exactly why it is worth doing even
+though the commit is already on `main`. The diff is what the agent will tell a
+developer to do, so read it that way. Anything you find here is a follow-up
+commit:
 
 - [ ] **Does the changed guidance contradict `PITFALLS.md`?** This is the most
   important question in the review. The pitfalls encode silent-failure traps;
   if Iterable's docs now recommend something a pitfall warns against, one of the
-  two is wrong. Resolve it in this PR — don't merge a corpus that argues with
-  itself.
+  two is wrong. Fix it promptly — a corpus that argues with itself is live.
 - [ ] **Did headings move?** `SKILL.md`'s routing table points at slugs, and the
   upgrade row points at `## Upgrading the SDK` inside `android-sdk`. If a
-  referenced section was renamed, update the routing table in the same PR.
+  referenced section was renamed, the routing table now points at nothing —
+  fix it in a follow-up.
 - [ ] **The transform only reshaped, never changed meaning.** Boilerplate
   removed, callouts converted, blank lines collapsed — but no claim added,
   weakened, or reversed. A *content* change not explained by an upstream edit
@@ -87,10 +109,12 @@ developer to do, so read it that way:
 
 ---
 
-## Step 4 — Final check before merging (1 min)
+## Step 4 — Close the loop (1 min)
 
-- [ ] `pnpm check:all` is green locally.
-- [ ] The PR description still accurately describes what changed.
+- [ ] `pnpm check:all` is green on current `main`.
+- [ ] Anything Step 3 turned up is filed or fixed, not just noticed.
+- [ ] If there's an open `docs-refresh-failed` issue and refreshes are healthy
+  again, close it — the workflow reuses that issue and won't open a fresh one.
 
 ---
 
@@ -110,16 +134,19 @@ developer to do, so read it that way:
 ## Escalation
 
 - **A content change you can't explain by an upstream edit:** the transform
-  has a bug — stop and file it against `pipeline/` before merging.
-- **CI gate that keeps failing across multiple PRs:** the gate may be broken,
-  not the content. File an issue against `pipeline/`.
+  has a bug — file it against `pipeline/` and consider reverting the refresh
+  commit until it's fixed, since further refreshes will repeat it.
+- **CI gate that keeps failing across refreshes:** the gate may be broken,
+  not the content. File an issue against `pipeline/`. Note that a failing gate
+  now means *no* refresh lands at all — the corpus silently stops tracking the
+  docs, so treat a red refresh as urgent rather than cosmetic.
 
 ---
 
-## Tracked v1 limitations (don't try to fix in a refresh PR)
+## Tracked v1 limitations (don't hand-fix these in the corpus)
 
-These are known and live on the roadmap; **do not** hand-fix them in a
-docs-refresh PR.
+These are known and live on the roadmap. Hand-editing the corpus to work around
+them doesn't hold: the next refresh overwrites it. Fix the transform instead.
 
 - The corpus is the docs reshaped, with **no editorial cleanup** — prose
   stays in the docs' customer-facing voice, and Java/Kotlin duplicates are
@@ -129,9 +156,9 @@ docs-refresh PR.
   `tracking-events-with-iterables-mobile-sdks`). Deterministic
   foreign-language stripping is a candidate v1.1 transform.
 - **No snippet compile check.** There is no gate that compiles corpus snippets
-  against the pinned SDK; a reviewer's eye on load-bearing snippets is the only
-  check. Adding one means an Android toolchain in CI — worth it only if wrong
-  snippets actually reach developers.
+  against the pinned SDK, and refreshes are no longer pre-reviewed — so a
+  wrong-overload snippet can reach developers with nothing having looked at it.
+  A post-hoc audit (Step 3) is the only check. Adding a real one means an
+  Android toolchain in CI; this is the strongest argument for doing that.
 
-If a fix would touch any of the above, open a separate PR scoped to the
-fix, not a refresh PR.
+If a fix would touch any of the above, open a PR scoped to that fix.

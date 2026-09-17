@@ -5,9 +5,12 @@ name: Refresh docs
 # `client_payload.ref` = the docs commit); this workflow resolves that ref
 # (or the docs default-branch head on a manual run), rewrites every
 # configured platform's `reference/` from the docs at that commit, bumps the
-# pinned `source.ref` only for platforms whose corpus changed, and opens (or
-# updates) one PR on the stable `refresh/docs` branch. There is no LLM
-# step — the corpus is the docs reshaped.
+# pinned `source.ref` only for platforms whose corpus changed, validates the
+# result, and commits straight to `main`. There is no LLM step — the corpus is
+# the docs reshaped.
+#
+# Refreshes are NOT pre-reviewed: the validate step below is the only gate, and
+# a human audits the commit after the fact (see REVIEW.md).
 #
 # `workflow_dispatch` is kept as a manual fallback for re-running a
 # refresh outside of a docs-side trigger (e.g. when validating a config
@@ -24,7 +27,7 @@ concurrency:
 
 permissions:
   contents: write
-  pull-requests: write
+  issues: write
 
 jobs:
   refresh:
@@ -32,6 +35,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Full history: the commit step rebases onto main if it moved mid-run,
+          # and rebasing a shallow clone is unreliable.
+          fetch-depth: 0
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -62,16 +69,40 @@ jobs:
         run: |
           set -euo pipefail
           docs_repo="Iterable/iterable-docs"
-          req="${PAYLOAD_REF:-}"
-          if [[ -z "$req" ]]; then
-            req=$(gh api "repos/${docs_repo}" --jq '.default_branch')
+
+          # Fine-grained PATs expire, and nothing here monitors that. Probing
+          # the docs repo first turns a silent mid-run "Bad credentials" into an
+          # error that names the secret to rotate.
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "::error::DOCS_READ_TOKEN is not set on this repository. Add a fine-grained PAT with Contents+Metadata read on ${docs_repo}."
+            exit 1
           fi
+          if ! default_branch=$(gh api "repos/${docs_repo}" --jq '.default_branch' 2>&1); then
+            echo "::error::DOCS_READ_TOKEN cannot read ${docs_repo}: ${default_branch}"
+            echo "401 Bad credentials → the token expired or was revoked; rotate the DOCS_READ_TOKEN secret."
+            echo "404 Not Found → the token lost Contents read on ${docs_repo}; re-grant it."
+            exit 1
+          fi
+
+          req="${PAYLOAD_REF:-$default_branch}"
           # Resolve whatever we have (branch name or sha) to a full commit sha,
           # so the pin we write back is immutable and reproducible.
           sha=$(gh api "repos/${docs_repo}/commits/${req}" --jq '.sha')
           echo "sha=${sha}" >> "$GITHUB_OUTPUT"
           echo "label=master @ $(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
           echo "Resolved ${req} → ${sha}"
+
+          # Refreshes commit straight to main, so only ever publish docs that
+          # are actually published. A dispatch can carry the head of an open
+          # docs PR (that is how the sender's test label works) — refresh and
+          # validate that, but do not let unmerged docs reach developers.
+          status=$(gh api "repos/${docs_repo}/compare/${default_branch}...${sha}" --jq '.status')
+          if [[ "$status" == "identical" || "$status" == "behind" ]]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::${sha} is not on ${default_branch} (compare says '${status}'), so this is a dry run: the corpus will be rebuilt and validated but not committed."
+          fi
 
       - name: Refresh reference corpora (reads private iterable-docs via gh api)
         working-directory: pipeline
@@ -84,6 +115,14 @@ jobs:
         id: changes
         working-directory: pipeline
         run: pnpm detect:corpus-changes
+
+      # A push made with GITHUB_TOKEN does not trigger other workflows, so
+      # validate.yml will not run on the refresh commit. This is the only
+      # validation the corpus gets — it must stay blocking.
+      - name: Validate refreshed corpora
+        if: steps.changes.outputs.changed == 'true'
+        working-directory: pipeline
+        run: pnpm check:all
 
       - name: Bump pinned source ref
         if: steps.changes.outputs.changed == 'true'
@@ -99,43 +138,83 @@ jobs:
             pnpm set:source-ref -- "$p" "$SHA" "$LABEL"
           done
 
-      - name: Open refresh PR
-        if: steps.changes.outputs.changed == 'true'
-        uses: peter-evans/create-pull-request@v6
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          branch: refresh/docs
-          base: main
-          delete-branch: true
-          title: "docs refresh: ${{ steps.changes.outputs.platforms }}"
-          commit-message: |
-            docs refresh: ${{ steps.changes.outputs.platforms }}
+      # Lands straight on main — no PR. The gate above is therefore the only
+      # thing between Iterable's docs and what the skills serve, so keep it
+      # ahead of this step. Review is post-hoc; see REVIEW.md.
+      - name: Commit to main
+        if: steps.changes.outputs.changed == 'true' && steps.ref.outputs.publish == 'true'
+        env:
+          SHA: ${{ steps.ref.outputs.sha }}
+          LABEL: ${{ steps.ref.outputs.label }}
+          PLATFORMS: ${{ steps.changes.outputs.platforms }}
+          SLUGS: ${{ steps.changes.outputs.slugs }}
+          TRIGGER: ${{ github.event_name }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-            Slugs: ${{ steps.changes.outputs.slugs }}
-          body: |
-            Automated refresh of platform `reference/` corpora — the docs the
-            skills read. **No LLM step**: the corpus is a deterministic
-            transform of Iterable's published docs.
+          git add -A
+          git diff --cached --stat
 
-            **Platforms changed:** `${{ steps.changes.outputs.platforms }}`
-            **Slugs touched:** ${{ steps.changes.outputs.slugs }}
-            **Docs commit:** `${{ steps.ref.outputs.sha }}`
-            (`source.ref` in each changed platform's `pipeline/config/<platform>.yml`
-            is bumped to this in the diff).
+          # No PR body to carry provenance any more, so the commit message is
+          # the whole audit trail.
+          {
+            printf 'docs refresh: %s\n\n' "$PLATFORMS"
+            printf 'Deterministic rebuild of the reference corpora from the\n'
+            printf 'published Iterable docs. No LLM step: the corpus is the\n'
+            printf 'docs reshaped.\n\n'
+            printf 'Platforms: %s\n' "$PLATFORMS"
+            printf 'Slugs: %s\n' "$SLUGS"
+            printf 'Docs commit: %s (%s)\n' "$SHA" "$LABEL"
+            printf 'Trigger: %s\n' "$TRIGGER"
+            printf 'Run: %s\n' "$RUN_URL"
+          } > "${RUNNER_TEMP}/refresh-msg"
+          git commit -q -F "${RUNNER_TEMP}/refresh-msg"
 
-            ## Reviewer steps
+          # main can move while a refresh runs; rebase onto it rather than
+          # clobbering someone else's commit with a force push.
+          for _ in 1 2 3; do
+            if git push origin HEAD:main; then
+              echo "Pushed $(git rev-parse --short HEAD) to main."
+              exit 0
+            fi
+            git fetch origin main
+            git rebase origin/main
+          done
+          echo "::error::Could not push the refresh to main after 3 attempts."
+          exit 1
 
-            1. Read the diff as docs, not code — this is what the agent will
-               tell developers to do. Check that changed guidance still agrees
-               with that platform's `PITFALLS.md`; if the docs now contradict a
-               pitfall, the pitfall needs updating in the same PR.
-            2. If a slug's headings moved, check the routing table in that
-               platform's `SKILL.md` still points at sections that exist.
-            3. Confirm the `source.ref` bump in `pipeline/config` matches the
-               docs commit above (provenance stays honest). Unchanged platforms
-               must not appear in the diff.
-            4. Merge to `main`. Context7 re-indexes on its next crawl
-               (`context7.json` controls scope).
-          labels: |
-            docs-refresh
-            automated
+      # Refreshes are triggered by the docs repo, not by anyone watching this
+      # one: DOCS_READ_TOKEN expired around 2026-08-29 and the failure went
+      # unnoticed for two weeks. File an issue so the next one surfaces.
+      - name: Report failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          TRIGGER: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          gh label create docs-refresh-failed --color B60205 \
+            --description "A Refresh docs run failed" >/dev/null 2>&1 || true
+
+          existing=$(gh issue list --label docs-refresh-failed --state open \
+            --limit 1 --json number --jq '.[0].number // empty')
+
+          if [[ -n "$existing" ]]; then
+            gh issue comment "$existing" \
+              --body "Failed again (\`${TRIGGER}\`): ${RUN_URL}"
+          else
+            gh issue create --title "Docs refresh is failing" \
+              --label docs-refresh-failed \
+              --body "$(printf '%s\n' \
+                "The \`Refresh docs\` workflow failed, so the bundled \`reference/\` corpora are no longer tracking Iterable's published docs." \
+                "" \
+                "Failed run (\`${TRIGGER}\`): ${RUN_URL}" \
+                "" \
+                "First thing to check: \`DOCS_READ_TOKEN\`. It is a fine-grained PAT on a private repo, it expires, and nothing renews it. A 401 in the *Resolve source ref* step means rotate it." \
+                "" \
+                "This issue is reused for later failures — close it once a refresh succeeds.")"
+          fi
