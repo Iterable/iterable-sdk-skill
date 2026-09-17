@@ -76,8 +76,7 @@ step. Start a new Claude Code session — skills load at session start.
 Then turn on auto-update, so corpus refreshes reach you without you asking:
 `/plugin` → **Marketplaces** → **iterable** → **Enable auto-update**. Claude
 Code disables auto-update by default for third-party marketplaces, so without
-this you stay on the version you first installed until you run
-`/plugin update iterable-sdk@iterable` by hand. See
+this you stay on the version you first installed until you update by hand. See
 [Staying current](#staying-current).
 
 ### Cursor
@@ -189,8 +188,20 @@ git log --oneline main --grep '^docs refresh:'
 ```
 
 With auto-update enabled, Claude Code refreshes shortly after a session starts
-and prompts you to run `/reload-plugins`; the session you are in keeps what it
-loaded at launch. Without it, run `/plugin update iterable-sdk@iterable`.
+(after a random delay of up to ten minutes) and prompts you to run
+`/reload-plugins`; the session you are in keeps what it loaded at launch.
+
+To update by hand, refresh the marketplace first, then the plugin:
+
+```
+/plugin marketplace update iterable
+/plugin update iterable-sdk@iterable
+```
+
+`/plugin update` reads your local copy of the marketplace catalogue and does not
+refresh it, so on its own it reports `already at the latest version` however far
+behind you are.
+
 Cursor's install above is a clone and symlink rather than a plugin, so there it
 is `git pull` in your clone and a **Developer: Reload Window**.
 
