@@ -53,6 +53,11 @@ Expo — branch first.
   The sample mints tokens via `NativeJwtTokenModule` + `ITBL_JWT_SECRET`
   **because it is Iterable's sandbox** — do not copy that module or the
   secret into a production app. See `reference/authentication.md`.
+- **Note:** assume JWT is on unless the developer says otherwise. It is
+  selected **by default** when a client-side key is created, and the choice
+  cannot be changed afterwards — a new key is the only way to switch. If they
+  have a JWT key but no token endpoint yet, that is a blocker to raise, not
+  something to work around by signing locally.
 
 ## 2. EU customer hitting US endpoint
 

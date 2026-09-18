@@ -17,11 +17,16 @@ hot-path subset; the full list lives here and is loaded on demand.
 - **Cause:** Mobile API keys can be configured server-side to require a JWT.
   When this is on, the SDK silently drops every request that lacks an
   `Authorization: Bearer <jwt>` header. The SDK does not log this.
-- **Fix:** Wire up `IterableConfig.Builder().setAuthHandler(...)`. The
-  handler must return a freshly minted JWT (see pitfall #3). If the user
-  provides an API key **and** a JWT secret, treat the secret as a signal
-  that JWT is on and never skip the handler. See
-  `features/jwt-authentication.md`.
+- **Fix:** Wire up `IterableConfig.Builder().setAuthHandler(...)`. The handler
+  must return a freshly minted JWT (see pitfall #3), **fetched from the team's
+  own backend** — Iterable does not mint tokens, and the shared secret is a
+  server credential the app never holds (pitfall #22). If the user provides an
+  API key **and** a JWT secret, treat the secret as a signal that JWT is on and
+  never skip the handler — but not as permission to sign in the app. See
+  [`reference/jwt-enabled-api-keys.md`](reference/jwt-enabled-api-keys.md).
+- **Note:** assume JWT is on unless the developer says otherwise. It is
+  selected **by default** when a client-side key is created, and the choice
+  cannot be changed afterwards — a new key is the only way to switch.
 
 ## 2. `setEmail` inside the init callback
 
@@ -354,3 +359,38 @@ hot-path subset; the full list lives here and is loaded on demand.
   `CommerceItem` fully via their constructor rather than mutating fields
   post-construction with `.apply { }` — several fields are intentionally
   write-once and only enforce it at runtime.
+
+## 22. Signing Iterable JWTs on the device
+
+- **Symptom:** Nothing looks wrong. Tokens validate, users appear in Iterable,
+  push arrives, the build is green. Meanwhile the shared secret ships inside the
+  APK, recoverable with nothing more than `unzip` and `grep` over `classes.dex`.
+  Anyone who downloads the app can then mint a token for **any** user in the
+  project and read or overwrite that profile, unsubscribe them, or push to their
+  devices.
+- **Cause:** The team has a JWT-enabled key (the default for client-side keys)
+  but no token endpoint yet, so the integration signs locally "for now" to get
+  something working. `reference/jwt-enabled-api-keys.md` makes this easy to
+  reach for: it ships a complete `IterableJwtGenerator.java` using
+  `Mac.getInstance("HmacSHA256")` and `SecretKeySpec`. **That sample is server
+  code.** It is in the corpus because the doc covers both sides of the exchange;
+  it is not a client-side pattern, and porting it into the app is the entire
+  defect. The same doc states the rule plainly: *"Generate them on your server
+  and provide a way for mobile apps to query them for individual users as
+  needed."*
+- **Fix:** Keep the shared secret out of app code, `local.properties`,
+  `BuildConfig`, Gradle files, and anything the build packages. Documenting the
+  risk in a comment does not make it safe — the secret is still in the APK. When
+  there is no endpoint yet, **raise it as a blocker rather than improvising**:
+  1. Define the token source as an interface and inject it, so swapping in a
+     real backend later touches one construction site.
+  2. Ship a stub that logs at `ERROR` and returns `null`. The integration is
+     then inert but honest; per pitfall #1 the developer must be told that calls
+     will fail until the endpoint exists.
+  3. Hand the backend team the contract from `reference/jwt-enabled-api-keys.md`
+     ("Generating JWTs"): HS256, payload carrying `email` **or** `userId` (never
+     both), plus `iat` and `exp` no more than one year out.
+
+  A build that cannot authenticate yet is recoverable in an afternoon. A leaked
+  shared secret means rotating it in Iterable and shipping a new app release,
+  and every APK already in the wild keeps working until it's rotated.

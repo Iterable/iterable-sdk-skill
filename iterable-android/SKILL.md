@@ -117,7 +117,7 @@ done.
 | **`google-services.json`** (real, from the developer's Firebase Console) | Any push / FCM work — the `com.google.gms.google-services` plugin **fails the build without it** | **STOP and ask.** It's project-specific; you cannot generate it. |
 | **Mobile API key** | Always | Ask where it lives; expect `local.properties` (gitignored). Never hardcode. |
 | **Identity model** — `setEmail` vs `setUserId`, and where the value comes from | Always | Ask. Never guess (e.g. grabbing a license email). See rule 7. |
-| **JWT?** — is the mobile key JWT-protected? | Always | Ask. If yes, an auth handler is mandatory (rule 1). |
+| **JWT?** — is the mobile key JWT-protected? | Always | Ask, and **assume yes until told otherwise**: JWT is selected *by default* when a client-side key is created, and the setting can never be changed afterwards. If yes, an auth handler is mandatory (rule 1) **and the team needs a backend endpoint that mints the tokens** — if they don't have one, that is a blocker to raise, not something to work around (pitfall #22). |
 | **Data region** — US or EU | Always | Ask if their dashboard is `app.eu.iterable.com`. See pitfall #8. |
 | **Push integration name** | Push, if it differs from the package name | Ask. See pitfall #9. |
 | **Placement IDs** | Embedded messages | Ask — they're dashboard-assigned numbers. See pitfall #10. |
@@ -133,6 +133,41 @@ Specifically, do **not**:
 
 When blocked on any of these, **surface it to the developer and pause that
 part of the work** — don't silently degrade the integration to keep compiling.
+
+### If they don't have an input yet
+
+Include **"I don't have one yet"** among the options you offer for a missing
+input — plenty of developers own the Iterable dashboard and create the key and
+push integration themselves. When that's the answer, don't send them to
+support.iterable.com; open the doc that covers making it.
+
+| Input they need to create | Where in the dashboard | Slug |
+| ------------------------- | ---------------------- | ---- |
+| Mobile API key — key types, client-side key security, creating one | **Integrations > API Keys** | `api-keys` |
+| Whether the key is JWT-protected, and the shared secret behind it | **Integrations > API Keys** — the JWT choice is made *at creation* and is permanent | `jwt-enabled-api-keys` |
+| The mobile app itself (needed before a push integration can exist) | **Settings > Apps and Websites** | `fcm-http-v1-migration` |
+| Firebase service account, FCM JSON private key, push integration | **Settings > Apps and Websites** → the app → Push | `fcm-http-v1-migration` |
+| Placement IDs | **Settings > Embedded Message Placements** | `embedded-message-placements` |
+| Embedded subscription channel and message type | **Settings > Message Channels and Types** | `embedded-message-subscription-channels` |
+
+Those navigation paths are the ones to give the developer — **do not paraphrase
+them from memory.** "Settings > API Keys" and "Settings > Mobile Apps" are both
+plausible and both wrong, and a developer who doesn't know the dashboard has no
+way to tell. If a path here disagrees with the slug's doc, the doc wins (it
+carries a `source_ref`); open it and use what it says.
+
+**Order matters, and `fcm-http-v1-migration` is the one that walks it.** The
+Iterable project must exist before a mobile app can be defined in it, and the app
+must be defined before a push integration can be configured and the FCM JSON key
+uploaded to it. That doc is *framed* as a migration, but `### Step 2.4`–`### Step
+2.7` are the first-time setup procedure, and `## Step 1` covers creating a
+sandbox project to test in before touching production. Read those sections; skip
+the legacy-key migration narrative around them.
+
+Two things these docs do **not** settle, so keep asking the developer:
+**data region** (confirm it from their dashboard URL — `app.eu.iterable.com`
+means EU; see pitfall #8) and **`google-services.json`**, which comes from their
+Firebase Console and cannot be generated.
 
 ---
 
@@ -160,6 +195,15 @@ part of the work** — don't silently degrade the integration to keep compiling.
 - **Identify users with:** `IterableApi.getInstance().setEmail(email)` or `setUserId(userId)`.
 - **Wrap SDK calls** that run before / during init in `IterableApi.onSDKInitialized { ... }`.
 - **EU customers** must set `IterableConfig.Builder().setDataRegion(IterableDataRegion.EU)` (default is US).
+- **The push integration's FCM type must be "Data notifications", not
+  "Notification messages"** — whenever FCM is in play, greenfield or not. That
+  dropdown decides who handles the incoming push: *Data notifications* routes it
+  through Iterable's SDK; *Notification messages* hands it to the Firebase SDK,
+  which is for apps **not** using Iterable's SDK. Pick the wrong one and the app
+  still builds, tokens still register, and pushes may even arrive — but the
+  SDK's tracking and action handling never fire, with no error anywhere. Tell
+  the developer this explicitly; it's a two-option dropdown they cannot guess
+  right. See `setting-up-android-push-notifications`.
 - **No ProGuard/R8 consumer rules** are needed.
 - **No artifact rename** since version 3.x — the legacy `com.iterable:iterableapi` Maven coords are still current.
 
@@ -173,10 +217,18 @@ credential and a wrong-identity integration. Full explanations and the
 remaining ~10 traps are in [`PITFALLS.md`](PITFALLS.md) — read it before
 generating any non-trivial code.
 
-1. **If the API key is JWT-protected, an `IterableAuthHandler` is mandatory.**
-   Without one, every SDK call silently fails with no error surface. If the
-   user hands you an API key *and* a JWT secret, do **not** ignore the secret —
-   wire up the handler.
+1. **If the API key is JWT-protected, an `IterableAuthHandler` is mandatory —
+   and the token must come from the team's backend, never from the app.**
+   Without a handler, every SDK call silently fails with no error surface. But
+   the shared secret behind a JWT key is a **server credential**: it must never
+   reach app code, `local.properties`, `BuildConfig`, or anything the build
+   packages. Being handed the secret means "JWT is on, wire the handler" — it is
+   **not** permission to sign tokens on the device. If the team has no
+   token-minting endpoint yet, **say so and stop there**: implement the handler
+   against an interface with a stub that logs loudly and returns `null`, and
+   hand them the token contract. Signing in the app ships the secret inside the
+   APK, where it can be extracted and used to mint a token for *any* user in the
+   project (pitfall #22).
 
 2. **Do not call `setEmail` inside the `initializeInBackground` callback.**
    It consumes the auth manager's retry budget before the handler is ready,
@@ -316,7 +368,7 @@ is already on disk, so there is nothing to fetch and no reason to reach for
 Context7 or the web for content that lives here.**
 
 **One doc per task — don't bulk-load.** Open only the slugs the agreed scope
-needs, one at a time. The full corpus is ~50k tokens; reading it wholesale
+needs, one at a time. The full corpus is ~70k tokens; reading it wholesale
 forces a context compaction mid-task, which costs you the detail of what you
 and the developer agreed in Step 0. Two or three slugs is a normal task. If a
 doc turns out to be the wrong one, say so and open the right one — don't open
@@ -354,6 +406,19 @@ the version they're on.
 | `setEmail`, `setUserId`, login / logout flow, user identity | `identifying-the-user` |
 | `updateUser`, profile data fields, JSON merging | `updating-user-profiles` |
 | Unknown User Activation (anonymous → identified upgrade) | `setting-up-unknown-user-activation` |
+
+**Dashboard-side prerequisites** (`archetype: prerequisite`). These document
+Iterable's web app, not the SDK — reach for them when the developer owns the
+dashboard and needs to *create* an input, not when they just need to look one up.
+See [If they don't have an input yet](#if-they-dont-have-an-input-yet).
+
+| If the user is asking about… | Slug |
+| ---------------------------- | ---- |
+| Creating a mobile API key, key types, client-side key security, key scope | `api-keys` |
+| Turning on JWT for a key, the shared secret, token claims and expiry | `jwt-enabled-api-keys` |
+| Creating a Firebase service account, FCM JSON private key, defining a mobile app in Iterable, configuring the push integration, sandbox projects | `fcm-http-v1-migration` (read `## Step 1`, `### Step 2.4`–`### Step 2.7`) |
+| Creating or finding a placement ID in the dashboard | `embedded-message-placements` |
+| Embedded message subscription channels and message types | `embedded-message-subscription-channels` |
 
 > **Inbox UI is fragment-based.** `IterableInboxFragment` needs a
 > `FragmentManager`, so its host must be a `FragmentActivity` /
