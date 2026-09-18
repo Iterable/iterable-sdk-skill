@@ -47,9 +47,10 @@
       "enum": [
         "integration",
         "feature",
-        "identity"
+        "identity",
+        "prerequisite"
       ],
-      "description": "Article archetype tag (integration / feature / identity), carried through from pipeline config."
+      "description": "Article archetype tag, carried through from pipeline config. `prerequisite` marks a dashboard-side input the developer must obtain or create before SDK code can work — it documents Iterable's web app, not the SDK."
     },
     "sdk_min_version": {
       "type": "string",

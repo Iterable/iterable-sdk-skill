@@ -18,7 +18,7 @@ export interface ArticleConfig {
   slug: string;
   source_path: string;
   feature: string;
-  archetype: "integration" | "feature" | "identity";
+  archetype: "integration" | "feature" | "identity" | "prerequisite";
 }
 
 export interface PlatformConfig {
@@ -105,8 +105,15 @@ export function loadPlatformConfig(configPath: string): PlatformConfig {
     }
     slugs.add(slug);
     const archetype = requireString(raw.archetype, `${file}: articles[${i}].archetype`);
-    if (archetype !== "integration" && archetype !== "feature" && archetype !== "identity") {
-      throw new Error(`${file}: articles[${i}].archetype must be integration, feature, or identity`);
+    if (
+      archetype !== "integration" &&
+      archetype !== "feature" &&
+      archetype !== "identity" &&
+      archetype !== "prerequisite"
+    ) {
+      throw new Error(
+        `${file}: articles[${i}].archetype must be integration, feature, identity, or prerequisite`,
+      );
     }
     return {
       slug,
