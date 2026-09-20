@@ -18,11 +18,13 @@ CHANGELOG 3.1.0, the README native-version table, and the working sample in
 `reference/expo.md`.
 
 **How to read this list.** #1–6 are JavaScript / runtime traps. They apply
-to **every** React Native app, including Expo. #7–13 are Expo
+to **every** React Native app, including Expo. #7–11 and #13–#14 are Expo
 config-plugin traps (build-time and configuration-time). Use them only
-after Step 0 classified the project as Expo. #3's *symptom* is both
-workflows; its **bare** native fix (manifest + `PermissionsAndroid`) is
-wrong on Expo — branch first.
+after Step 0 classified the project as Expo. **#12** is Xcode **27** on
+iOS (bare **and** Expo): Device Hub launch and resource-bundle compile
+floors — not an Iterable API change. #3's *symptom* is both workflows;
+its **bare** native fix (manifest + `PermissionsAndroid`) is wrong on
+Expo — branch first.
 
 ---
 
@@ -75,7 +77,8 @@ wrong on Expo — branch first.
 
   - **Expo:** Do not edit `AndroidManifest.xml` or `android/`. Configure
     push through `@iterable/expo-plugin` and `reference/expo.md` (pitfalls
-    #7–#13). Point `expo.android.googleServicesFile` at the developer-supplied
+    #7–#11, #13–#14). Point `expo.android.googleServicesFile` at the
+    developer-supplied
     `google-services.json`.
   - **Bare:** Copy the sample's two-part pattern, not Kotlin
     `ActivityResultContracts`:
@@ -254,7 +257,58 @@ React Native project. Do not introduce `@iterable/expo-plugin` there.
   rather than copying a native fix. See `reference/expo.md` →
   `### React Native's New Architecture` and `### Xcode 26.4 compatibility`.
 
-## 12. Expo: EAS signing for `IterableExpoRichPush`
+## 12. Xcode 27: Device Hub launch and resource-bundle deployment targets
+
+- **Symptom (launch):** On Xcode 27, `npx react-native run-ios` or Expo
+  `run:ios` fails before or during simulator launch. `open -a Simulator`,
+  AppleScript `id of app "Simulator"`, or paths under
+  `…/Xcode.app/Contents/Developer/Applications/Simulator.app` do not work.
+  Only `xcode-select` to the active Xcode is not enough when both Xcode 16
+  and 27 are installed but the CLI still targets the old Simulator app.
+- **Cause (launch):** Xcode 27 ships the simulator UI as **Device Hub**
+  (`DeviceHub.app`, bundle id `com.apple.dt.Devices`), not
+  `Developer/Applications/Simulator.app`. Older `@react-native-community/cli`
+  versions still open the removed app.
+- **Fix (launch):**
+  - **Bare:** Use `@react-native-community/cli` **≥ 20.2.0** (and matching
+    `@react-native-community/cli-platform-ios`). Iterable's RN SDK **example**
+    app may still pin **20.1.0** until its repo updates — consumer apps need
+    **20.2.0+** for Xcode 27. See [cli#2806](https://github.com/react-native-community/cli/pull/2806).
+  - **Expo:** Prefer **Expo SDK 58** (CLI that knows Device Hub). Apps still
+    on SDK **55** may fail at launch on Xcode 27; short-term:
+    `npx expo@latest run:ios` or upgrade the Expo SDK — do not hand-edit
+    `ios/` for this (pitfall #8).
+  - Run `xcode-select -p` and confirm it points at the Xcode you build with.
+
+- **Symptom (build):** `xcodebuild` fails on Xcode 27 with deployment-target
+  errors on CocoaPods **resource bundle** targets (for example
+  `Iterable-iOS-SDK-IterableSDKResources` at **12.0** from
+  `Iterable-iOS-SDK`, or `*_resources` pods such as async-storage at
+  **13.4**). Message indicates `IPHONEOS_DEPLOYMENT_TARGET` is outside the
+  range the iOS 27 SDK allows (**15.0** through the current SDK version).
+- **Cause (build):** The Xcode 27 iOS SDK rejects compile settings below
+  **15.0** on **every** target, including generated Pods resource bundles.
+  Podspecs can still declare older mins; `pod install` regenerates those
+  values. This is a **host compile-time** workaround — not a requirement to
+  bump Iterable's **published** iOS SDK minimum or async-storage's declared
+  platform in this skill ticket.
+- **Fix (build):** Do **not** hand-edit files under `Pods/`. Do **not** treat
+  raising `Iterable-iOS-SDK` in the Podfile as the primary Expo fix.
+  - **Bare:** In the host `Podfile` `post_install`, walk
+    `installer.pods_project.targets` and, for each configuration, if
+    `IPHONEOS_DEPLOYMENT_TARGET` is unset or below **15.0**, set it to at
+    least **15.0** (and not below the app target's chosen deployment
+    target). Keep any existing `{fmt}` C++17 workaround (pitfall #11) —
+    this lift is **separate**. Re-run `pod install`.
+  - **Expo (CNG):** Do not commit or edit `ios/Podfile` for this. Apply the
+    same Pods-target lift via an **Expo config plugin** at `prebuild` (or
+    another supported mod), not by patching `Pods/` after the fact.
+    `{fmt}` remains `@iterable/expo-plugin` **1.1.0+** `withIosFmtWorkaround`
+    (pitfall #11).
+  - See `reference/installing.md` → `### Xcode 27` and `reference/expo.md`
+    → `### Xcode 27`.
+
+## 13. Expo: EAS signing for `IterableExpoRichPush`
 
 - **Symptom:** EAS iOS build fails with "Signing for 'IterableExpoRichPush'
   requires a development team" (or the NSE target is missing from the
@@ -267,7 +321,7 @@ React Native project. Do not introduce `@iterable/expo-plugin` there.
   `<main-bundle-id>.IterableExpoRichPush`. Do not "fix" this by deleting
   the extension or hand-editing the Xcode project (pitfall #8).
 
-## 13. Expo: `requestPermissionsForPushNotifications` defaults to `false`
+## 14. Expo: `requestPermissionsForPushNotifications` defaults to `false`
 
 - **Symptom:** The agent omits the plugin option, expecting iOS to prompt
   for notification permission because the support-doc table says the

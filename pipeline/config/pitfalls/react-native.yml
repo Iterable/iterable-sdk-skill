@@ -10,8 +10,8 @@
 #
 # Sourced from RN SDK 3.1.0 master (public exports vs NativeRNIterableAPI
 # spec, README native-version table, CHANGELOG init-promise fix, example/).
-# Ids 7–13 are Expo config-plugin traps (`@iterable/expo-plugin`). They
-# apply only after SKILL.md Step 0 classifies the project as Expo.
+# Ids 7–11 and 13–14 are Expo config-plugin traps. Id 12 is Xcode 27 iOS
+# (bare and Expo). Apply Expo ids only after SKILL.md Step 0 classifies Expo.
 
 platform: react-native
 
@@ -112,6 +112,18 @@ pitfalls:
     features: [integration]
 
   - id: 12
+    title: "Xcode 27: Device Hub launch and resource-bundle deployment targets"
+    triggers:
+      - "Xcode 27"
+      - "DeviceHub"
+      - "com\\.apple\\.dt\\.Devices"
+      - "Simulator\\.app"
+      - "IPHONEOS_DEPLOYMENT_TARGET"
+      - "IterableSDKResources"
+      - "cli.*20\\.2"
+    features: [integration]
+
+  - id: 13
     title: "Expo: EAS signing for IterableExpoRichPush"
     triggers:
       - "IterableExpoRichPush"
@@ -119,7 +131,7 @@ pitfalls:
       - "Signing for 'IterableExpoRichPush'"
     features: [integration, push-notifications]
 
-  - id: 13
+  - id: 14
     title: "Expo: requestPermissionsForPushNotifications defaults to false"
     triggers:
       - "requestPermissionsForPushNotifications"
