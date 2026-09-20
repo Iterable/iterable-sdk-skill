@@ -135,7 +135,9 @@ launch error) until they upgrade or use a short-term
 **Build (resource bundles).** The same Xcode 27 **15.0** compile floor applies
 to every Pods target, including `Iterable-iOS-SDK-IterableSDKResources` and
 other `*_resources` bundles. In **CNG** workflows, apply a **config plugin**
-at `prebuild` that lifts generated Pods deployment targets — do not commit
+at `prebuild` that lifts generated Pods deployment targets to at least
+**15.1** when unset or below **15.1** (same lift as Iterable's bare
+`Podfile` workaround; **15.0** is the SDK minimum) — do not commit
 `ios/Podfile` changes as the source of truth for this. `@iterable/expo-plugin`
 **1.1.0+** handles `{fmt}` via `withIosFmtWorkaround`; the resource-bundle
 lift is a **host** concern until Iterable documents a first-party plugin

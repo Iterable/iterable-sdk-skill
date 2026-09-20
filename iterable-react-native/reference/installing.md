@@ -75,8 +75,10 @@ build with when multiple versions are installed.
 Xcode target, including CocoaPods **resource bundle** targets generated from
 dependency podspecs (for example `Iterable-iOS-SDK-IterableSDKResources` at
 **12.0**, or third-party `*_resources` pods). A host **`post_install`** hook
-in the app `Podfile` must raise stale Pods targets to at least **15.0** when
-they are missing or lower — then re-run `pod install`. Do **not** edit files
+in the app `Podfile` must raise stale Pods targets to at least **15.1** when
+they are missing or below **15.1** — then re-run `pod install`. **15.0** is
+the Xcode 27 SDK compile floor; **15.1** matches Iterable's bare RN demo so
+targets are not left at exactly **15.0**. Do **not** edit files
 under `Pods/` by hand. This is a compile-time host workaround; it does not
 mean you should bump `Iterable-iOS-SDK` in the Podfile as the primary fix.
 

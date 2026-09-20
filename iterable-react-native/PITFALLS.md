@@ -296,13 +296,16 @@ React Native project. Do not introduce `@iterable/expo-plugin` there.
   raising `Iterable-iOS-SDK` in the Podfile as the primary Expo fix.
   - **Bare:** In the host `Podfile` `post_install`, walk
     `installer.pods_project.targets` and, for each configuration, if
-    `IPHONEOS_DEPLOYMENT_TARGET` is unset or below **15.0**, set it to at
-    least **15.0** (and not below the app target's chosen deployment
-    target). Keep any existing `{fmt}` C++17 workaround (pitfall #11) —
-    this lift is **separate**. Re-run `pod install`.
+    `IPHONEOS_DEPLOYMENT_TARGET` is unset or below **15.1**, set it to at
+    least **15.1** (and not below the app target's chosen deployment
+    target). **15.0** is the minimum the Xcode 27 iOS SDK accepts; **15.1**
+    is what Iterable's bare RN demo ships so a target at exactly **15.0**
+    does not slip through. Keep any existing `{fmt}` C++17 workaround
+    (pitfall #11) — this lift is **separate**. Re-run `pod install`.
   - **Expo (CNG):** Do not commit or edit `ios/Podfile` for this. Apply the
-    same Pods-target lift via an **Expo config plugin** at `prebuild` (or
-    another supported mod), not by patching `Pods/` after the fact.
+    same Pods-target lift to at least **15.1** when unset or below **15.1**
+    via an **Expo config plugin** at `prebuild` (or another supported mod),
+    not by patching `Pods/` after the fact.
     `{fmt}` remains `@iterable/expo-plugin` **1.1.0+** `withIosFmtWorkaround`
     (pitfall #11).
   - See `reference/installing.md` → `### Xcode 27` and `reference/expo.md`
