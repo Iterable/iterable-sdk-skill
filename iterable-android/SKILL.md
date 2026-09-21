@@ -409,6 +409,44 @@ override fun onCreate() {
 }
 ```
 
+### Variant — identity that arrives after init
+
+The pattern above takes identity as a `String`, which assumes you have it at
+`Application.onCreate()`. Often you don't: it lives in a DataStore / Room /
+`ViewModel` `Flow` (or `LiveData`) that emits when the user logs in, and emits
+again on logout or an account switch. **Take the stream, not a value**, and
+identify on each emission:
+
+```kotlin
+fun initialize(context: Context, apiKey: String, emailFlow: Flow<String>) {
+    val config = /* ...exactly as above... */
+    IterableApi.initializeInBackground(context, apiKey, config) {
+        Log.d("IterableTracker", "Iterable init callback fired")
+    }
+
+    // Application-scoped on purpose: this collector has to outlive every screen.
+    CoroutineScope(Dispatchers.Main + SupervisorJob()).launch {
+        emailFlow.collect { email ->
+            if (email.isEmpty()) return@collect
+            IterableApi.onSDKInitialized {
+                IterableApi.getInstance().setEmail(email)
+            }
+        }
+    }
+}
+```
+
+Both wrappers are load-bearing and neither is redundant: `onSDKInitialized`
+handles an email that arrives *before* the SDK is ready, and the collector
+handles one that arrives *after*. Two ways to get this wrong:
+
+- Moving `setEmail` into the `initializeInBackground` callback to have it ready
+  sooner — that is pitfall #2, and it burns the auth retry budget for the
+  process.
+- Collapsing the flow to a `String` with `first()`/`value` at startup. That
+  captures one value, so the account switch never reaches Iterable and events
+  land on the previous user — pitfall #3, which is about exactly this.
+
 The full per-feature docs (push, in-app, inbox, embedded, deep links, events,
 profiles, UUA) are in `reference/` — see the routing table below.
 
