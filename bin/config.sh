@@ -425,7 +425,9 @@ next_action() {
       G1)  a_kind=authenticate; a_cmd="gcloud auth login" ;;
       G2)  if [[ -z "$PID" ]]; then
              a_kind=choose_target; a_owner=agent; a_cmd="$BIN/agent discover"
-             a_summary="pick a Firebase project and an Android package, then: $BIN/agent set PID=… PACKAGE=…"
+             # Short form on purpose: the absolute path is already in `command`, and
+             # in a wrapped banner it breaks across lines into something unrunnable.
+             a_summary="pick a Firebase project and an Android package, then: bin/agent set PID=… PACKAGE=…"
            else a_kind=project_unreachable; fi ;;
       G3)  a_kind=enable_firebase ;;
       G4)  if [[ -z "$PACKAGE" ]]; then
