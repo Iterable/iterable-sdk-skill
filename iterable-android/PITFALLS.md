@@ -38,8 +38,11 @@ hot-path subset; the full list lives here and is loaded on demand.
   and consumes the manager's retry budget. The retry budget never resets
   within the process.
 - **Fix:** Call `setEmail` from the login / session-restore flow, wrapped in
-  `IterableApi.onSDKInitialized { }`. The init callback should log
-  initialization and nothing else.
+  `IterableApi.onSDKInitialized { }`. In the init callback, log and nothing
+  else — write the `Log.d` line the canonical pattern in `SKILL.md` shows.
+  Leaving the body empty is not equivalent: the SDK's own verbose log tells
+  you *it* initialized, but only your line tells you your callback ran, which
+  is what separates "init never fired" from "init fired, identify didn't".
 
 ## 3. Stale email captured in the auth handler lambda
 

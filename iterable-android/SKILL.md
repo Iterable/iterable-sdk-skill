@@ -337,9 +337,12 @@ object IterableTracker {
             .build()
 
         // 4-arg overload: config + trailing-lambda callback (pitfall #18).
-        // The callback runs BEFORE the SDK is ready — keep it empty.
+        // Runs BEFORE the SDK is ready, so log here and do nothing else —
+        // above all do NOT identify here (pitfall #2). Write the log line:
+        // with an empty body you cannot tell "init never fired" from
+        // "init fired, identify didn't".
         IterableApi.initializeInBackground(context, apiKey, config) {
-            // init complete; do NOT identify here (pitfall #2)
+            Log.d("IterableTracker", "Iterable init callback fired")
         }
 
         // onSDKInitialized runs AFTER init (immediately if already ready).
