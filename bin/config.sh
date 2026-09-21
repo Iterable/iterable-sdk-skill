@@ -420,8 +420,12 @@ blocker_banner() {
       colour=31; label="SOMETHING IS ACTUALLY WRONG — a defect, not pending work" ;;
     *)
       colour=33
-      if [[ "$owner" == human ]]; then label="YOUR TURN — the tool cannot do this part"
-      else label="THE TOOL CAN DO THIS — one command away"; fi ;;
+      # Shipping a command is the difference between "you are on your own here" and
+      # "you drive, it narrates". Said the first way above a command the tool provides
+      # — the four Iterable steps, say — it reads as the tool disowning its own walk.
+      if [[ "$owner" != human ]]; then label="THE TOOL CAN DO THIS — one command away"
+      elif [[ -n "$cmd" ]]; then label="YOUR TURN — run this and it walks you through it"
+      else label="YOUR TURN — the tool cannot do this part"; fi ;;
   esac
   box_top "$colour"
   box "$colour" "$(bold "$label")" ""

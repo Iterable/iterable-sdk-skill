@@ -215,6 +215,12 @@ banner_says "SOMETHING IS ACTUALLY WRONG" "a push that was sent and never arrive
 
 state "$(row G13 red human "App installed with the SDK" "no device attached")"
 banner_says "YOUR TURN" "no device is theirs to fix, not a defect"
+banner_says "the tool cannot do this part" "nothing to run — plugging a phone in is theirs alone"
+
+# Theirs to do, but not theirs to work out: the dashboard walk ships a command, and
+# "the tool cannot do this part" printed directly above that command disowns it.
+state "$(row G10 pending human "Iterable API keys work" "no server-side key yet")"
+banner_says "it walks you through it" "a human step the tool still narrates"
 
 # A project with no recorded yes — the earlier cases recorded one for p.
 APPROVED=0 PID=q
