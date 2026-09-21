@@ -45,6 +45,21 @@ case "$*" in
   "shell getprop sys.boot_completed") [[ -f "${STUB_BOOTED:-/nonexistent}" ]] && echo 1; exit 0 ;;
   "logcat -d") [[ -n "${STUB_LOGCAT:-}" ]] && cat "$STUB_LOGCAT"; exit 0 ;;
 esac
+# Two dialects for reading one app's log: which uid a package runs as, and the
+# buffer narrowed to a uid. STUB_PKGS is "package=uid package=uid"; a package with
+# no entry is not installed, and answers nothing — the same as a real device.
+case "$1 $2 $3 $4 $5" in
+  "shell pm list packages -U")
+    for m in ${STUB_PKGS:-}; do
+      [[ "${m%%=*}" == "$6" ]] && printf 'package:%s uid:%s\n' "${m%%=*}" "${m#*=}"
+    done
+    exit 0 ;;
+esac
+if [[ "$1 $2" == "logcat -d" && "$3" == --uid=* ]]; then
+  f="${STUB_LOGDIR:-/nonexistent}/logcat.${3#--uid=}.txt"
+  [[ -f "$f" ]] && cat "$f"
+  exit 0
+fi
 exit 0
 ADB
 chmod +x "$STUB/adb"
@@ -130,11 +145,21 @@ echo
 echo "  Which identity the app registered"
 echo
 
-# identity <label> <logcat-body> <expected-output>
+# MINE is the chosen app, THEIRS another app on the same device. The log is one
+# shared buffer, so both write into it and the SDK's lines look identical either way.
+MINE=com.example.mine;  MINE_UID=10218
+THEIRS=com.example.theirs; THEIRS_UID=10217
+
+# identity <label> <body-in-my-log> <expected-output> [body-in-the-other-app's-log] [package]
 identity() {
-  local label="$1" body="$2" want="$3" out
-  printf '%s\n' "$body" > "$STUB/logcat.txt"
-  out="$(PATH="$STUB:$PATH" WS="$STUB/ws" STUB_DEVICES="$A=Pixel_9_Pro" STUB_LOGCAT="$STUB/logcat.txt" \
+  # ${5-…}, not ${5:-…}: "no package chosen" is a case, so an empty fifth argument
+  # has to stay empty rather than fall back to the default.
+  local label="$1" body="$2" want="$3" other="${4:-}" pkg="${5-$MINE}" out
+  rm -f "$STUB"/logcat.*.txt
+  printf '%s\n' "$body"  > "$STUB/logcat.$MINE_UID.txt"
+  printf '%s\n' "$other" > "$STUB/logcat.$THEIRS_UID.txt"
+  out="$(PATH="$STUB:$PATH" WS="$STUB/ws" STUB_DEVICES="$A=Pixel_9_Pro" STUB_LOGDIR="$STUB" \
+    STUB_PKGS="$MINE=$MINE_UID $THEIRS=$THEIRS_UID" PACKAGE="$pkg" \
     bash -c 'source bin/config.sh >/dev/null 2>&1; app_identity' 2>&1 | tr '\n' ' ')"
   [[ "${out% }" == "$want" ]] && ok "$label → ${out:-<empty>}" \
     || bad "$label — wanted '$want', got '${out% }'"
@@ -157,6 +182,20 @@ V IterableRequest:   \"email\": \"new@example.com\"," \
 identity "nothing registered yet says nothing" "D SomeOtherTag: hello" ""
 identity "ignores addresses logged by anything else" \
   "V OtherLibrary:   \"email\": \"noise@example.com\"," ""
+
+# The defect this scoping exists for, found on a real trial: another app on the same
+# emulator was using the Iterable SDK, and its identity was offered as the join key
+# for an app that was not even installed. A confident wrong answer here reads as a
+# broken Iterable project for as long as it takes somebody to doubt the tool.
+OTHERS="$REG
+V IterableRequest:   \"email\": \"someone@elses.app\","
+identity "another app's identity is not ours" "D Quiet: nothing here" "" "$OTHERS"
+identity "...not even when ours has never run" "" "" "$OTHERS"
+# Nothing to attribute the read to: no package chosen, or one that isn't installed.
+identity "no package chosen — no suggestion" "$REG
+V IterableRequest:   \"email\": \"test@useremail.com\"," "" "$OTHERS" ""
+identity "package not installed — no suggestion" "$REG
+V IterableRequest:   \"email\": \"test@useremail.com\"," "" "$OTHERS" com.example.absent
 
 echo
 echo "  Labels and truncation"

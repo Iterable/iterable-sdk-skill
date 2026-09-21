@@ -60,5 +60,44 @@ for f in tests/fixtures/logcat-*.txt; do
 done
 
 echo
+echo "  G14 — what the gate makes of 'ran and never registered'"
+echo
+
+STUB="$(mktemp -d)"; mkdir -p "$STUB/ws"
+trap 'rm -rf "$STUB"' EXIT
+
+cat > "$STUB/adb" <<'ADB'
+#!/usr/bin/env bash
+[[ "$1" == devices ]] && { echo "List of devices attached"; printf 'emulator-5554\tdevice\n'; exit 0; }
+[[ "$1" == -s ]] && shift 2
+case "$*" in
+  "emu avd name") echo Pixel_9_Pro; exit 0 ;;
+  "shell pm list packages -U com.dogshelter") echo "package:com.dogshelter uid:10218"; exit 0 ;;
+esac
+[[ "$1 $2 $3" == "logcat -d --uid=10218" ]] && { cat "$STUB_FIX"; exit 0; }
+exit 0
+ADB
+chmod +x "$STUB/adb"
+
+# gate_is <label> <fixture> <mobile-key> <expected-rc> <must-mention>
+gate_is() {
+  local label="$1" want="$4" mention="$5" out rc
+  out="$(PATH="$STUB:$PATH" WS="$STUB/ws" STUB_FIX="tests/fixtures/$2" ITBL_MOBILE_KEY="$3" \
+    PACKAGE=com.dogshelter DEVICE_WAIT=0 \
+    bash -c 'source bin/config.sh >/dev/null 2>&1; source bin/gates-device.sh; g14' 2>&1)"; rc=$?
+  if ((rc != want)); then bad "$label — expected rc $want, got $rc ($out)"; return; fi
+  grep -qi -- "$mention" <<< "$out" || { bad "$label — rc $rc is right but never says '$mention': $out"; return; }
+  ok "$label -> rc=$rc ${out:0:64}"
+}
+
+# The parser says the same thing either way; only the gate knows whether it is a
+# fault. A developer who has not reached the Iterable steps yet has given the app no
+# key to register with, and a live run reported that as a defect.
+gate_is "no key yet — not a defect, work outstanding" logcat-no-registration.txt "" 2 "nothing to register with"
+gate_is "key in hand and still nothing — red"         logcat-no-registration.txt itbl-mobile-key 1 "still not after"
+# And the green must not depend on any of it.
+gate_is "a registered token is green regardless"      logcat-register-success.txt "" 0 "tokenRegistrationType FCM"
+
+echo
 ((FAILED)) && { echo "  FAILED"; exit 1; }
 echo "  All good — one way to go red, and a rotated buffer never becomes one."

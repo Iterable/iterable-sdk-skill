@@ -147,8 +147,16 @@ push_proven() { grep -q "^G16	green" "$WS/state.tsv" 2>/dev/null; }
 # Plain text, no escapes, so the same sentence can go to a terminal or into JSON.
 advice_for() {
   case "$1" in
+    # Four dashboard steps, and the advice names the first one rather than all four:
+    # this is the one stretch of the flow the developer does by hand, and a wall of
+    # instructions is read as a document instead of followed as steps.
+    G10) echo "do the four Iterable dashboard steps, one at a time, starting with:  bin/iterable-keys --step 1" ;;
     G13) echo "run the app on the device, and accept the notification prompt" ;;
-    G14) echo "launch the app, so the SDK registers a token" ;;
+    # Launching the app again achieves nothing while it has no key to register with,
+    # so the advice follows the reason rather than the gate.
+    G14) [[ -n "$ITBL_MOBILE_KEY" ]] \
+           && echo "launch the app, so the SDK registers a token" \
+           || echo "finish the Iterable steps first — the app needs a mobile key before it can register anything" ;;
     # Naming the address is the point. This is the join key between the app and
     # Iterable, and a test user who signs in as anyone else looks exactly like a
     # broken integration from here.
@@ -235,7 +243,9 @@ next_action() {
              a_summary="$a_summary — registering it needs CREATE_APP=1, on purpose"
            fi ;;
       G5|G6|G7|G8|G9) a_kind=provision; a_owner=tool; a_cmd="$BIN/onboard --apply" ;;
-      G10) a_kind=iterable_keys; a_cmd="$BIN/iterable-keys" ;;
+      # The first of four, not all four: the walk is the step, and a caller handed
+      # every instruction at once hands them all on to the developer at once.
+      G10) a_kind=iterable_keys; a_cmd="$BIN/iterable-keys --step 1" ;;
       # No package means nobody has said which app this is about, which is a choice
       # and not a missing install — telling them to build would name no target.
       G13) if [[ -z "$PACKAGE" ]]; then
@@ -442,14 +452,43 @@ target_serial() {
   return 1
 }
 
+# The app's uid, asked of the device rather than remembered. `pm list packages`
+# matches by prefix, so the pattern is anchored: com.example and com.example.dev
+# are different apps and would otherwise share an answer.
+app_uid() {
+  adb -s "$1" shell pm list packages -U "$PACKAGE" 2>/dev/null | tr -d '\r' \
+    | sed -n "s|^package:$PACKAGE uid:\([0-9]\{1,\}\).*|\1|p" | head -1
+}
+
+# logcat, narrowed to the chosen app. One buffer is shared by every app on the
+# device and the Iterable SDK's lines look identical whichever app emitted them, so
+# an unscoped read attributes another app's integration to this one.
+#
+# Returns 1 when it cannot narrow — no package chosen, app not installed, or a
+# device whose logcat has no --uid. The caller decides what an unscoped read is
+# worth, because the answer differs: for an identity it is worth nothing, and for
+# evidence that the SDK ran it is the best available and has to be said out loud.
+logcat_for_package() {
+  local uid
+  [[ -n "$PACKAGE" ]] || return 1
+  uid="$(app_uid "$1")"
+  [[ -n "$uid" ]] || return 1
+  adb -s "$1" logcat -d --uid="$uid" 2>/dev/null
+}
+
 # Which identity the app actually registered, straight out of the SDK's own request
 # body in logcat. The developer cannot reliably answer this from memory — the app
 # decides it in code, and a wrong answer looks exactly like a broken Iterable
 # project — so ask the device instead of asking them. Prints one address per line,
 # most recent first; empty if the buffer has rotated or the app never registered.
+#
+# Silent unless the read can be attributed to the chosen package. A confident wrong
+# join key is worse than no suggestion: this offered an address belonging to a
+# different app on the same emulator while the chosen app was not even installed.
 app_identity() {
-  local d; d="$(device_serial)" || return 0
-  adb -s "$d" logcat -d 2>/dev/null \
+  local d out; d="$(device_serial)" || return 0
+  out="$(logcat_for_package "$d")" || return 0
+  printf '%s\n' "$out" \
     | grep -F 'IterableRequest' \
     | grep -oE '"email": *"[^"]+"' \
     | grep -oE '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}' \

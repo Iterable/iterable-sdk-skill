@@ -12,9 +12,9 @@ description: >-
 
 # Proving Iterable push on a device
 
-Eighteen gates, `G0`–`G17`. `G13`–`G17` are the device half, and `G16` is the one
-that matters: an Iterable push, sent on purpose and carrying a marker, found in the
-device's own notification records.
+Eighteen checks, of which the last five are the device half. One of them is the one
+that matters — *push arrives on device*: an Iterable push, sent on purpose and
+carrying a marker, found in the device's own notification records.
 
 **This skill writes nothing and sends nothing on its own.** The verifier does not
 trigger the thing it verifies — a checker that sends its own push can only ever
@@ -55,8 +55,15 @@ this goes wrong:
 - **blocked** — a prerequisite is red, so this gate can say nothing true. Do not run
   it, do not comment on it.
 - **unverifiable** (`~`) — no public API reads this back, so nothing here can honestly
-  claim to have checked it. `G11` and `G12` are the two Iterable dashboard steps;
-  they are proved indirectly, because if `G16` lands a push then both were right.
+  claim to have checked it. The two Iterable dashboard steps are like this; they get
+  proved indirectly, because a push that arrives means both were right.
+
+Those five words are field values for you to branch on, not words to say to the
+developer. Neither are the gate ids (`G0`–`G17`) — they are in the JSON because the
+state file is keyed on them, and they mean nothing to somebody who has never read
+this repo. `next.step` and `gates[].name` are the same steps in words: use those, and
+say the true thing rather than the label — "nothing is broken, and no push has
+arrived yet".
 
 Act on `next` and nothing else. One action at a time, first red before any pending:
 fixing a pending gate while something upstream is broken is work against a system
@@ -64,36 +71,37 @@ that is still wrong.
 
 | `next.kind` | What you do |
 |---|---|
-| `install_app` | Their app is not on the device, or the installed APK does not carry the SDK. Build and install, then re-run. `G13` reads `dumpsys package` for the Iterable messaging service, so it catches "integrated the SDK, forgot to reinstall" — invisible to anything that only reads the repo. |
+| `install_app` | Their app is not on the device, or the installed APK does not carry the SDK. Build and install, then re-run. The check reads `dumpsys package` for the Iterable messaging service, so it catches "integrated the SDK, forgot to reinstall" — invisible to anything that only reads the repo. |
 | `run_app` | Launch the app and sign in as the address in `target.email`. That exact address. |
 | `send_proof` | Announce it, then run `<root>/bin/proof-push`. It sends one marked push and deliberately does not check whether it arrived. Then re-run `<root>/bin/agent`. |
-| `campaign_send` | `G17` needs `ITBL_CAMPAIGN_ID`; without it there is nothing for it to read. Optional. |
+| `campaign_send` | Server-side corroboration needs `ITBL_CAMPAIGN_ID`; without it there is nothing to read. Optional. |
 | `iterable_keys`, `provision`, `choose_target`, … | Not this skill's half — hand back to `iterable-provision`. |
-| `done` | `G16` is green. Say which push, on which device, how long after the send. |
+| `done` | The push arrived. Say which push, on which device, how long after the send. |
 
-## When the developer says nothing arrived and G16 says it did
+## When the developer says nothing arrived and the check says it did
 
 Both can be true, and the verdict is the thing that has to explain the difference.
 
 Android bundles a second notification from the same app with the first and marks the
-children `SILENT`: it arrives, `G16` sees it in the notification records, and the
-screen shows no banner and makes no sound. `G16` appends `— SILENT, no banner` when
-that is what happened, and states how long ago every arrival was. Read those out.
-The remedy is to clear the notification shade and send again, not to doubt the gate.
+children `SILENT`: it arrives, the check sees it in the notification records, and the
+screen shows no banner and makes no sound. The verdict appends `— SILENT, no banner`
+when that is what happened, and states how long ago every arrival was. Read those
+out. The remedy is to clear the notification shade and send again, not to doubt the
+check.
 
 The other honest answers, in order of how often they are the real one: the app was
 never launched after install so no token exists; the app signs in as a different
 address than `target.email`, so the token is filed under one identity and the proof
 went to another; the push integration is set to "Notification messages" instead of
 "Data notifications", so the Firebase SDK swallows it before Iterable's SDK sees it;
-notification permission was denied (`G16` can tell "denied" from "never asked").
+notification permission was denied (the verdict tells "denied" from "never asked").
 
 ## Never do these
 
-- Never send again to turn a red or pending gate green. If `G16` is not green, the
-  answer is why, not another attempt.
-- Never report `pending` as a failure, and never report an old green as a new one —
-  `G16` states the age of what it found for exactly this reason.
+- Never send again to turn a failing check into a passing one. If no push has
+  arrived, the answer is why, not another attempt.
+- Never report pending work as a failure, and never report an old arrival as a new
+  one — the verdict states the age of what it found for exactly this reason.
 - Never claim a gate passed because a build succeeded. A build is a weak signal in
   both directions: fabricated integrations compile, and correct ones fail.
 - Never work around `unverifiable`. There is no endpoint; that is the finding.

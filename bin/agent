@@ -85,6 +85,11 @@ esac
 NEXT="$(next_action)"
 IFS="$NEXT_SEP" read -r NEXT_OWNER NEXT_KIND NEXT_GATE NEXT_CMD NEXT_SUMMARY <<< "$NEXT"
 
+# The same step, in words a developer who has never read this repo can use. `gate`
+# stays because the state file and our own vocabulary are keyed on it, but an agent
+# that has only an id to quote says "G13" to somebody it means nothing to.
+NEXT_STEP="$(awk -F'\t' -v i="$NEXT_GATE" '$1==i{print $4; exit}' "$WS/state.tsv" 2>/dev/null)"
+
 f_present() { [[ -f "$1" ]] && echo true || echo false; }
 
 printf '{'
@@ -112,9 +117,9 @@ printf '"counts":{"green":%d,"red":%d,"pending":%d,"blocked":%d,"unverifiable":%
 printf '"gates":['
 sep=""; for r in "${ROWS[@]}"; do printf '%s%s' "$sep" "$r"; sep=","; done
 printf '],'
-printf '"next":{"owner":%s,"kind":%s,"gate":%s,"command":%s,"summary":%s}' \
+printf '"next":{"owner":%s,"kind":%s,"gate":%s,"step":%s,"command":%s,"summary":%s}' \
   "$(jstr "$NEXT_OWNER")" "$(jstr "$NEXT_KIND")" "$(jstr "$NEXT_GATE")" \
-  "$(jstr "$NEXT_CMD")" "$(jstr "$NEXT_SUMMARY")"
+  "$(jstr "$NEXT_STEP")" "$(jstr "$NEXT_CMD")" "$(jstr "$NEXT_SUMMARY")"
 printf '}\n'
 
 exit "$RC"

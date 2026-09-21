@@ -188,7 +188,7 @@ if [[ -z "$CHOSE" ]]; then
   OPTS="$(device_options)"
   if [[ -z "$OPTS" ]]; then
     echo "  No devices and no AVDs. Create one in Android Studio, or attach a phone."
-    echo "  Everything before G13 still works — re-run when you have one."
+    echo "  Everything before the device steps still works — re-run when you have one."
     echo
   else
     LINE="$(printf '%s\n' "$OPTS" | menu)" || LINE=""
@@ -214,11 +214,11 @@ if [[ -n "$CHOSE" ]]; then
     echo
     # Remembered regardless — it is still the device they chose. But the gates do
     # not wait for anything, so don't promise that they do.
-    echo "  $(bold "$CHOSE") is not up yet. Remembered it, and G13 onwards will"
+    echo "  $(bold "$CHOSE") is not up yet. Remembered it, and the device checks will"
     echo "  report it as not running until you start it."
   fi
 else
-  echo "  No device chosen — G13 onwards will stay blocked, and say so."
+  echo "  No device chosen — every device check stays blocked, and says so."
 fi
 
 # ------------------------------------------------------------------- the ladder

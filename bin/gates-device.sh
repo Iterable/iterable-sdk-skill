@@ -64,18 +64,37 @@ g13() {
 # happened but can never prove it didn't, so "no Iterable output at all" is
 # pending, not red. What it *can* call red is the SDK running and never asking.
 g14() {
-  local d buf out rc started=$SECONDS deadline=$((SECONDS + DEVICE_WAIT))
+  local d buf out rc scoped started=$SECONDS deadline=$((SECONDS + DEVICE_WAIT))
   d="$(device_serial)" || { echo "$d"; return 1; }
   while :; do
     # Dumped first, not piped: under pipefail a failing adb would overwrite the
     # parser's verdict with its own exit code.
-    buf="$(adb -s "$d" logcat -d 2>/dev/null)" || true
+    #
+    # Narrowed to the app's uid, because every app shares one log buffer and the
+    # SDK's lines are identical whoever emitted them — another app's successful
+    # registration would otherwise turn this gate green for an app that has never
+    # run. Where the device cannot narrow it, the unscoped read is still the best
+    # evidence there is, and the verdict says which kind it is.
+    if buf="$(logcat_for_package "$d")"; then scoped=1; else
+      buf="$(adb -s "$d" logcat -d 2>/dev/null)" || true; scoped=0
+    fi
     out="$(printf '%s\n' "$buf" | node "$BIN/token-log.js" "$PACKAGE" 2>&1)"; rc=$?
+    ((scoped)) || out="$out (whole log — could not narrow it to $PACKAGE)"
     ((rc == 3)) || break
+    # Nothing to wait for when the app has no key to register with.
+    [[ -n "$ITBL_MOBILE_KEY" ]] || break
     ((SECONDS < deadline)) || break
     sleep 3
   done
   if ((rc == 3)); then
+    # "Ran and never registered" is a defect only once the app has what it needs.
+    # With no mobile key captured, the likeliest reason is that nobody has given the
+    # app one yet — work outstanding, not a broken integration. Calling this red sent
+    # a developer who had simply not reached the Iterable steps a verdict of "defect".
+    if [[ -z "$ITBL_MOBILE_KEY" ]]; then
+      echo "$out — and no Iterable mobile key yet, so there is probably nothing to register with"
+      return 2
+    fi
     echo "$out — still not after $((SECONDS - started))s"
     return 1
   fi

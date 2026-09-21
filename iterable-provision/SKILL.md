@@ -64,24 +64,67 @@ Read `next.kind` and act. That is the whole protocol.
 | `project_unreachable` | Relay `next.summary` verbatim; it is a permissions answer from Google, not something to work around. |
 | `register_app` | Registering an Android app in their Firebase project is a real mutation. Ask outright, and only then re-run with `CREATE_APP=1`. |
 | `provision` | Show `next.summary`, get one confirmation, then run `<root>/bin/onboard --apply`. It creates the service account, binds the send-push role and nothing more, downloads `google-services.json`, and ends by re-running the ladder. |
-| `iterable_keys` | Run `<root>/bin/iterable-keys` and relay its output. See *Secrets* below. |
+| `iterable_keys` | Four steps in their Iterable account that only they can do. Walk them **one at a time** — see *The four Iterable steps* below. |
 | `install_app` / `run_app` / `send_proof` | The device half — hand off to `iterable-verify`. |
-| `done` | `G16` is green: a real push reached the device. Say which device and chain onward. |
+| `done` | A real push reached the device. Say which device and chain onward. |
 
 `next.command` is the command for that step when there is one. Run it; do not
 compose your own equivalent.
 
+## Words to use
+
+The gate ids (`G0`–`G17`) are our vocabulary, not the developer's. They are in the
+JSON and in the table on stderr because the state file is keyed on them — never put
+one in a sentence you say to the developer. `next.step` is the same step in words;
+so is `gates[].name`. Use those.
+
+Ours and not theirs either: *gate*, *ladder*, *pending*, *blocked*, *unverifiable*,
+*rc 40*. Say the true thing instead — "nothing is broken, and no push has arrived
+yet" — and name what you are waiting for.
+
+## The four Iterable steps, one at a time
+
+Iterable's public API cannot create an API key, a mobile app, or a push
+integration, so this is the one stretch of the flow the developer does by hand.
+Everything they produce gets proved afterwards by a real call, and your job in
+between is to keep it to **one step per message**.
+
+Open by saying what the stretch is: four things in their Iterable account, a couple
+of minutes, and nothing downstream works without them. Then, for N in 1 to 4:
+
+1. Run `<root>/bin/iterable-keys --step N` and show its output as it is. It is
+   written to be read by the developer — do not summarise it, do not retype the
+   URLs, do not merge two steps into one message.
+2. Ask **one** `AskUserQuestion`: *Done* / *It doesn't look like that* / *I'd rather
+   run the whole thing myself*. Then wait. Step N+1 does not exist until they answer.
+3. *It doesn't look like that* — help with that step and no other. The dashboard
+   moves; the values and their meanings do not.
+4. *I'd rather run the whole thing myself* — give them `<root>/bin/iterable-keys`
+   with no arguments, at their own terminal. It prompts with the echo off, stores
+   the keys itself, and ends by running the ladder. Stop walking and wait for them.
+
+The two keys go into a file, never into the conversation. Step 1's output names it:
+`.iterable/.env.template`, mode 0600, which they fill in and rename to `.env`. **Do
+not ask them to paste a key to you**, not even to check its shape. If they paste one
+anyway, say plainly that it is in the transcript now and worth rotating — Iterable
+keys are cheap to replace — then carry on with the file.
+
+When they say step 4 is done, re-run `<root>/bin/agent`. Both keys get spent on a
+real call and the test user is looked up by name, so nothing here rests on anyone's
+word. A key that works for one endpoint and not the other means the two are
+swapped — a common mistake, and the check tells them apart.
+
 ## Secrets
 
-`<root>/bin/iterable-keys` without a terminal prints the four dashboard steps and writes
-`.iterable/.env.template` at mode 0600 with three empty names. Relay the steps,
-then the developer fills that file in and renames it to `.env`, or exports the same
-names in their shell.
+`<root>/bin/iterable-keys --step N` prints one dashboard step and, the first time,
+writes `.iterable/.env.template` at mode 0600 with three empty names. Without
+arguments and without a terminal it prints all four at once — that is the form for a
+script, not for a conversation.
 
 - **Never ask anyone to paste a key into the conversation.** Not as a question, not
   as an `AskUserQuestion` option, not "just to check the format".
 - Never read `.env`, echo it, `cat` it, or pass a key as a command-line argument.
-- You do not need to see a key to know it works. `G10` spends both keys on real
+- You do not need to see a key to know it works. The check spends both keys on real
   calls — including a deliberately invalid control key, so a probe that cannot tell
   a good key from a bad one goes red rather than green.
 - The service-account key at `.iterable/artifacts/sa-key.json` is a long-lived
@@ -97,10 +140,12 @@ names in their shell.
 - Never create a Firebase project or register an app unless the developer asks for
   it in this conversation.
 - Never touch an app, integration, or credential they already have.
-- Never say something is working that the ladder has not proved. `G11` and `G12`
-  print `~ unverifiable` because Iterable's public API has no endpoint that reads
-  them back — that is the honest answer, and reading a local file to claim a remote
-  step happened is the failure this whole tool exists to catch.
+- Never say something is working that has not been proved. Two steps — the mobile
+  app in Iterable and the push integration — report as *unverifiable*, because
+  Iterable's public API has no endpoint that reads them back. Say that plainly: "no
+  way to check this from outside the dashboard, so it gets proved when the push
+  arrives." Reading a local file to claim a remote step happened is the exact
+  failure this tool exists to catch.
 
 ## Two things that cost people whole days
 

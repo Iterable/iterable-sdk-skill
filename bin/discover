@@ -70,7 +70,8 @@ echo
 if ((FOUND)); then
   cat <<EOF
   Pick a project that already has an Android app — that is the zero-mutation path:
-  G2-G5 become pure reads, and the only thing added is a service account plus key.
+  everything on the Firebase side is then a pure read, and the only thing added is a
+  service account plus its key.
 
       $BIN/agent set PID=<project-id> PACKAGE=<package-name>
 

@@ -56,8 +56,13 @@ gate() {
       [[ "$GREEN" == *" $p "* ]] || { missing="$p"; break; }
     done
     if [[ -n "$missing" ]]; then
-      printf '  %s  %-4s %-34s %s\n' "$(dim ·)" "$id" "$name" "$(dim "waiting on $missing")"
-      row "$id" blocked "$owner" "$name" "waiting on $missing"
+      # By name, not by id. This detail is the one the front ends relay to the
+      # developer, and "waiting on G2" is our vocabulary, not theirs. The row is
+      # already in state.tsv — prerequisites always run first — so there is no
+      # second copy of the names to keep in step.
+      local mname; mname="$(awk -F'\t' -v i="$missing" '$1==i{print $4; exit}' "$STATE")"
+      printf '  %s  %-4s %-34s %s\n' "$(dim ·)" "$id" "$name" "$(dim "waiting on ${mname:-$missing}")"
+      row "$id" blocked "$owner" "$name" "waiting on ${mname:-$missing}"
       return
     fi
   fi

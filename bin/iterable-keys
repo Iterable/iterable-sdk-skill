@@ -89,22 +89,51 @@ step_identity() {
 EOF
 }
 
-# Without a terminal this cannot prompt for a secret, and it must not try: the
-# scripted path is the one an agent drives, and an agent must never be the thing
-# that handles the key. So it prints the same four steps, leaves a 0600 file with
-# the names and no values, and stops. The developer fills it in; the gates then
-# prove the keys by spending them, which is the only part that needs to read them.
-if ! interactive || [[ "${1:-}" == "--steps" ]]; then
-  TEMPLATE="$WS/.env.template"
+# Where the values go, printed with the step that produces them. A destination
+# named in a block at the end is a destination nobody reads until after they have
+# already pasted the key somewhere else — and on the agent path there is no end to
+# put it at, because the steps are handed over one at a time.
+where_keys() {
+  cat <<EOF
+  $(bold "Where the two keys go") — not into a chat window, a log, or an argument list:
+
+      $TEMPLATE      (mode 0600, ignored by git)
+
+    Put the server-side key on $(bold ITBL_SERVER_KEY) and the mobile one on
+    $(bold ITBL_MOBILE_KEY), then rename the file to $(bold "$(basename "$ITBL_ENV")").
+    Nothing reads it until then, which is the point: a half-filled .env looks
+    exactly like a wrong key.
+
+EOF
+}
+
+where_identity() {
+  cat <<EOF
+  Put that address on $(bold ITBL_EMAIL) in the same file:
+
+      $TEMPLATE
+
+EOF
+}
+
+# The identity the app registered, if the device can tell us — scoped to the chosen
+# package, because another app's identity offered as this one's is worse than no
+# suggestion at all.
+offer_identity() {
+  local seen; seen="$(app_identity | head -3)"
+  [[ -n "$seen" ]] || return 0
+  echo "    ${PACKAGE:-The app} has already registered as:"
+  printf '      %s\n' $seen
+  echo
+}
+
+# Creates the 0600 template, and never writes over one that already holds a value:
+# re-reading the steps is normal, and a key is shown once. Returns 1 if it left an
+# existing file alone, so the caller can say so in its own words.
+ensure_template() {
   ws_init
-  # Never over a template that already has a value in it. Re-running this is the
-  # normal way to re-read the steps, and a developer who filled it in and has not
-  # renamed it yet would lose keys that are shown once.
   if grep -qE '^ITBL_[A-Z_]+=.+' "$TEMPLATE" 2>/dev/null; then
-    echo
-    echo "  $TEMPLATE already has values — left untouched."
-    echo "  Rename it to $ITBL_ENV and run bin/gates."
-    exit 10
+    return 1
   fi
   ( umask 077 && cat > "$TEMPLATE" <<'EOF'
 # Fill in the values, then rename this file to .env — or export the same names in
@@ -117,32 +146,61 @@ ITBL_EMAIL=
 EOF
   )
   chmod 600 "$TEMPLATE"
+}
 
+TEMPLATE="$WS/.env.template"
+
+banner() {
   echo
   echo "  ── $(bold "Iterable") ─────────────────────────────────────────────────────"
   echo
-  echo "  Four things here have to be done by hand. Iterable has no API for any of"
-  echo "  them, so there is nothing to automate — but everything they produce gets"
-  echo "  proved by a real API call afterwards."
+  echo "  Four things here have to be done by hand — Iterable has no API for any of"
+  echo "  them, so there is nothing to automate. Everything they produce gets proved"
+  echo "  by a real API call afterwards, so a wrong one surfaces in seconds, not days."
+  echo
+}
+
+# One step at a time, because that is how somebody clicking through a dashboard
+# experiences it. Four screens of instructions handed over at once is a document;
+# a developer who is on step 2 wants step 2.
+if [[ "${1:-}" == "--step" ]]; then
+  ensure_template || true
+  case "${2:-}" in
+    1) banner; echo "  $(dim "Step 1 of 4.")"; step_keys; where_keys ;;
+    2) step_mobile_app ;;
+    3) step_push_integration ;;
+    4) step_identity; offer_identity; where_identity
+       cat <<EOF
+    Then re-run the ladder: both keys get spent on a real call, and the test user
+    is looked up by name, so nothing here is taken on trust.
+
+EOF
+       ;;
+    *) echo "usage: $(basename "$0") --step 1|2|3|4" >&2; exit 30 ;;
+  esac
+  exit 0
+fi
+
+# Without a terminal this cannot prompt for a secret, and it must not try: the
+# scripted path is the one an agent drives, and an agent must never be the thing
+# that handles the key. So it prints the same four steps, leaves a 0600 file with
+# the names and no values, and stops. The developer fills it in; the gates then
+# prove the keys by spending them, which is the only part that needs to read them.
+if ! interactive || [[ "${1:-}" == "--steps" ]]; then
+  if ! ensure_template; then
+    echo
+    echo "  $TEMPLATE already has values — left untouched."
+    echo "  Rename it to $(basename "$ITBL_ENV") and run bin/gates."
+    exit 10
+  fi
+  banner
   step_keys
+  where_keys
   step_mobile_app
   step_push_integration
   step_identity
-  SEEN="$(app_identity | head -3)"
-  if [[ -n "$SEEN" ]]; then
-    echo "    The app on the device has already registered as:"
-    printf '      %s\n' $SEEN
-    echo
-  fi
-  cat <<EOF
-  $(bold "Where the values go") — not into a chat window, a log, or an argument list:
-
-      $TEMPLATE      (already created, mode 0600)
-
-  Fill in the three names, rename it to $(bold "$ITBL_ENV"), then run $(bold "bin/gates").
-  G10 spends both keys on a real call, so a wrong one is caught immediately.
-
-EOF
+  offer_identity
+  where_identity
   exit 10
 fi
 
