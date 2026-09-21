@@ -10,17 +10,141 @@
 
 source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
 
-interactive || {
-  cat <<'EOF'
-  bin/iterable-keys needs a terminal — it prompts for secrets.
-  For a scripted run, write workspace/.env yourself (mode 0600):
+# The four steps, written once. Both front ends print exactly these — a second copy
+# of dashboard navigation is a second thing to get out of date, and the wrong FCM
+# type is the most expensive mistake in the whole flow.
+step_keys() {
+  cat <<EOF
 
-      ITBL_SERVER_KEY=...
-      ITBL_MOBILE_KEY=...
-      ITBL_EMAIL=you@example.com
+  $(bold "Step 1 — create two API keys")
+
+    Open  $(bold "https://app.iterable.com/settings/apiKeys")
+    Click $(bold "New API Key") twice:
+
+      · one $(bold "Server-side") key   — this tool uses it only to read back what you set up
+      · one $(bold "Mobile") key        — the key your app ships with
+
+    Leave $(bold "Require JWT authentication") OFF on the mobile key for now.
+    Iterable's own integration checklist recommends starting without JWT so an
+    SDK problem and a JWT problem can't be mistaken for each other. Switch to a
+    JWT-enabled key once push is working.
+
+    A key is shown once. If you lose it, make another — they are cheap.
+
+EOF
+}
+
+step_mobile_app() {
+  cat <<EOF
+
+  $(bold "Step 2 — create the mobile app")
+
+    Open  $(bold "https://app.iterable.com/integrations/mobileApps/create")
+
+    (or navigate: $(bold "Settings > Apps and Websites") → $(bold "Add a new app or website"))
+
+      · Platform      $(bold "Android")
+      · Package name  $(bold "${PACKAGE:-<your package name>}")
+
+    The package name must match exactly — Iterable matches your device tokens
+    against it, and a mismatch fails silently much later.
+
+EOF
+}
+
+step_push_integration() {
+  cat <<EOF
+
+  $(bold "Step 3 — configure the Firebase push integration")
+
+    Same page: open the app you just made, find the $(bold "Push") section, and click
+    $(bold "Configure") on the Firebase row.
+
+      · FCM type   $(bold "Data notifications")   ← not "Notification messages"
+      · Upload     $(bold "$SA_KEY")
+
+    $(bold "Data notifications") is the one that matters. With "Notification messages"
+    the Firebase SDK swallows the push and Iterable's SDK never sees it, so
+    everything looks configured and no push ever arrives. This is the single
+    most common way this integration fails.
+
+EOF
+}
+
+step_identity() {
+  cat <<EOF
+
+  $(bold "Step 4 — the test identity")
+
+    Not any address: this has to be the one your app signs in with — the value
+    it passes to $(bold "IterableApi.getInstance().setEmail()"). It is the join key
+    between the app and Iterable, and if the two disagree, the token is filed
+    under one identity while the proof push is sent to the other. That reads
+    exactly like a broken integration and is not one.
+
+    If the app doesn't sign anyone in yet, pick something disposable here and
+    make the app use the same value — it becomes a real user profile in this
+    Iterable project, so not a customer's address.
+
+EOF
+}
+
+# Without a terminal this cannot prompt for a secret, and it must not try: the
+# scripted path is the one an agent drives, and an agent must never be the thing
+# that handles the key. So it prints the same four steps, leaves a 0600 file with
+# the names and no values, and stops. The developer fills it in; the gates then
+# prove the keys by spending them, which is the only part that needs to read them.
+if ! interactive || [[ "${1:-}" == "--steps" ]]; then
+  TEMPLATE="$WS/.env.template"
+  mkdir -p "$WS"
+  # Never over a template that already has a value in it. Re-running this is the
+  # normal way to re-read the steps, and a developer who filled it in and has not
+  # renamed it yet would lose keys that are shown once.
+  if grep -qE '^ITBL_[A-Z_]+=.+' "$TEMPLATE" 2>/dev/null; then
+    echo
+    echo "  $TEMPLATE already has values — left untouched."
+    echo "  Rename it to $ITBL_ENV and run bin/gates."
+    exit 10
+  fi
+  ( umask 077 && cat > "$TEMPLATE" <<'EOF'
+# Fill in the values, then rename this file to .env — or export the same names in
+# your shell, which wins over the file. Mode 0600; never committed, never logged.
+ITBL_SERVER_KEY=
+ITBL_MOBILE_KEY=
+ITBL_EMAIL=
+# EU (EDC) projects only:
+# ITBL_BASE=https://api.eu.iterable.com
+EOF
+  )
+  chmod 600 "$TEMPLATE"
+
+  echo
+  echo "  ── $(bold "Iterable") ─────────────────────────────────────────────────────"
+  echo
+  echo "  Four things here have to be done by hand. Iterable has no API for any of"
+  echo "  them, so there is nothing to automate — but everything they produce gets"
+  echo "  proved by a real API call afterwards."
+  step_keys
+  step_mobile_app
+  step_push_integration
+  step_identity
+  SEEN="$(app_identity | head -3)"
+  if [[ -n "$SEEN" ]]; then
+    echo "    The app on the device has already registered as:"
+    printf '      %s\n' $SEEN
+    echo
+  fi
+  cat <<EOF
+  $(bold "Where the values go") — not into a chat window, a log, or an argument list:
+
+      $TEMPLATE      (already created, mode 0600)
+
+  Fill in the three names, rename it to $(bold "$ITBL_ENV"), then run $(bold "bin/gates").
+  G10 spends both keys on a real call, so a wrong one is caught immediately.
+
 EOF
   exit 10
-}
+fi
 
 ask_yn()  { local a; read -r -p "  $1 [y/N] " a; [[ "$a" == [yY]* ]]; }
 # Echo off, and the value never goes to stdout, a log, or the shell history.
@@ -49,24 +173,7 @@ fi
 echo "  $(green ✓) API base: $ITBL_BASE"
 
 # -------------------------------------------------------------- 1 & 2: the keys
-cat <<EOF
-
-  $(bold "Step 1 — create two API keys")
-
-    Open  $(bold "https://app.iterable.com/settings/apiKeys")
-    Click $(bold "New API Key") twice:
-
-      · one $(bold "Server-side") key   — this tool uses it only to read back what you set up
-      · one $(bold "Mobile") key        — the key your app ships with
-
-    Leave $(bold "Require JWT authentication") OFF on the mobile key for now.
-    Iterable's own integration checklist recommends starting without JWT so an
-    SDK problem and a JWT problem can't be mistaken for each other. Switch to a
-    JWT-enabled key once push is working.
-
-    A key is shown once. If you lose it, make another — they are cheap.
-
-EOF
+step_keys
 pause_enter
 
 SERVER="$(ask_secret "Paste the Server-side key")"
@@ -79,58 +186,15 @@ save_env ITBL_MOBILE_KEY "$MOBILE"
 echo "  $(green ✓) both keys stored in workspace/.env (mode 0600), not printed anywhere"
 
 # --------------------------------------------------------- 3: the mobile app
-cat <<EOF
-
-  $(bold "Step 2 — create the mobile app")
-
-    Open  $(bold "https://app.iterable.com/integrations/mobileApps/create")
-
-    (or navigate: $(bold "Settings > Apps and Websites") → $(bold "Add a new app or website"))
-
-      · Platform      $(bold "Android")
-      · Package name  $(bold "${PACKAGE:-<your package name>}")
-
-    The package name must match exactly — Iterable matches your device tokens
-    against it, and a mismatch fails silently much later.
-
-EOF
+step_mobile_app
 pause_enter
 
 # ------------------------------------------------- 4: the push integration
-cat <<EOF
-
-  $(bold "Step 3 — configure the Firebase push integration")
-
-    Same page: open the app you just made, find the $(bold "Push") section, and click
-    $(bold "Configure") on the Firebase row.
-
-      · FCM type   $(bold "Data notifications")   ← not "Notification messages"
-      · Upload     $(bold "workspace/artifacts/sa-key.json")
-
-    $(bold "Data notifications") is the one that matters. With "Notification messages"
-    the Firebase SDK swallows the push and Iterable's SDK never sees it, so
-    everything looks configured and no push ever arrives. This is the single
-    most common way this integration fails.
-
-EOF
+step_push_integration
 pause_enter
 
 # ----------------------------------------------------------- the test user
-cat <<EOF
-
-  $(bold "Step 4 — the test identity")
-
-    Not any address: this has to be the one your app signs in with — the value
-    it passes to $(bold "IterableApi.getInstance().setEmail()"). It is the join key
-    between the app and Iterable, and if the two disagree, the token is filed
-    under one identity while the proof push is sent to the other. That reads
-    exactly like a broken integration and is not one.
-
-    If the app doesn't sign anyone in yet, pick something disposable here and
-    make the app use the same value — it becomes a real user profile in this
-    Iterable project, so not a customer's address.
-
-EOF
+step_identity
 # The device already knows, if the app has run: the SDK logs the identity in the
 # body of its own registerDeviceToken call. Offered as a default rather than used
 # silently — it is still the developer's choice which user the proof goes to.

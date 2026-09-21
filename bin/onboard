@@ -93,7 +93,7 @@ echo
 
 # Derived from workspace/state.tsv, not hardcoded: the listed actions must match
 # the gates that are actually red, or the dry run is lying about what it will do.
-while IFS=$'\t' read -r id status; do
+while IFS=$'\t' read -r id status owner name detail; do
   [[ "$status" == green ]] && continue
   case "$id" in
     G5) echo "      download       google-services.json for $PACKAGE" ;;

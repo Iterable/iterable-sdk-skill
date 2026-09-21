@@ -10,6 +10,11 @@ Companion to the `iterable-android` skill. That skill stops and asks for `google
 a mobile API key, and a configured push integration — because it cannot invent them. This tool
 produces them.
 
+**Where it is going:** this repo merges into `iterable-sdk-skill` as two new skills, so a client
+installs one plugin and the whole path is agent-guided. `skills/iterable-provision/SKILL.md` and
+`skills/iterable-verify/SKILL.md` are written and travel with the merge; the plan is
+`docs/plans/2026-09-21-one-plugin.md` in the skill repo.
+
 **Plan and design rationale:** [`docs/plans/2026-09-18-iterable-onboard.md`](docs/plans/2026-09-18-iterable-onboard.md)
 
 ## Status
@@ -53,24 +58,52 @@ to pick from, then the Android apps registered in the one you chose, shows exact
 change, and asks before changing it. It never picks the project for you, and a remembered choice
 is offered back as a default you can decline — not reused silently.
 
-Two front ends over one engine, dispatched on whether stdin is a TTY:
+Three front ends over one engine. `bin/onboard` dispatches the first two on whether stdin is a TTY;
+`bin/agent` is asked for by name.
 
 | You are | You get | Why |
 |---|---|---|
-| A human at a terminal | `bin/wizard` — menus, inline `gcloud auth login`, one confirm before any change | It can host interactive sub-processes, so you never leave and come back |
-| A script, CI job, or agent | report-and-exit: prints the ladder, names the single next action, exits `0`/`10`/`20` | No prompt can ever block it; safe to drive from a loop |
+| A human at a terminal | `bin/onboard` → `bin/wizard` — menus, inline `gcloud auth login`, one confirm before any change | It can host interactive sub-processes, so you never leave and come back |
+| A script or CI job | `bin/onboard` report-and-exit: prints the ladder, names the single next action, exits `0`/`10`/`20`/`40` | No prompt can ever block it; safe to drive from a loop |
+| An agent | `bin/agent` — one JSON object on stdout, the ladder on stderr, the same exit codes | A model can branch on `next.kind` instead of parsing a table it might read wrong |
+
+The three share one verdict and one set of actions. What differs is the conversation, and only that:
+`bin/wizard` asks with menus, `bin/agent` hands the same questions to the host's own question UI.
+Neither invents a gate, and neither decides anything the other wouldn't.
+
+```
+bin/agent                 run the ladder, report where things stand
+bin/agent discover        your Firebase projects and Android apps, as JSON
+bin/agent set PID=… PACKAGE=…   record a choice
+```
+
+`next` is the whole protocol: `{owner, kind, gate, command, summary}`. `owner` is `human`, `tool`,
+`agent` or `none`; `kind` is the branch to take (`authenticate`, `choose_target`, `provision`,
+`iterable_keys`, `install_app`, `run_app`, `send_proof`, `done`, …); `command` is what to run when
+there is something to run. It is derived from `state.tsv`, never from the exit code — rc `40` says
+something is pending and never which thing, and rc `10` says a human is needed and never which step.
+
+Two rules the JSON keeps: **paths, never values** — a credential in a report is a credential in a
+log, so `artifacts` carries `path` and `present` and nothing else — and **the reporter never acts**,
+so `bin/agent` provisions nothing and sends nothing. It names the script; the caller runs it.
+
+Without a terminal, `bin/iterable-keys` prints the same four dashboard steps and writes
+`workspace/.env.template` at mode `0600` with three empty names. The developer fills it in; nobody
+pastes a key into a conversation, and the gates prove the keys by spending them.
 
 Underneath, both use the same pieces, and the split is structural rather than conventional:
 
 | Command | Role |
 |---|---|
 | `bin/gates` | **Verifier.** Read-only. Never provisions anything |
+| `bin/agent` | **Reporter.** Runs the verifier and serialises its state; provisions nothing, sends nothing |
 | `bin/provision` | **Actor.** Idempotent; ends by handing off to `bin/gates` to be judged |
 | `bin/discover` | Read-only list of your Firebase projects and their Android apps |
 | `bin/iterable-keys` | Walks the four Iterable dashboard steps that have no API, captures the keys, then hands off to `bin/gates`. Offers the identity the app already registered, read from the device |
 | `bin/proof-push` | **Actor.** Sends the one push the ladder exists to prove, and records the marker it sent. Never checks whether it arrived |
 | `bin/teardown` | Removes only what the tool added |
 | `tests/wizard-decline.exp` | Drives the wizard through a pty and asserts that declining changes nothing |
+| `tests/agent-next-action.sh` | Every ladder state → one owner and one action, against fixture state files. The agent path has no human to notice a mis-route |
 | `tests/key-propagation.sh` | Proves G9 tells "key hasn't propagated yet" apart from "key is broken" |
 | `tests/fcm-classify.sh` | Pins the FCM verdict against recorded bodies — the two 403s that mean opposite things |
 | `tests/itbl-classify.sh` | Pins the Iterable verdict: a wrong key stays distinguishable from a wrong request |
@@ -189,6 +222,7 @@ service-account key — treat it as sensitive and keep it local.
 |---|---|
 | `inputs.yml` | you — package name, project ids, region, FCM type. **Reference only:** no code reads it yet. The wizard asks for these and remembers the answers in `resolved.env` |
 | `.env` | you, via `bin/iterable-keys` — the Iterable keys you created, mode `0600`, never printed back. `.env.example` lists the exact names the tool reads |
+| `.env.template` | the tool, on the scripted path — the same names with no values, mode `0600`. Fill it in and rename it to `.env`. Never overwritten once it holds a value: keys are shown once |
 | `chrome-profile/` | you — sign in once |
 | `ASK.md` | the tool — what it needs from you |
 | `state.tsv` | the tool — gate results and resume point |

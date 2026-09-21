@@ -254,7 +254,7 @@ fi
 # -------------------------------------------------------------------- the plan
 echo "  $(bold "What I would change in $PID")"
 echo
-while IFS=$'\t' read -r id status; do
+while IFS=$'\t' read -r id status owner name detail; do
   [[ "$status" == green ]] && continue
   case "$id" in
     G4) echo "    · register $PACKAGE as an Android app in $PID"

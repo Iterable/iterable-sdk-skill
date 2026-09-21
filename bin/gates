@@ -31,8 +31,14 @@ TOTAL=0
 # the whole flow, counted in nothing.
 note() {
   printf '  %s  %-4s %-34s %s\n' "$(dim '~')" "$1" "$2" "$(dim "$3")"
-  echo "$1	unverifiable" >> "$STATE"
+  row "$1" unverifiable human "$2" "$3"
 }
+
+# The single writer for state.tsv. Five columns — id, status, owner, name, verdict —
+# because a front end that has to re-derive the verdict text from the terminal
+# output is a second reader of the truth, and the two drift. brief() has already
+# stripped tabs and newlines, so a row cannot split itself.
+row() { printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" "$5" >> "$STATE"; }
 
 # Each gate names the gate it depends on. If that one isn't green, this one is
 # *blocked* — it cannot say anything true about the system, so running it would
@@ -51,7 +57,7 @@ gate() {
     done
     if [[ -n "$missing" ]]; then
       printf '  %s  %-4s %-34s %s\n' "$(dim ·)" "$id" "$name" "$(dim "waiting on $missing")"
-      echo "$id	blocked" >> "$STATE"
+      row "$id" blocked "$owner" "$name" "waiting on $missing"
       return
     fi
   fi
@@ -62,16 +68,16 @@ gate() {
     printf '  %s  %-4s %-34s %s\n' "$(green ✓)" "$id" "$name" "$(dim "${out:-ok}")"
     GREEN+="$id "
     ((NGREEN++))
-    echo "$id	green" >> "$STATE"
+    row "$id" green "$owner" "$name" "${out:-ok}"
   elif ((rc == 2)); then
     # rc 2 = the answer is "not yet". The gate ran, reached the service, and found
     # the state simply hasn't happened — nobody has registered a token, nothing has
     # been sent. Reporting that as red blames the customer for pending work.
     printf '  %s  %-4s %-34s %s\n' "$(dim '·')" "$id" "$name" "$(dim "${out:-not yet}")"
     PENDING+="$id "
-    echo "$id	pending" >> "$STATE"
+    row "$id" pending "$owner" "$name" "${out:-not yet}"
   else
-    echo "$id	red" >> "$STATE"
+    row "$id" red "$owner" "$name" "${out:-failed}"
     printf '  %s  %-4s %-34s %s\n' "$(red ✗)" "$id" "$name" "$(red "${out:-failed}")"
     FAILED=1
     if [[ -z "$FIRST_RED" ]]; then
@@ -82,9 +88,9 @@ gate() {
 }
 
 g0() {
-  local missing=()
-  for c in node gcloud adb java; do command -v "$c" >/dev/null || missing+=("$c"); done
-  ((${#missing[@]})) && { echo "missing: ${missing[*]}"; return 1; }
+  local missing
+  missing="$(missing_tools | tr '\n' ' ')"
+  [[ -n "${missing// /}" ]] && { echo "missing: ${missing% }"; return 1; }
   echo "node $(node -v), gcloud $(gcloud version 2>/dev/null | awk '/Google Cloud SDK/{print $4}')"
 }
 

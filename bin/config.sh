@@ -53,6 +53,36 @@ bold()  { printf '\033[1m%s\033[0m' "$1"; }
 
 interactive() { [[ -t 0 && -t 1 && "${NON_INTERACTIVE:-0}" != 1 ]]; }
 
+plain() { sed $'s/\033\\[[0-9;]*m//g'; }
+
+# One JSON string, escaped. Written in awk rather than node because bin/agent has
+# to be able to report that node is missing, and it cannot do that in JSON if
+# serialising needs node.
+jstr() {
+  printf '%s' "${1-}" | LC_ALL=C awk '
+    BEGIN { RS = "\1"; ORS = ""; printed = 0 }
+    {
+      gsub(/\\/, "\\\\"); gsub(/"/, "\\\"")
+      gsub(/\n/, "\\n"); gsub(/\t/, "\\t"); gsub(/\r/, "\\r")
+      gsub(/\033/, "\\u001b")
+      printf "\"%s\"", $0; printed = 1
+    }
+    END { if (!printed) printf "\"\"" }'
+}
+
+# The binaries the ladder needs, and which of them are absent. Shared by G0 and by
+# bin/agent, so "what this machine cannot check" has one answer.
+#
+# An array, not a space-separated string, because splitting a string needs IFS and
+# a caller is entitled to have changed it — `IFS=$'\t' read … <<< "$(next_action)"`
+# runs this function with tabs as the only separator, and the string form then
+# looked for one binary called "node gcloud adb java" and reported all four missing.
+REQUIRED_TOOLS=(node gcloud adb java)
+missing_tools() {
+  local c
+  for c in "${REQUIRED_TOOLS[@]}"; do command -v "$c" >/dev/null || echo "$c"; done
+}
+
 # Collapse a tool's multi-line diagnostic to one useful line. gcloud's reauth error
 # is 12 lines; repeating it once per gate buries the actual ask.
 #
@@ -60,8 +90,10 @@ interactive() { [[ -t 0 && -t 1 && "${NON_INTERACTIVE:-0}" != 1 ]]; }
 # still get cut — but on a word boundary and with an ellipsis. A bare `cut -c1-100`
 # ended a remedy mid-word ("if the app signs in as a different addres"), which
 # reads like the whole verdict and quietly loses the half that says what to do.
+# Tabs go too, not only newlines: state.tsv is tab-separated and a gcloud message
+# containing a tab would split into a column that nothing reads.
 brief() {
-  tr '\n' ' ' | sed 's/ERROR: ([^)]*) //; s/  */ /g' \
+  tr '\n\t' '  ' | sed 's/ERROR: ([^)]*) //; s/  */ /g' \
     | awk '{ if (length($0) > 100) { s = substr($0, 1, 99); sub(/ [^ ]*$/, "", s); print s "…" } else print }'
 }
 
@@ -73,22 +105,107 @@ push_proven() { grep -q "^G16	green" "$WS/state.tsv" 2>/dev/null; }
 # What a human has to do about the gates that are merely pending, one line each,
 # read out of state.tsv rather than guessed. Shared by both front ends: they were
 # drifting on this, and advice that disagrees with itself teaches nobody anything.
+# Plain text, no escapes, so the same sentence can go to a terminal or into JSON.
+advice_for() {
+  case "$1" in
+    G13) echo "run the app on the device, and accept the notification prompt" ;;
+    G14) echo "launch the app, so the SDK registers a token" ;;
+    # Naming the address is the point. This is the join key between the app and
+    # Iterable, and a test user who signs in as anyone else looks exactly like a
+    # broken integration from here.
+    G15) echo "sign in to the app as ${ITBL_EMAIL:-your test user} — that exact address, or no token is ever filed under it" ;;
+    G16) echo "send the proof push:  bin/proof-push" ;;
+    G17) echo "set ITBL_CAMPAIGN_ID and send through a campaign, for server-side corroboration" ;;
+  esac
+}
+
 pending_advice() {
-  local id status
+  local id status owner name detail
   [[ -f "$WS/state.tsv" ]] || return 0
-  while IFS=$'\t' read -r id status; do
+  while IFS=$'\t' read -r id status owner name detail; do
     [[ "$status" == pending ]] || continue
-    case "$id" in
-      G13) echo "run the app on the device, and accept the notification prompt" ;;
-      G14) echo "launch the app, so the SDK registers a token" ;;
-      # Naming the address is the point. This is the join key between the app and
-      # Iterable, and a test user who signs in as anyone else looks exactly like a
-      # broken integration from here.
-      G15) echo "sign in to the app as ${ITBL_EMAIL:-your test user} — that exact address, or no token is ever filed under it" ;;
-      G16) echo "send the proof push:  $(bold "bin/proof-push")" ;;
-      G17) echo "set ITBL_CAMPAIGN_ID and send through a campaign, for server-side corroboration" ;;
-    esac
+    advice_for "$id" | sed "s|\(bin/[a-z-]*\)|$(bold '\1')|"
   done < "$WS/state.tsv"
+}
+
+# Separator for next_action's five fields. Not a tab: tab is IFS whitespace, so
+# `read` collapses a run of them and silently shifts every later field up — an
+# action with no command was arriving with its summary parsed as the command.
+NEXT_SEP=$'\037'
+
+# The single next action, read out of state.tsv: owner, kind, gate, command, summary,
+# separated by NEXT_SEP. Derived from the state rather than from the exit code, because rc 40
+# says something is pending and never which thing, and rc 10 says a human is needed
+# and never which step. The gate id is the only precise answer.
+#
+# Here rather than in bin/agent so every branch can be run against a fixture
+# state.tsv with no network — the routing has more cases than any live run reaches.
+next_action() {
+  local id status owner name detail first_red="" first_pending="" missing
+  local a_owner=human a_kind=unknown a_gate="" a_cmd="" a_summary=""
+  local -a details=()
+  if [[ -f "$WS/state.tsv" ]]; then
+    while IFS=$'\t' read -r id status owner name detail; do
+      [[ -n "$id" ]] || continue
+      details+=("$id	$detail")
+      [[ "$status" == red     && -z "$first_red"     ]] && first_red="$id"
+      [[ "$status" == pending && -z "$first_pending" ]] && first_pending="$id"
+    done < "$WS/state.tsv"
+  fi
+  _detail_of() {
+    local row
+    for row in "${details[@]+"${details[@]}"}"; do
+      [[ "${row%%	*}" == "$1" ]] && { printf '%s' "${row#*	}" | plain; return; }
+    done
+  }
+
+  missing="$(missing_tools | tr '\n' ' ')"; missing="${missing% }"
+
+  if [[ -n "$missing" ]]; then
+    a_kind=install_tools
+    a_summary="install $missing, then re-run — without them the ladder cannot check those rungs at all"
+  elif [[ -n "$first_red" ]]; then
+    a_gate="$first_red"
+    a_summary="$(_detail_of "$first_red")"
+    case "$first_red" in
+      G0)  a_kind=install_tools ;;
+      G1)  a_kind=authenticate; a_cmd="gcloud auth login" ;;
+      G2)  if [[ -z "$PID" ]]; then
+             a_kind=choose_target; a_owner=agent; a_cmd="bin/agent discover"
+             a_summary="pick a Firebase project and an Android package, then: bin/agent set PID=… PACKAGE=…"
+           else a_kind=project_unreachable; fi ;;
+      G3)  a_kind=enable_firebase ;;
+      G4)  if [[ -z "$PACKAGE" ]]; then
+             a_kind=choose_target; a_owner=agent; a_cmd="bin/agent discover"
+           else
+             a_kind=register_app
+             a_summary="$a_summary — registering it needs CREATE_APP=1, on purpose"
+           fi ;;
+      G5|G6|G7|G8|G9) a_kind=provision; a_owner=tool; a_cmd="bin/onboard --apply" ;;
+      G10) a_kind=iterable_keys; a_cmd="bin/iterable-keys" ;;
+      G13) a_kind=install_app ;;
+      G14|G15|G16) a_kind=investigate ;;
+      *)   a_kind=investigate ;;
+    esac
+  elif [[ -n "$first_pending" ]]; then
+    a_gate="$first_pending"
+    a_summary="$(advice_for "$first_pending")"
+    case "$first_pending" in
+      G16) a_kind=send_proof; a_cmd="bin/proof-push" ;;
+      G17) a_kind=campaign_send ;;
+      *)   a_kind=run_app ;;
+    esac
+  elif [[ -f "$WS/state.tsv" ]]; then
+    a_owner=none; a_kind=done
+    a_summary="a push reached the device — nothing left to do"
+  else
+    a_owner=agent; a_kind=run_ladder; a_cmd="bin/agent"
+    a_summary="nothing has been checked yet"
+  fi
+  unset -f _detail_of
+  printf '%s%s%s%s%s%s%s%s%s\n' \
+    "$a_owner" "$NEXT_SEP" "$a_kind" "$NEXT_SEP" "$a_gate" "$NEXT_SEP" \
+    "$a_cmd" "$NEXT_SEP" "$a_summary"
 }
 
 tok() { gcloud auth print-access-token 2>/dev/null; }

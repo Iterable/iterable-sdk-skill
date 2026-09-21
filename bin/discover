@@ -4,18 +4,50 @@
 #
 # The wizard shows the same information as a menu; this exists for the
 # non-interactive path, where you have to put the answer in resolved.env yourself.
+#
+#   bin/discover          the table, for a human
+#   bin/discover --json   the same reads as one object, for an agent that has to
+#                         turn these into real options rather than scrape a table
 
 source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
 
-[[ -n "$(tok)" ]] || { echo "Not authenticated. Run: gcloud auth login"; exit 10; }
+JSON=0
+[[ "${1:-}" == "--json" ]] && JSON=1
 
-echo
-echo "  Firebase projects visible to $(gcloud config get-value account 2>/dev/null)"
-echo
+fail() { # code, message — in whichever language the caller reads
+  if ((JSON)); then printf '{"error":%s}\n' "$(jstr "$2")"; else echo "  $2"; fi
+  exit "$1"
+}
 
-PROJECTS="$(firebase_projects)" || {
-  echo "  Could not list Firebase projects."; exit 20; }
-[[ -n "$PROJECTS" ]] || { echo "  None. A project needs Firebase enabled before push can work."; exit 20; }
+[[ -n "$(tok)" ]] || fail 10 "Not authenticated. Run: gcloud auth login"
+
+if ((JSON == 0)); then
+  echo
+  echo "  Firebase projects visible to $(gcloud config get-value account 2>/dev/null)"
+  echo
+fi
+
+PROJECTS="$(firebase_projects)" || fail 20 "Could not list Firebase projects."
+[[ -n "$PROJECTS" ]] || fail 20 "None. A project needs Firebase enabled before push can work."
+
+if ((JSON)); then
+  printf '{"account":%s,"projects":[' "$(jstr "$(gcloud config get-value account 2>/dev/null)")"
+  psep=""
+  while IFS=$'\t' read -r p name; do
+    [[ -n "$p" ]] || continue
+    printf '%s{"id":%s,"name":%s,"apps":[' "$psep" "$(jstr "$p")" "$(jstr "$name")"
+    asep=""
+    while IFS=$'\t' read -r pkg appid; do
+      [[ -n "$pkg" ]] || continue
+      printf '%s{"package":%s,"appId":%s}' "$asep" "$(jstr "$pkg")" "$(jstr "$appid")"
+      asep=","
+    done <<< "$(android_apps_of "$p" 2>/dev/null)"
+    printf ']}'
+    psep=","
+  done <<< "$PROJECTS"
+  printf ']}\n'
+  exit 0
+fi
 
 printf '  %-30s %-22s %s\n' PROJECT NAME "ANDROID APPS (package → appId)"
 printf '  %-30s %-22s %s\n' "------------------------------" "----------------------" "-----------------------------"

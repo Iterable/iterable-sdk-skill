@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+# The machine-readable front door. Same ladder and same actions as bin/wizard —
+# only the conversation differs. This one prints one JSON object on stdout and
+# nothing else, so a model can branch on it instead of reading a table.
+#
+#   bin/agent                 run the ladder, report where things stand
+#   bin/agent discover        the Firebase projects and apps, as JSON
+#   bin/agent set K=V [K=V]   record a choice (project, package, device)
+#
+# The human-facing ladder still goes to stderr: when a run surprises somebody, the
+# table is what explains it, and dropping it to keep stdout clean would mean the
+# agent path is the one path with no account of itself.
+#
+# What this deliberately does not do: provision, send, or grade. `next` names the
+# script for the next step and the caller runs it. A front end that both acts and
+# reports its own success is the false green the whole ladder exists to prevent.
+
+source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
+
+CONTRACT=1
+
+case "${1:-status}" in
+  discover) exec "$BIN/discover" --json ;;
+  set)
+    shift
+    [[ $# -gt 0 ]] || { echo '{"error":"set needs at least one KEY=VALUE"}'; exit 30; }
+    for kv in "$@"; do
+      [[ "$kv" == *=* ]] || { printf '{"error":%s}\n' "$(jstr "not KEY=VALUE: $kv")"; exit 30; }
+      k="${kv%%=*}"; v="${kv#*=}"
+      case "$k" in
+        PID|PACKAGE|TARGET_DEVICE|SA_ID|ITBL_CAMPAIGN_ID|ITBL_PUSH_INTEGRATION) ;;
+        *) printf '{"error":%s}\n' "$(jstr "$k is not settable here; export it instead")"; exit 30 ;;
+      esac
+      save_resolved "$k" "$v"
+      # Anything derived from the target dies with the target. A remembered APP_ID
+      # from the previous project is how a gate ends up green about an app nobody
+      # asked about.
+      [[ "$k" == PID || "$k" == PACKAGE ]] && save_resolved APP_ID ""
+    done
+    printf '{"saved":true,"file":%s}\n' "$(jstr "$WS/resolved.env")"
+    exit 0
+    ;;
+  status) ;;
+  *) printf '{"error":%s}\n' "$(jstr "unknown command: $1")"; exit 30 ;;
+esac
+
+# ---------------------------------------------------------------------- the read
+QUIET_VERDICT=1 "$BIN/gates" >&2
+RC=$?
+
+MISSING="$(missing_tools)"
+
+declare -a ROWS=()
+NGREEN=0; NRED=0; NPENDING=0; NBLOCKED=0; NUNVERIFIABLE=0
+
+while IFS=$'\t' read -r id status owner name detail; do
+  [[ -n "$id" ]] || continue
+  case "$status" in
+    green)        ((NGREEN++)) ;;
+    red)          ((NRED++)) ;;
+    pending)      ((NPENDING++)) ;;
+    blocked)      ((NBLOCKED++)) ;;
+    unverifiable) ((NUNVERIFIABLE++)) ;;
+  esac
+  # Advice only where there is something to advise. "send the proof push" attached
+  # to a green G16 reads as work outstanding, which is the opposite of what it is.
+  advice=""
+  [[ "$status" == pending ]] && advice="$(advice_for "$id")"
+  ROWS+=("$(printf '{"id":%s,"name":%s,"status":%s,"owner":%s,"detail":%s,"advice":%s}' \
+    "$(jstr "$id")" "$(jstr "$name")" "$(jstr "$status")" "$(jstr "$owner")" \
+    "$(jstr "$(printf '%s' "$detail" | plain)")" "$(jstr "$advice")")")
+done < "$WS/state.tsv"
+
+case $RC in
+  0)  VERDICT=done ;;
+  10) VERDICT=blocked ;;
+  20) VERDICT=defect ;;
+  40) VERDICT=pending ;;
+  *)  VERDICT=tool_error ;;
+esac
+
+# Captured first, then split. Substituting inside the `read` would run next_action
+# with IFS already set to a tab, and anything in there that splits on spaces would
+# quietly get one word where it wanted four.
+NEXT="$(next_action)"
+IFS="$NEXT_SEP" read -r NEXT_OWNER NEXT_KIND NEXT_GATE NEXT_CMD NEXT_SUMMARY <<< "$NEXT"
+
+f_present() { [[ -f "$1" ]] && echo true || echo false; }
+
+printf '{'
+printf '"tool":"iterable-onboard","contract":%d,' "$CONTRACT"
+printf '"rc":%d,"verdict":%s,"push_proven":%s,' "$RC" "$(jstr "$VERDICT")" \
+  "$(push_proven && echo true || echo false)"
+printf '"workspace":%s,' "$(jstr "$WS")"
+printf '"missing_tools":['
+sep=""; while read -r t; do [[ -n "$t" ]] || continue; printf '%s%s' "$sep" "$(jstr "$t")"; sep=","; done <<< "$MISSING"
+printf '],'
+printf '"target":{"project":%s,"package":%s,"device":%s,"email":%s,"iterable_base":%s},' \
+  "$(jstr "$PID")" "$(jstr "$PACKAGE")" "$(jstr "${TARGET_DEVICE:-}")" \
+  "$(jstr "$ITBL_EMAIL")" "$(jstr "$ITBL_BASE")"
+# Paths, never values. The keys exist on disk at 0600 and that is the only place
+# they are ever named — a credential in a JSON report is a credential in a log.
+printf '"artifacts":{'
+printf '"google_services_json":{"path":%s,"present":%s},' "$(jstr "$GS_JSON")" "$(f_present "$GS_JSON")"
+printf '"service_account_key":{"path":%s,"present":%s},' "$(jstr "$SA_KEY")" "$(f_present "$SA_KEY")"
+printf '"iterable_env":{"path":%s,"present":%s,"keys_set":%s}' "$(jstr "$ITBL_ENV")" \
+  "$(f_present "$ITBL_ENV")" \
+  "$([[ -n "$ITBL_SERVER_KEY" && -n "$ITBL_MOBILE_KEY" ]] && echo true || echo false)"
+printf '},'
+printf '"counts":{"green":%d,"red":%d,"pending":%d,"blocked":%d,"unverifiable":%d,"total":%d},' \
+  "$NGREEN" "$NRED" "$NPENDING" "$NBLOCKED" "$NUNVERIFIABLE" "${#ROWS[@]}"
+printf '"gates":['
+sep=""; for r in "${ROWS[@]}"; do printf '%s%s' "$sep" "$r"; sep=","; done
+printf '],'
+printf '"next":{"owner":%s,"kind":%s,"gate":%s,"command":%s,"summary":%s}' \
+  "$(jstr "$NEXT_OWNER")" "$(jstr "$NEXT_KIND")" "$(jstr "$NEXT_GATE")" \
+  "$(jstr "$NEXT_CMD")" "$(jstr "$NEXT_SUMMARY")"
+printf '}\n'
+
+exit "$RC"
