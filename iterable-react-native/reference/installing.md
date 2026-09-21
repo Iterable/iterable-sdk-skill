@@ -42,11 +42,45 @@ Iterable's React Native SDK depends on the following:
 
 **iOS**
 
-- Xcode 15+
+- Xcode 15+ (see [Xcode 27](#xcode-27) when using Apple's Xcode 27 beta or
+  release)
 - Swift 5+
 - [Deployment target 13.4+](https://help.apple.com/xcode/mac/current/#/deve69552ee5)
+  for Iterable's documented floor on older Xcode versions. **Xcode 27** adds
+  stricter compile rules for CocoaPods resource bundles — see
+  [Xcode 27](#xcode-27); that is not the same as Iterable raising its
+  published iOS SDK minimum (the dependency may still declare **12.0** in
+  its podspec until an Iterable iOS SDK release changes it).
 - [Iterable's iOS SDK](https://github.com/Iterable/iterable-swift-sdk)
   (the instructions below will install this SDK for you)
+
+### Xcode 27
+
+These notes are **iOS-only** (Android unchanged). Full symptom/cause/fix
+detail is in [`PITFALLS.md`](../PITFALLS.md) pitfall **#12**.
+
+**Launch (Device Hub).** Xcode 27 replaces the standalone Simulator app with
+**Device Hub** (`DeviceHub.app`, bundle id `com.apple.dt.Devices`). Older
+React Native CLI still looks for
+`Xcode.app/Contents/Developer/Applications/Simulator.app`, so
+`npx react-native run-ios` can fail even when `xcode-select` points at Xcode
+27. Use `@react-native-community/cli` **20.2.0 or later** (and aligned
+`@react-native-community/cli-platform-ios`). Iterable's public RN SDK **example**
+may still document **20.1.0** until that repo updates — consumer apps on
+Xcode 27 need **20.2.0+**. Confirm `xcode-select -p` matches the Xcode you
+build with when multiple versions are installed.
+
+**Build (resource bundles).** The iOS 27 SDK requires
+`IPHONEOS_DEPLOYMENT_TARGET` in the **15.0**–current-SDK range on **every**
+Xcode target, including CocoaPods **resource bundle** targets generated from
+dependency podspecs (for example `Iterable-iOS-SDK-IterableSDKResources` at
+**12.0**, or third-party `*_resources` pods). A host **`post_install`** hook
+in the app `Podfile` must raise stale Pods targets to at least **15.1** when
+they are missing or below **15.1** — then re-run `pod install`. **15.0** is
+the Xcode 27 SDK compile floor; **15.1** matches Iterable's bare RN demo so
+targets are not left at exactly **15.0**. Do **not** edit files
+under `Pods/` by hand. This is a compile-time host workaround; it does not
+mean you should bump `Iterable-iOS-SDK` in the Podfile as the primary fix.
 
 **Android**
 

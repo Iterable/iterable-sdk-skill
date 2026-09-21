@@ -118,6 +118,31 @@ workaround during `expo prebuild` that compiles the `{fmt}` C++ library pod in
 C++17 mode, for compatibility with [Xcode 26.4](https://github.com/expo/expo/issues/44229)
 or later and React Native 0.83.2 or later. No additional configuration is required.
 
+### Xcode 27
+
+These notes are **iOS-only**. See [`PITFALLS.md`](../PITFALLS.md) pitfall **#12**
+for the combined launch + build story. The `{fmt}` workaround above is
+**separate** from the deployment-target lift below.
+
+**Launch (Device Hub).** On Xcode 27, Expo SDK **58** (and its CLI) targets
+**Device Hub** instead of the removed `Simulator.app` under
+`Developer/Applications/`. Apps still on **Expo SDK 55** may fail at
+`run:ios` on Xcode 27 (often with a missing **Simulator.app** / simulator
+launch error) until they upgrade or use a short-term
+`npx expo@latest run:ios`. Do not fix this by hand-editing `ios/Podfile` or
+`Pods/` in a continuous-native-generation workflow (see [Native code](#native-code)).
+
+**Build (resource bundles).** The same Xcode 27 **15.0** compile floor applies
+to every Pods target, including `Iterable-iOS-SDK-IterableSDKResources` and
+other `*_resources` bundles. In **CNG** workflows, apply a **config plugin**
+at `prebuild` that lifts generated Pods deployment targets to at least
+**15.1** when unset or below **15.1** (same lift as Iterable's bare
+`Podfile` workaround; **15.0** is the SDK minimum) — do not commit
+`ios/Podfile` changes as the source of truth for this. `@iterable/expo-plugin`
+**1.1.0+** handles `{fmt}` via `withIosFmtWorkaround`; the resource-bundle
+lift is a **host** concern until Iterable documents a first-party plugin
+option.
+
 ### Expo Go
 
 Your Expo app needs to be run as a [development build](https://docs.expo.dev/develop/development-builds/introduction/)

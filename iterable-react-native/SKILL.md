@@ -159,8 +159,9 @@ API key, a placeholder `google-services.json`, or a JWT signed in the client.
 These rules apply to **every** React Native integration. Rule 7 applies
 when Step 0 detected Expo. Full explanations are in
 [`PITFALLS.md`](PITFALLS.md) — read it before generating any non-trivial
-code. On Expo, that includes pitfalls #7–#13, not only the JS-runtime
-items.
+code. On Expo, that includes pitfalls #7–#11 and #13–#14, not only the
+JS-runtime items. On **iOS with Xcode 27**, read pitfall **#12** (bare or
+Expo).
 
 1. **If the API key is JWT-protected, `config.authHandler` is mandatory.**
    Without one, every SDK call silently fails with no error surface. Never
@@ -201,7 +202,10 @@ items.
    add the plugin (pitfall #9). When stating versions, give both packages
    (pitfall #10). Trust plugin source over the support-doc options table
    (`requestPermissionsForPushNotifications` defaults to `false` — pitfall
-   #13).
+   #14). On Xcode **27**, use CLI **20.2.0+** (bare) or Expo SDK **58**
+   for Device Hub launch, and host Podfile / config-plugin fixes for
+   resource-bundle deployment targets (pitfall **#12**) — not hand-edited
+   `Pods/`.
 
 ---
 
@@ -289,7 +293,8 @@ you detected), then load feature slugs **as you reach each feature**.
 1. **Detect Expo vs bare. Identify the goal.** New integration, upgrade,
    single feature, or debugging.
 2. **Check always-on rules** against whatever they already have. On Expo,
-   that includes rule 7 (pitfalls #7–#13).
+   that includes rule 7 (pitfalls #7–#11, #13–#14) and Xcode 27 (pitfall
+   #12) when relevant.
 3. **Read the matching slug** from `reference/` before writing code.
 4. **For traps not in the reference doc**, consult [`PITFALLS.md`](PITFALLS.md).
 5. **Version-check.** If they are on an older SDK than the doc's
