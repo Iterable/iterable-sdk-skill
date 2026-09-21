@@ -72,12 +72,9 @@ if ((FOUND)); then
   Pick a project that already has an Android app — that is the zero-mutation path:
   G2-G5 become pure reads, and the only thing added is a service account plus key.
 
-      cat >> workspace/resolved.env <<'CONF'
-      PID=<project-id>
-      PACKAGE=<package-name>
-      CONF
+      $BIN/agent set PID=<project-id> PACKAGE=<package-name>
 
-  Then:  bin/onboard
+  Then:  $BIN/onboard
 EOF
 else
   echo "  No project has an Android app yet. Registering one needs CREATE_APP=1."

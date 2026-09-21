@@ -11,7 +11,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/gates-device.sh"
 FIRST_RED=""
 FAILED=0
 STATE="$WS/state.tsv"
-mkdir -p "$WS"; : > "$STATE"
+ws_init; : > "$STATE"
 
 # brief() lives in config.sh so it can be tested without running the ladder.
 
@@ -108,7 +108,9 @@ g1() {
 }
 
 g2() {
-  [[ -n "$PID" ]] || { echo "no project selected — run bin/discover"; return 1; }
+  # rc 2, not 1: nobody has named a project yet. That is a choice nobody has made,
+  # not a defect in their account, and reporting it red blames them for pending work.
+  [[ -n "$PID" ]] || { echo "no project selected yet — run bin/discover"; return 2; }
   gcloud projects describe "$PID" --format='value(projectId,lifecycleState)' 2>&1 | tr '\t' ' '
 }
 
@@ -330,7 +332,7 @@ _Written $(date '+%Y-%m-%d %H:%M'). The tool overwrites this file each time it b
 EOF
   # bin/onboard prints its own NEXT block; don't say it twice.
   if [[ "${QUIET_VERDICT:-0}" != 1 ]]; then
-    echo "  Blocked at $FIRST_RED — needs you. Wrote workspace/ASK.md:"
+    echo "  Blocked at $FIRST_RED — needs you. Wrote $(wsp ASK.md):"
     echo "    $HUMAN_FIX"
     echo
   fi

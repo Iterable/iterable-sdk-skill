@@ -115,7 +115,7 @@ JWT, `google-services.json` / APNs key) are legitimate pauses.
 | **Identity model** — `setEmail` vs `setUserId`, and where the value comes from | Always | Ask. Never guess. |
 | **JWT?** — is the mobile key JWT-protected? | Always | Ask, and **assume yes until told otherwise** (it is on by default for client-side keys and is permanent). If yes, `authHandler` is mandatory (rule 1) **and the team needs a backend endpoint that mints the tokens** — if they don't have one, raise it as a blocker instead of signing in the app. |
 | **Data region** — US or EU | Always | Ask if their dashboard is `app.eu.iterable.com`. See pitfall #2. |
-| **`google-services.json`** (Firebase) | Android push (bare **or** Expo) | **STOP and ask.** You cannot generate it. Expo: path goes in `expo.android.googleServicesFile`, not a hand-edited `android/`. |
+| **`google-services.json`** (Firebase) | Android push (bare **or** Expo) | **Route into `iterable-provision`**, which downloads the real one; if it isn't installed, STOP and ask. Either way you cannot generate it. Expo: path goes in `expo.android.googleServicesFile`, not a hand-edited `android/`. |
 | **APNs key / capabilities** | Bare-workflow push on iOS | Ask. Follow `reference/push-notifications.md`. |
 | **Development build vs Expo Go** | Expo | Expo Go cannot run this SDK (pitfall #7). If they are in Expo Go, stop and move them to a development build before debugging JS. |
 
@@ -126,8 +126,23 @@ API key, a placeholder `google-services.json`, or a JWT signed in the client.
 
 Include **"I don't have one yet"** among the options you offer for a missing
 input — plenty of developers own the Iterable dashboard and create the key and
-push integration themselves. When that's the answer, don't send them to
-support.iterable.com; open the doc that covers making it.
+push integration themselves.
+
+**When that's the answer, route into `iterable-provision` rather than stopping.**
+It produces the three inputs this Preflight cannot invent — a real
+`google-services.json`, the service-account key that Iterable's push integration
+asks you to upload, and the dashboard steps that have no API — and proves each
+one with a live call. Announce the handoff in one line and continue. To check it
+is installed, walk up from this `SKILL.md` to the first directory containing a
+`bin/agent`; if there isn't one, this Preflight stops as written above.
+
+Once it reports `done`, **you own placing the file**: on bare RN copy
+`.iterable/artifacts/google-services.json` to `android/app/google-services.json`;
+on Expo put it where `expo.android.googleServicesFile` points, never by
+hand-editing `android/`. Show it as part of your one confirmed diff.
+
+For the steps they do themselves, don't send them to support.iterable.com; open
+the doc that covers making it.
 
 | Input they need to create | Where in the dashboard | Slug |
 | ------------------------- | ---------------------- | ---- |

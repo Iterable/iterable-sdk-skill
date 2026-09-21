@@ -27,7 +27,7 @@ notification_dump() {
 g13() {
   local d dump ver updated sdk perm
   d="$(device_serial)" || { echo "$d"; return 1; }
-  [[ -n "$PACKAGE" ]] || { echo "no package selected — run bin/discover"; return 1; }
+  [[ -n "$PACKAGE" ]] || { echo "no package selected yet — run bin/discover"; return 2; }
 
   adb -s "$d" shell pm path "$PACKAGE" 2>&1 | grep -q '^package:' \
     || { echo "$PACKAGE is not installed on $d — build and install it (./gradlew installDebug)"; return 1; }

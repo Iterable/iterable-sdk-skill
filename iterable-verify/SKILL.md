@@ -18,20 +18,26 @@ device's own notification records.
 
 **This skill writes nothing and sends nothing on its own.** The verifier does not
 trigger the thing it verifies — a checker that sends its own push can only ever
-agree with itself. Sending is `bin/proof-push`, run as a separate, announced step.
+agree with itself. Sending is `<root>/bin/proof-push`, run as a separate, announced step.
 
 ## Finding the scripts
 
 Start in the directory containing this `SKILL.md` and walk up to the first directory
-containing `bin/agent`; call that `<root>`. If you reach the filesystem root without
+containing a `bin/agent`; call that `<root>`. If you reach the filesystem root without
 finding it, the install is incomplete — say so and stop. Never reimplement a gate by
 hand: a check you improvise is one nobody has tested.
 
 ## The loop
 
+Run it **from the developer's project directory**, by absolute path:
+
 ```
-cd <root> && bin/agent
+<root>/bin/agent
 ```
+
+**Never `cd` into `<root>` first.** The workspace lives in their repo as `.iterable/`
+and is resolved from the working directory; the plugin cache may be read-only and is
+erased on the next update, so the tool exits `30` rather than write there.
 
 JSON on stdout, the ladder table on stderr. `gates[]` gives every gate its `status`
 (`green`, `red`, `pending`, `blocked`, `unverifiable`), the `owner` who can clear it,
@@ -60,7 +66,7 @@ that is still wrong.
 |---|---|
 | `install_app` | Their app is not on the device, or the installed APK does not carry the SDK. Build and install, then re-run. `G13` reads `dumpsys package` for the Iterable messaging service, so it catches "integrated the SDK, forgot to reinstall" — invisible to anything that only reads the repo. |
 | `run_app` | Launch the app and sign in as the address in `target.email`. That exact address. |
-| `send_proof` | Announce it, then run `bin/proof-push`. It sends one marked push and deliberately does not check whether it arrived. Then re-run `bin/agent`. |
+| `send_proof` | Announce it, then run `<root>/bin/proof-push`. It sends one marked push and deliberately does not check whether it arrived. Then re-run `<root>/bin/agent`. |
 | `campaign_send` | `G17` needs `ITBL_CAMPAIGN_ID`; without it there is nothing for it to read. Optional. |
 | `iterable_keys`, `provision`, `choose_target`, … | Not this skill's half — hand back to `iterable-provision`. |
 | `done` | `G16` is green. Say which push, on which device, how long after the send. |

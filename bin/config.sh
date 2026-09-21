@@ -4,9 +4,48 @@
 set -uo pipefail
 
 BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# Overridable so a test can run against a scratch workspace instead of the
+TOOL_ROOT="$(cd "$BIN/.." && pwd)"
+
+# The workspace belongs to the project being integrated, not to this tool. A host
+# copies a plugin into a cache that may be read-only and is erased on update, so a
+# customer's credentials and gate state have no business living there. Resolved
+# from the caller's cwd — which means every entry point must be run from the
+# project directory, never after a `cd` into the plugin.
+#
+# Still overridable, so a test can run against a scratch workspace instead of the
 # developer's live one. A test that reads real resolved.env isn't offline.
-: "${WS:=$(cd "$BIN/.." && pwd)/workspace}"
+if [[ -z "${WS:-}" ]]; then
+  _root="$(git rev-parse --show-toplevel 2>/dev/null)" || _root=""
+  [[ -n "$_root" ]] || _root="$PWD"
+  # Refuse rather than write. cwd inside the tool means somebody cd'd into the
+  # plugin, and state written there is both in the wrong repo and gone at the next
+  # update — a failure that would otherwise be invisible until it cost a morning.
+  if [[ "$_root" == "$TOOL_ROOT" ]]; then
+    cat >&2 <<EOF
+Run this from the project you are integrating, not from the tool.
+
+  cd /path/to/your-app && $BIN/agent
+
+The workspace goes in your project as .iterable/ — it holds a service-account key
+and your gate state. Set WS=/some/path to override deliberately.
+EOF
+    exit 30
+  fi
+  WS="$_root/.iterable"
+  unset _root
+fi
+
+# Creates the workspace and makes it ignore itself, so a downloaded key cannot be
+# committed by a developer who never edited their .gitignore. Self-contained on
+# purpose: the tool does not write to files the project owns.
+ws_init() {
+  command mkdir -p "$WS" || return 1
+  [[ -f "$WS/.gitignore" ]] || printf '*\n' > "$WS/.gitignore"
+}
+
+# Short display form. A path in a message should be copy-pasteable from where the
+# developer actually is, and an absolute one usually isn't.
+wsp() { local p="$WS/${1#/}"; printf '%s' "${p#$PWD/}"; }
 
 # Anything resolved from live state (the project's existing package name, app id)
 # is cached here so the verifier and the actor agree on what they are talking about.
@@ -140,16 +179,23 @@ NEXT_SEP=$'\037'
 #
 # Here rather than in bin/agent so every branch can be run against a fixture
 # state.tsv with no network — the routing has more cases than any live run reaches.
+# Red and pending are two different claims — a defect, versus work nobody has done
+# yet — and the verdict must keep them apart. The *next step*, though, is decided by
+# which gate is open rather than by how it failed: routing them through separate
+# tables meant a cold start (no project chosen yet, which is pending and not broken)
+# fell through the pending catch-all and told the developer to go run an app they had
+# not built.
 next_action() {
-  local id status owner name detail first_red="" first_pending="" missing
+  local id status owner name detail first_open="" open_status="" missing
   local a_owner=human a_kind=unknown a_gate="" a_cmd="" a_summary=""
   local -a details=()
   if [[ -f "$WS/state.tsv" ]]; then
     while IFS=$'\t' read -r id status owner name detail; do
       [[ -n "$id" ]] || continue
       details+=("$id	$detail")
-      [[ "$status" == red     && -z "$first_red"     ]] && first_red="$id"
-      [[ "$status" == pending && -z "$first_pending" ]] && first_pending="$id"
+      if [[ -z "$first_open" && ( "$status" == red || "$status" == pending ) ]]; then
+        first_open="$id"; open_status="$status"
+      fi
     done < "$WS/state.tsv"
   fi
   _detail_of() {
@@ -164,42 +210,47 @@ next_action() {
   if [[ -n "$missing" ]]; then
     a_kind=install_tools
     a_summary="install $missing, then re-run — without them the ladder cannot check those rungs at all"
-  elif [[ -n "$first_red" ]]; then
-    a_gate="$first_red"
-    a_summary="$(_detail_of "$first_red")"
-    case "$first_red" in
+  elif [[ -n "$first_open" ]]; then
+    a_gate="$first_open"
+    # A pending gate's remedy is the advice, which says what to do; a red gate's is
+    # the verdict, which says what is wrong. Fall back to the other when one is empty.
+    if [[ "$open_status" == pending ]]; then
+      a_summary="$(advice_for "$first_open")"
+      [[ -n "$a_summary" ]] || a_summary="$(_detail_of "$first_open")"
+    else
+      a_summary="$(_detail_of "$first_open")"
+    fi
+    case "$first_open" in
       G0)  a_kind=install_tools ;;
       G1)  a_kind=authenticate; a_cmd="gcloud auth login" ;;
       G2)  if [[ -z "$PID" ]]; then
-             a_kind=choose_target; a_owner=agent; a_cmd="bin/agent discover"
-             a_summary="pick a Firebase project and an Android package, then: bin/agent set PID=… PACKAGE=…"
+             a_kind=choose_target; a_owner=agent; a_cmd="$BIN/agent discover"
+             a_summary="pick a Firebase project and an Android package, then: $BIN/agent set PID=… PACKAGE=…"
            else a_kind=project_unreachable; fi ;;
       G3)  a_kind=enable_firebase ;;
       G4)  if [[ -z "$PACKAGE" ]]; then
-             a_kind=choose_target; a_owner=agent; a_cmd="bin/agent discover"
+             a_kind=choose_target; a_owner=agent; a_cmd="$BIN/agent discover"
            else
              a_kind=register_app
              a_summary="$a_summary — registering it needs CREATE_APP=1, on purpose"
            fi ;;
-      G5|G6|G7|G8|G9) a_kind=provision; a_owner=tool; a_cmd="bin/onboard --apply" ;;
-      G10) a_kind=iterable_keys; a_cmd="bin/iterable-keys" ;;
-      G13) a_kind=install_app ;;
-      G14|G15|G16) a_kind=investigate ;;
-      *)   a_kind=investigate ;;
-    esac
-  elif [[ -n "$first_pending" ]]; then
-    a_gate="$first_pending"
-    a_summary="$(advice_for "$first_pending")"
-    case "$first_pending" in
-      G16) a_kind=send_proof; a_cmd="bin/proof-push" ;;
+      G5|G6|G7|G8|G9) a_kind=provision; a_owner=tool; a_cmd="$BIN/onboard --apply" ;;
+      G10) a_kind=iterable_keys; a_cmd="$BIN/iterable-keys" ;;
+      # No package means nobody has said which app this is about, which is a choice
+      # and not a missing install — telling them to build would name no target.
+      G13) if [[ -z "$PACKAGE" ]]; then
+             a_kind=choose_target; a_owner=agent; a_cmd="$BIN/agent discover"
+           else a_kind=install_app; fi ;;
+      G14|G15) [[ "$open_status" == pending ]] && a_kind=run_app || a_kind=investigate ;;
+      G16) [[ "$open_status" == pending ]] && { a_kind=send_proof; a_cmd="$BIN/proof-push"; } || a_kind=investigate ;;
       G17) a_kind=campaign_send ;;
-      *)   a_kind=run_app ;;
+      *)   [[ "$open_status" == pending ]] && a_kind=run_app || a_kind=investigate ;;
     esac
   elif [[ -f "$WS/state.tsv" ]]; then
     a_owner=none; a_kind=done
     a_summary="a push reached the device — nothing left to do"
   else
-    a_owner=agent; a_kind=run_ladder; a_cmd="bin/agent"
+    a_owner=agent; a_kind=run_ladder; a_cmd="$BIN/agent"
     a_summary="nothing has been checked yet"
   fi
   unset -f _detail_of
@@ -243,7 +294,7 @@ quota_candidates() {
 # they record a choice. An empty value deletes the key — used to drop a derived
 # value like APP_ID that a new project invalidates.
 save_resolved() {
-  mkdir -p "$WS"; touch "$WS/resolved.env"
+  ws_init; touch "$WS/resolved.env"
   grep -v "^$1=" "$WS/resolved.env" > "$WS/.resolved.tmp" 2>/dev/null || true
   mv "$WS/.resolved.tmp" "$WS/resolved.env"
   [[ -n "${2:-}" ]] && echo "$1=$2" >> "$WS/resolved.env"
@@ -336,9 +387,9 @@ ITBL_ENV="$WS/.env"
 # unless the integration predates Aug 2019 or was named by hand.
 itbl_integration() { printf '%s' "${ITBL_PUSH_INTEGRATION:-$PACKAGE}"; }
 
-# Single writer for workspace/.env, kept 0600. An empty value deletes the key.
+# Single writer for the workspace .env, kept 0600. An empty value deletes the key.
 save_env() {
-  mkdir -p "$WS"; touch "$ITBL_ENV"; chmod 600 "$ITBL_ENV"
+  ws_init; touch "$ITBL_ENV"; chmod 600 "$ITBL_ENV"
   grep -v "^$1=" "$ITBL_ENV" > "$WS/.env.tmp" 2>/dev/null || true
   mv "$WS/.env.tmp" "$ITBL_ENV"; chmod 600 "$ITBL_ENV"
   [[ -n "${2:-}" ]] && printf '%s=%s\n' "$1" "$2" >> "$ITBL_ENV"
@@ -535,7 +586,7 @@ firebase_projects() {
   local url='https://firebase.googleapis.com/v1beta1/projects?pageSize=100' body p
   while read -r p; do
     body="$(QP="$p" api_get "$url" 2>/dev/null)" || continue
-    mkdir -p "$WS"; printf '%s' "$p" > "$WS/.quota"
+    ws_init; printf '%s' "$p" > "$WS/.quota"
     printf '%s' "$body" | jqn 'process.stdout.write((j.results||[])
       .filter(p=>!p.state||p.state==="ACTIVE")
       .map(p=>[p.projectId,p.displayName||""].join("\t")).join("\n"))'
@@ -558,11 +609,11 @@ app_id_for_package() {
 
 require_pid() {
   [[ -n "$PID" ]] && return 0
-  cat >&2 <<'EOF'
+  cat >&2 <<EOF
 No project selected. Pick one with:
 
-    bin/discover              # lists your Firebase projects and their Android apps
-    echo 'PID=your-project-id' >> workspace/resolved.env
+    $BIN/discover             # lists your Firebase projects and their Android apps
+    $BIN/agent set PID=your-project-id
 EOF
   return 1
 }

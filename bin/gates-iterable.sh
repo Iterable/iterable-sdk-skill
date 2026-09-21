@@ -17,8 +17,9 @@
 g10() {
   # The remedy belongs in the message: this gate is owned by a human, and "not
   # captured yet" without the command to fix it makes them go looking.
-  [[ -n "$ITBL_SERVER_KEY" ]] || { echo "no server-side key yet — run bin/iterable-keys"; return 1; }
-  [[ -n "$ITBL_MOBILE_KEY"  ]] || { echo "no mobile key yet — run bin/iterable-keys"; return 1; }
+  # rc 2: a key nobody has created yet is pending work, not a broken project.
+  [[ -n "$ITBL_SERVER_KEY" ]] || { echo "no server-side key yet — run bin/iterable-keys"; return 2; }
+  [[ -n "$ITBL_MOBILE_KEY"  ]] || { echo "no mobile key yet — run bin/iterable-keys"; return 2; }
 
   local out push
   itbl_get "$ITBL_SERVER_KEY" /api/channels || true

@@ -6,7 +6,7 @@
 # https://api.iterable.com/api-docs).
 #
 # So you click, and this proves the result. Keys are read with the terminal echo
-# off, written only to workspace/.env mode 0600, and never printed back.
+# off, written only to the workspace .env, mode 0600, and never printed back.
 
 source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
 
@@ -96,7 +96,7 @@ EOF
 # prove the keys by spending them, which is the only part that needs to read them.
 if ! interactive || [[ "${1:-}" == "--steps" ]]; then
   TEMPLATE="$WS/.env.template"
-  mkdir -p "$WS"
+  ws_init
   # Never over a template that already has a value in it. Re-running this is the
   # normal way to re-read the steps, and a developer who filled it in and has not
   # renamed it yet would lose keys that are shown once.
@@ -183,7 +183,7 @@ MOBILE="$(ask_secret "Paste the Mobile key")"
 
 save_env ITBL_SERVER_KEY "$SERVER"
 save_env ITBL_MOBILE_KEY "$MOBILE"
-echo "  $(green ✓) both keys stored in workspace/.env (mode 0600), not printed anywhere"
+echo "  $(green ✓) both keys stored in $(wsp .env) (mode 0600), not printed anywhere"
 
 # --------------------------------------------------------- 3: the mobile app
 step_mobile_app

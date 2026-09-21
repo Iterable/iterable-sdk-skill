@@ -123,6 +123,28 @@ state "$(row G10 red human "Iterable API keys work" "key rejected")" \
         "$(row G16 pending tool "Push arrives on device" "no Iterable push")"
 expect human iterable_keys "" "a red outranks a later pending"
 
+# --------------------------------------------------------------- the cold start
+# The state a client's very first run produces, and the one no live run of ours ever
+# had: nothing chosen, nothing created. Every rung here is pending rather than red,
+# because an input nobody has supplied is not a defect — and the route has to be the
+# same as it would be for the red form, or the first thing a client ever sees is the
+# agent telling them to run an app they have not built.
+PID="" PACKAGE=""
+state "$(row G0 green human "Tooling present" "node v25")" \
+      "$(row G1 green human "Google authenticated" "signed in")" \
+      "$(row G2 pending tool "GCP project exists" "no project selected yet")" \
+      "$(row G10 pending human "Iterable API keys work" "no server-side key yet")" \
+      "$(row G13 pending human "App installed with the SDK" "no package selected yet")"
+expect agent choose_target "bin/agent set" "cold start — pick a target, not a defect"
+
+PID=p PACKAGE=""
+state "$(row G13 pending human "App installed with the SDK" "no package selected yet")"
+expect agent choose_target "" "G13 pending, no package — a choice, not an install"
+
+PID=p PACKAGE=com.example
+state "$(row G10 pending human "Iterable API keys work" "no server-side key yet")"
+expect human iterable_keys "" "G10 pending — same route as G10 red"
+
 # -------------------------------------------------------------------------- done
 state "$(row G16 green tool "Push arrives on device" "arrived 2s after send")"
 expect none done "a push reached the device" "all green — nothing left"

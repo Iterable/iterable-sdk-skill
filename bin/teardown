@@ -11,7 +11,7 @@ echo
 echo "  Would remove from $(bold "$PID"):"
 echo "    · service account $SA_EMAIL (and all its keys)"
 echo "    · its $FCM_ROLE binding"
-echo "    · local files: workspace/artifacts/"
+echo "    · local files: $(wsp artifacts/)"
 echo
 echo "  Leaves untouched: the project, Firebase, your Android app, and any"
 echo "  credential you created yourself."

@@ -14,32 +14,40 @@ description: >-
 
 # Provisioning Iterable push, and proving it
 
-This skill drives a program. You are not the state machine — `bin/agent` is. It
+This skill drives a program. You are not the state machine — `<root>/bin/agent` is. It
 reads the world, decides the single next action, and tells you who owns it. Your
 job is to run it, do what `next` says, and run it again.
 
 **You never grade your own work.** The scripts that change things and the ladder
 that checks them are separate programs on purpose: a front end that both acts and
 reports its own success is exactly the false green this tool exists to prevent.
-When you have done something, re-run `bin/agent` and believe its answer, not your
+When you have done something, re-run `<root>/bin/agent` and believe its answer, not your
 recollection of what you just did.
 
 ## Finding the scripts
 
 Hosts copy a plugin into a cache on install and set no environment variable, so no
 path here is stable. Start in the directory containing this `SKILL.md` and walk up
-until you reach the first directory containing `bin/agent`. Call that `<root>`; run
-everything below from there.
+until you reach the first directory containing a `bin/agent`. Call that `<root>`.
 
-If you reach the filesystem root without finding `bin/agent`, the install is
+If you reach the filesystem root without finding it, the install is
 incomplete. Say so and stop. Do not guess at a path, and do not reimplement any of
 these checks by hand.
 
 ## The loop
 
+Run it **from the developer's project directory**, by absolute path:
+
 ```
-cd <root> && bin/agent
+<root>/bin/agent
 ```
+
+**Never `cd` into `<root>` first.** The workspace is resolved from the working
+directory — it belongs in the developer's repo as `.iterable/`, because the plugin
+cache may be read-only and is erased on the next update. The tool refuses with exit
+`30` rather than write there, so a wrong `cd` is loud instead of silently losing
+their state. Every command in this skill follows the same rule: absolute path to the
+script, run from their project.
 
 One JSON object on stdout; the human-readable ladder goes to stderr (read it when a
 verdict surprises you — it is the account of what happened). Exit code mirrors
@@ -52,11 +60,11 @@ Read `next.kind` and act. That is the whole protocol.
 |---|---|
 | `install_tools` | Report exactly which binaries are missing (`missing_tools`) and what each unlocks: `gcloud` the Google half, `adb` the device half, `node` the JSON parsing, `java` the keystore reads. Do not install them. |
 | `authenticate` | Ask the developer to run `gcloud auth login` **themselves**, in their own terminal. You never handle their Google credentials. |
-| `choose_target` | Run `bin/agent discover` for the JSON list of their Firebase projects and Android apps, then ask **one** `AskUserQuestion` listing real projects (a project that already has their package is the zero-mutation path — say so). Record it with `bin/agent set PID=… PACKAGE=…`. |
+| `choose_target` | Run `<root>/bin/agent discover` for the JSON list of their Firebase projects and Android apps, then ask **one** `AskUserQuestion` listing real projects (a project that already has their package is the zero-mutation path — say so). Record it with `<root>/bin/agent set PID=… PACKAGE=…`. |
 | `project_unreachable` | Relay `next.summary` verbatim; it is a permissions answer from Google, not something to work around. |
 | `register_app` | Registering an Android app in their Firebase project is a real mutation. Ask outright, and only then re-run with `CREATE_APP=1`. |
-| `provision` | Show `next.summary`, get one confirmation, then run `bin/onboard --apply`. It creates the service account, binds the send-push role and nothing more, downloads `google-services.json`, and ends by re-running the ladder. |
-| `iterable_keys` | Run `bin/iterable-keys` and relay its output. See *Secrets* below. |
+| `provision` | Show `next.summary`, get one confirmation, then run `<root>/bin/onboard --apply`. It creates the service account, binds the send-push role and nothing more, downloads `google-services.json`, and ends by re-running the ladder. |
+| `iterable_keys` | Run `<root>/bin/iterable-keys` and relay its output. See *Secrets* below. |
 | `install_app` / `run_app` / `send_proof` | The device half — hand off to `iterable-verify`. |
 | `done` | `G16` is green: a real push reached the device. Say which device and chain onward. |
 
@@ -65,8 +73,8 @@ compose your own equivalent.
 
 ## Secrets
 
-`bin/iterable-keys` without a terminal prints the four dashboard steps and writes
-`<workspace>/.env.template` at mode 0600 with three empty names. Relay the steps,
+`<root>/bin/iterable-keys` without a terminal prints the four dashboard steps and writes
+`.iterable/.env.template` at mode 0600 with three empty names. Relay the steps,
 then the developer fills that file in and renames it to `.env`, or exports the same
 names in their shell.
 
@@ -76,10 +84,10 @@ names in their shell.
 - You do not need to see a key to know it works. `G10` spends both keys on real
   calls — including a deliberately invalid control key, so a probe that cannot tell
   a good key from a bad one goes red rather than green.
-- The service-account key at `<workspace>/artifacts/sa-key.json` is a long-lived
+- The service-account key at `.iterable/artifacts/sa-key.json` is a long-lived
   credential. Its path is the only thing you ever mention about it. The developer
-  uploads that file to Iterable themselves; `bin/wizard` offers to delete it
-  afterwards, and `bin/teardown` removes it from Google.
+  uploads that file to Iterable themselves; `<root>/bin/wizard` offers to delete it
+  afterwards, and `<root>/bin/teardown` removes it from Google.
 
 ## What the tool will not do, and neither will you
 
@@ -104,7 +112,7 @@ Both are human steps, so they are the two most worth saying out loud:
 - **The test identity is a join key.** It has to be the exact address the app passes
   to `setEmail()`. Any other address files the token under one identity and sends the
   proof to another, which reads precisely like a broken integration. If the app has
-  already run, `bin/iterable-keys` reads what it actually registered out of the SDK's
+  already run, `<root>/bin/iterable-keys` reads what it actually registered out of the SDK's
   own request log and offers that — prefer it over anyone's memory.
 
 ## Where this goes next
@@ -113,7 +121,7 @@ When `next.kind` is `done` for the Google and Iterable halves, announce the
 transition in one line and continue into the platform skill — `iterable-android` or
 `iterable-react-native` — to write the integration. Do not ask whether to continue.
 
-The platform skill owns copying `<workspace>/artifacts/google-services.json` into
+The platform skill owns copying `.iterable/artifacts/google-services.json` into
 the app module (`app/google-services.json` for a standard Android project) and shows
 it as part of its one confirmed diff. This skill produces the file; it does not
 write into the developer's source tree.

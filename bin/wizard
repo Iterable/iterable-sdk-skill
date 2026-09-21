@@ -264,7 +264,7 @@ while IFS=$'\t' read -r id status owner name detail; do
     G5) echo "    · download google-services.json for $PACKAGE (local file, not a secret)" ;;
     G6) echo "    · create service account '$SA_ID'" ;;
     G7) echo "    · grant it $FCM_ROLE — send push, nothing else" ;;
-    G8) echo "    · create a JSON key at workspace/artifacts/sa-key.json, mode 0600" ;;
+    G8) echo "    · create a JSON key at $(wsp artifacts/sa-key.json), mode 0600" ;;
     G9) echo "    · ask FCM to validate a send, proving the key works (nothing is delivered)" ;;
   esac
 done < "$WS/state.tsv"
@@ -289,7 +289,7 @@ echo
 # provisioning worked and nobody has run the app or sent the proof yet.
 if ((RC == 0 || RC == 40)); then
   cat <<EOF
-  Your service-account key:  workspace/artifacts/sa-key.json
+  Your service-account key:  $(wsp artifacts/sa-key.json)
   This is the file Iterable's Firebase push integration asks you to upload.
 
 EOF

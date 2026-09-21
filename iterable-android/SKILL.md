@@ -146,7 +146,7 @@ done.
 
 | Input | Needed when | If missing |
 |---|---|---|
-| **`google-services.json`** (real, from the developer's Firebase Console) | Any push / FCM work — the `com.google.gms.google-services` plugin **fails the build without it** | **STOP and ask.** It's project-specific; you cannot generate it. Once you have it, check its `client[].client_info.android_client_info.package_name` against the module's `applicationId` **before building** — a mismatch fails the build with a message about the file, not about the mismatch. Also confirm it's gitignored or intended to be committed; it usually isn't ignored by default. |
+| **`google-services.json`** (real, from the developer's Firebase Console) | Any push / FCM work — the `com.google.gms.google-services` plugin **fails the build without it** | **Route into `iterable-provision`**, which downloads the real one for their project and package; if it isn't installed, STOP and ask. Either way you cannot generate it. Once you have it, check its `client[].client_info.android_client_info.package_name` against the module's `applicationId` **before building** — a mismatch fails the build with a message about the file, not about the mismatch. Also confirm it's gitignored or intended to be committed; it usually isn't ignored by default. |
 | **Mobile API key** | Always | Ask where it lives; expect `local.properties` (gitignored). Never hardcode. If the file **already** has a key, don't assume it's this project's — show the developer what you found and have them confirm it (pitfall #16). |
 | **Identity model** — `setEmail` vs `setUserId`, and where the value comes from | Always | Ask. Never guess (e.g. grabbing a license email). See rule 7. |
 | **JWT?** — is the mobile key JWT-protected? | Always | Ask, and **assume yes until told otherwise**: JWT is selected *by default* when a client-side key is created, and the setting can never be changed afterwards. If yes, an auth handler is mandatory (rule 1) **and the team needs a backend endpoint that mints the tokens** — if they don't have one, that is a blocker to raise, not something to work around (pitfall #22). |
@@ -170,8 +170,28 @@ part of the work** — don't silently degrade the integration to keep compiling.
 
 Include **"I don't have one yet"** among the options you offer for a missing
 input — plenty of developers own the Iterable dashboard and create the key and
-push integration themselves. When that's the answer, don't send them to
-support.iterable.com; open the doc that covers making it.
+push integration themselves.
+
+**When that's the answer, route into `iterable-provision` rather than stopping.**
+It produces the three inputs this Preflight cannot invent — it downloads a real
+`google-services.json` from their Firebase project, creates the service account
+and key that Iterable's push integration asks you to upload, and walks the
+dashboard steps that have no API — and then proves each one with a live call
+instead of trusting that it was done. Announce the handoff in one line and
+continue; don't ask whether to continue, and don't wait for them to come back
+with files.
+
+To check it is installed: walk up from this `SKILL.md` to the first directory
+containing a `bin/agent`. If there isn't one, this Preflight stops as written
+below, and the table of dashboard paths is what you give them.
+
+Once provisioning reports `done`, **you own copying the file into the app
+module**: `.iterable/artifacts/google-services.json` → `app/google-services.json`,
+shown as part of your one confirmed diff. Nothing else writes into their source
+tree.
+
+For the steps they do themselves, don't send them to support.iterable.com; open
+the doc that covers making it.
 
 | Input they need to create | Where in the dashboard | Slug |
 | ------------------------- | ---------------------- | ---- |

@@ -68,7 +68,7 @@ case $LADDER in
     exit 40
     ;;
   10)
-    echo "  $(bold "NEXT — this one is yours") (also written to workspace/ASK.md):"
+    echo "  $(bold "NEXT — this one is yours") (also written to $(wsp ASK.md)):"
     echo
     sed -n '5p' "$WS/ASK.md" 2>/dev/null | sed 's/^ */      /'
     echo
@@ -91,7 +91,7 @@ printf '      project        %s\n' "$PID"
 printf '      package        %s\n' "${PACKAGE:-<not chosen — run bin/discover>}"
 echo
 
-# Derived from workspace/state.tsv, not hardcoded: the listed actions must match
+# Derived from the workspace state.tsv, not hardcoded: the listed actions must match
 # the gates that are actually red, or the dry run is lying about what it will do.
 while IFS=$'\t' read -r id status owner name detail; do
   [[ "$status" == green ]] && continue
@@ -99,7 +99,7 @@ while IFS=$'\t' read -r id status owner name detail; do
     G5) echo "      download       google-services.json for $PACKAGE" ;;
     G6) echo "      create         service account '$SA_ID'" ;;
     G7) echo "      grant          $FCM_ROLE  (send push, nothing else)" ;;
-    G8) echo "      create         a JSON key at workspace/artifacts/sa-key.json (mode 0600)" ;;
+    G8) echo "      create         a JSON key at $(wsp artifacts/sa-key.json) (mode 0600)" ;;
     G9) echo "      verify         the key by asking FCM to validate a send (nothing is delivered)" ;;
   esac
 done < "$WS/state.tsv"

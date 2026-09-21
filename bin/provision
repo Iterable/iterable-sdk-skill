@@ -7,7 +7,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
 step() { printf '\n\033[1m▸ %s\033[0m\n' "$1"; }
 skip() { printf '  already done: %s\n' "$1"; }
 
-mkdir -p "$ART"
+ws_init; mkdir -p "$ART"
 require_pid || exit 10
 
 step "G2 — GCP project $PID"
@@ -49,7 +49,7 @@ fi
 
 step "G4 — Android app for $PACKAGE"
 if [[ -z "$PACKAGE" ]]; then
-  echo "  No PACKAGE set. Run bin/discover and record one in workspace/resolved.env."
+  echo "  No PACKAGE set. Run bin/discover and record one with: bin/agent set PACKAGE=<package>."
   exit 10
 fi
 APP_ID="$(app_id_for_package "$PACKAGE")"

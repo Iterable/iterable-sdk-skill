@@ -10,7 +10,9 @@
 
 set -uo pipefail
 cd "$(dirname "$0")/.."
-source bin/config.sh
+# A scratch workspace, because the real one now lives in the project being
+# integrated and an offline test must not read or create it.
+WS="$(mktemp -d)/ws" source bin/config.sh
 
 FAILED=0
 check() {
