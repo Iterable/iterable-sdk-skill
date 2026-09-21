@@ -56,6 +56,14 @@ upgrade row in the slug table. The always-on rules still apply (existing
 integrations frequently violate rules 2 and 3), but don't re-derive their
 integration from scratch.
 
+**And check whether the app already sends push without Iterable.** Grep for
+`FirebaseMessagingService` and `com.google.firebase.MESSAGING_EVENT` before
+scoping push work. If either is present the app has a push channel of its own —
+often transactional (order status, shipping, security codes) and more important
+to the business than the marketing push being added. That is an integration
+constraint, not a thing to replace: rule 8 has the shape. Say what you found
+and confirm the plan before editing their service.
+
 Confirm the scope, *then* run Preflight for the inputs that scope needs, *then*
 build. "Finish, don't stub" (below) applies to **the scope you agreed on** —
 it is not licence to implement every feature unprompted. After delivering the
@@ -213,9 +221,9 @@ Firebase Console and cannot be generated.
 
 These rules apply to **every** integration. Rules 1–5 prevent silent runtime
 failures that look like SDK bugs but aren't; rules 6–7 prevent a leaked
-credential and a wrong-identity integration. Full explanations and the
-remaining ~10 traps are in [`PITFALLS.md`](PITFALLS.md) — read it before
-generating any non-trivial code.
+credential and a wrong-identity integration; rule 8 prevents breaking push the
+app already had. Full explanations and the remaining ~10 traps are in
+[`PITFALLS.md`](PITFALLS.md) — read it before generating any non-trivial code.
 
 1. **If the API key is JWT-protected, an `IterableAuthHandler` is mandatory —
    and the token must come from the team's backend, never from the app.**
@@ -273,6 +281,37 @@ generating any non-trivial code.
    never identified (no in-app, no push targeting). Ask the developer: which
    identifier, and where does its value come from? Pick one mode and use it
    consistently (see pitfall #12).
+
+8. **If the app already has its own `FirebaseMessagingService`, forward to
+   Iterable from it — never replace, delete, or `tools:node="remove"` it.**
+   Before touching push, grep for `FirebaseMessagingService` and
+   `com.google.firebase.MESSAGING_EVENT`. FCM delivers to **one** service, and
+   the SDK registers `IterableFirebaseMessagingService` at
+   `android:priority="-1"` so an app's own service (default priority 0) keeps
+   winning. That means adding the SDK does **not** silently steal their push —
+   but it also means Iterable receives **nothing** until their service forwards
+   to it. Add both calls to the service they already have:
+
+   ```kotlin
+   override fun onMessageReceived(message: RemoteMessage) {
+       if (IterableFirebaseMessagingService.handleMessageReceived(this, message)) return
+       // ...their existing routing, unchanged...
+   }
+
+   override fun onNewToken(token: String) {
+       IterableFirebaseMessagingService.handleTokenRefresh()
+       // ...their existing token registration, unchanged...
+   }
+   ```
+
+   `handleMessageReceived` returns `false` for payloads that aren't Iterable's,
+   so their existing branches still see exactly what they saw before. Their
+   notification channels, grouping and importance are **their** product
+   decisions — leave them alone; Iterable posts on its own channel. Confirm the
+   result in the merged manifest
+   (`app/build/intermediates/merged_manifests/.../AndroidManifest.xml`) rather
+   than assuming. See `setting-up-android-push-notifications` → `## Handling
+   Firebase push messages and tokens`, and pitfall #23.
 
 ---
 
@@ -395,6 +434,7 @@ the version they're on.
 | Upgrading an existing integration from an older SDK version | `android-sdk` → `## Upgrading the SDK`. Entries run newest-first (`### Upgrading to 3.10.0` down to `3.2.0`); read every entry **newer than** the version they're on and stop there. Ask their current version first — don't guess it. |
 | Configuration deep-dive (every `IterableConfig` option, `setDataRegion`, allowed protocols, log level) | `configure-the-android-sdk` |
 | FCM push, notification channels, `POST_NOTIFICATIONS`, device registration | `setting-up-android-push-notifications` |
+| The app **already has** its own `FirebaseMessagingService`, or a second push provider (OneSignal, Braze, a home-grown one) | `setting-up-android-push-notifications` → `## Handling Firebase push messages and tokens`. Forward, don't replace — rule 8 and pitfall #23. |
 | Push behavior overview (silent push, foreground vs background, deep link from notification) | `push-notification-overview` |
 | Modal / banner / fullscreen in-app messages, `InAppHandler`, display intervals | `in-app-messages-on-android` |
 | Mobile inbox UI, `IterableInboxFragment`, default rendering | `setting-up-mobile-inbox-on-android` |

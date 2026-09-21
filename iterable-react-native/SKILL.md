@@ -73,6 +73,13 @@ project already depends on `@iterable/react-native-sdk` (and, on Expo,
 `@iterable/expo-plugin`), ask which version they're on and what they want
 out of the upgrade, then follow the upgrade row in the slug table.
 
+**And check whether the app already sends push without Iterable.** Look for
+`@react-native-firebase/messaging` or another push SDK in `package.json`, and
+for `FirebaseMessagingService` / `com.google.firebase.MESSAGING_EVENT` under
+`android/`. If any is present, that channel is an integration constraint rather
+than something to replace — rule 8 has the shape. Say what you found and confirm
+the plan before touching it.
+
 Confirm the scope, *then* run Preflight, *then* build.
 
 ---
@@ -205,7 +212,7 @@ when Step 0 detected Expo. Full explanations are in
 [`PITFALLS.md`](PITFALLS.md) — read it before generating any non-trivial
 code. On Expo, that includes pitfalls #7–#11 and #13–#14, not only the
 JS-runtime items. On **iOS with Xcode 27**, read pitfall **#12** (bare or
-Expo).
+Expo). Rule 8 applies whenever the app already sends push of its own.
 
 1. **If the API key is JWT-protected, `config.authHandler` is mandatory — and
    the token must come from the team's backend, never from the app.**
@@ -262,6 +269,25 @@ Expo).
    for Device Hub launch, and host Podfile / config-plugin fixes for
    resource-bundle deployment targets (pitfall **#12**) — not hand-edited
    `Pods/`.
+
+8. **If the app already sends push, forward to Iterable — never replace what's
+   there.** Check before scoping push work: grep `android/` for
+   `FirebaseMessagingService` and `com.google.firebase.MESSAGING_EVENT`, and
+   `package.json` for `@react-native-firebase/messaging`, `react-native-onesignal`,
+   or another push SDK. RN apps commonly already have a transactional channel,
+   and it usually matters more to the business than the marketing push being
+   added. On Android, FCM delivers to **one** service; the native SDK under this
+   package registers `IterableFirebaseMessagingService` at
+   `android:priority="-1"`, so an app's own service keeps winning — installing
+   Iterable does not hijack their push, but Iterable receives **nothing** until
+   their service forwards to it. Never delete their service, repoint the manifest
+   entry, or add `tools:node="remove"`. On **Expo**, do not hand-edit `android/`
+   to add forwarding — `prebuild --clean` wipes it (pitfall #8); it belongs in a
+   config plugin. This is thinly covered by the RN corpus: the mechanism and the
+   `handleMessageReceived` / `handleTokenRefresh` contract are documented on the
+   **native Android** side, so read pitfall #15 and verify against the merged
+   manifest rather than reasoning it out. iOS coexistence is a different
+   mechanism — don't assume the Android shape transfers.
 
 ---
 
@@ -333,6 +359,7 @@ source — it is already on disk.**
 | `setEmail`, `setUserId`, login / logout | `managing-user-identity` |
 | `updateUser`, profile fields, subscription preferences | `user-profile-data-and-subscription-preferences` |
 | FCM / APNs push, notification permission, device registration | `push-notifications` |
+| The app **already** sends push (`@react-native-firebase/messaging`, another vendor SDK, a hand-written `FirebaseMessagingService`) | **No slug covers this** — the forwarding contract lives on the native Android side. Use rule 8 and [`PITFALLS.md`](PITFALLS.md) #15, and verify against the merged manifest. |
 | In-app messages | `in-app-messages` |
 | Mobile inbox | `mobile-inbox` |
 | Deep links, custom actions, `urlHandler` | `deep-links-and-custom-actions` |

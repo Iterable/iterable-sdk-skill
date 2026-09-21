@@ -394,3 +394,61 @@ hot-path subset; the full list lives here and is loaded on demand.
   A build that cannot authenticate yet is recoverable in an afternoon. A leaked
   shared secret means rotating it in Iterable and shipping a new app release,
   and every APK already in the wild keeps working until it's rotated.
+
+## 23. Replacing the app's existing `FirebaseMessagingService`
+
+- **Symptom:** After the integration, the app's own pushes — order status,
+  shipping, security codes — stop arriving, or the developer reports that "the
+  Iterable work removed our push implementation." Alternatively the opposite:
+  their pushes are fine but nothing from Iterable ever arrives, and no error
+  appears anywhere.
+- **Cause:** FCM dispatches `com.google.firebase.MESSAGING_EVENT` to **one**
+  service. Two things follow from the SDK's manifest entry, and they pull in
+  opposite directions:
+  - The SDK registers `IterableFirebaseMessagingService` at
+    `android:priority="-1"`, *below* an app's own service (default 0). So
+    installing the SDK does **not** hijack an existing service — that part of
+    the fear is unfounded.
+  - Which means Iterable receives **nothing** unless the app's service forwards
+    to it. Push registration appears to work, tokens register, the dashboard
+    reports a send, and nothing arrives. `reference/setting-up-android-push-notifications.md`
+    marks the forwarding step `[!WARNING] ... mandatory for handling multiple
+    push providers`.
+
+  The damaging failure is an agent "resolving the conflict" — deleting their
+  service, pointing the manifest entry at Iterable's, or adding
+  `tools:node="remove"` — to make Iterable work. That trades a silent Iterable
+  failure for a broken transactional channel, which is almost always the more
+  valuable of the two.
+- **Fix:** Treat their service as the integration point, not an obstacle. Grep
+  for `FirebaseMessagingService` and `com.google.firebase.MESSAGING_EVENT`
+  before starting push work, and add two forwarding calls to the service that is
+  already there:
+
+  ```kotlin
+  override fun onMessageReceived(message: RemoteMessage) {
+      if (IterableFirebaseMessagingService.handleMessageReceived(this, message)) return
+      // ...their existing routing, unchanged...
+  }
+
+  override fun onNewToken(token: String) {
+      IterableFirebaseMessagingService.handleTokenRefresh()
+      // ...their existing token registration, unchanged...
+  }
+  ```
+
+  `handleMessageReceived` returns `false` for anything that isn't an Iterable
+  payload, so their existing branches are unaffected. Leave their notification
+  channels, grouping and importance alone — those are product decisions (a
+  deliberately silent deals channel is not a bug), and Iterable posts on its own
+  channel anyway. Verify in the merged manifest under
+  `app/build/intermediates/merged_manifests/` that their service is still the
+  priority-0 entry; don't assume it from the source manifest.
+
+  Same rule for a second vendor SDK (OneSignal, Braze, a home-grown service):
+  one service owns the callback and forwards to every provider. If **they**
+  own the receiving service, that is the correct design — don't invert it.
+- **Note:** a missing runtime `POST_NOTIFICATIONS` request (pitfall #4) breaks
+  *their* pushes as well as Iterable's on Android 13+, and looks exactly like
+  "the Iterable change broke our push." Check the grant before accepting that
+  diagnosis, and don't accept a culprit inside your own diff without evidence.

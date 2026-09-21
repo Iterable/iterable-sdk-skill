@@ -189,3 +189,15 @@ pitfalls:
       - "shared secret"
       - "IterableJwtGenerator"
     features: [jwt-authentication, integration]
+
+  - id: 23
+    title: Replacing the app's existing FirebaseMessagingService
+    triggers:
+      - "FirebaseMessagingService"
+      - "MESSAGING_EVENT"
+      - "handleMessageReceived"
+      - "handleTokenRefresh"
+      - "node=\"remove\""
+      - "OneSignal"
+      - "Braze"
+    features: [push-notifications, integration]

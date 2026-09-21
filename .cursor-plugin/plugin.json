@@ -1,6 +1,6 @@
 {
   "name": "iterable-sdk",
-  "version": "26.9.1-beta",
+  "version": "26.9.2-beta",
   "description": "Reliable Iterable mobile SDK integration guidance for AI coding assistants — version-pinned snippets + silent-failure pitfalls. Android and React Native (bare and Expo) today; iOS/Web later.",
   "author": { "name": "Iterable" },
   "repository": "https://github.com/Iterable/iterable-sdk-skill",
