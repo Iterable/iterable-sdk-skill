@@ -282,13 +282,18 @@ echo
 # provision ends by exec'ing the verifier, so RC is the whole ladder's verdict and
 # not a report on provisioning. 0 really does mean a push arrived; 40 means the
 # provisioning worked and nobody has run the app or sent the proof yet.
-if ((RC == 0 || RC == 40)); then
+# Only asked where the answer isn't already no. The key is needed until step 3 has
+# uploaded it, and no endpoint can read that step back — so the one state where
+# "finished with this file" is provable is RC 0: a push arrived, which cannot happen
+# unless the integration exists. Asked at 40 it landed three steps early, under a
+# banner sending them off to do step 1, and it was the last thing on the screen.
+if ((RC == 0)) && [[ -f "$SA_KEY" ]]; then
   cat <<EOF
   Your service-account key:  $(wsp artifacts/sa-key.json)
-  This is the file Iterable's Firebase push integration asks you to upload.
+  The push that just arrived proves this was uploaded, so the local copy is done.
 
 EOF
-  if ask_yn "Delete the local key now? (choose no if you still need to upload it)"; then
+  if ask_yn "Delete the local key now?"; then
     rm -f "$SA_KEY" && echo "  Removed. The key still exists in Google — bin/teardown removes it there."
   fi
   echo
@@ -306,6 +311,12 @@ case "$RC" in
     echo
     pending_advice | sed 's/^/      /'
     echo
+    # Said rather than asked, and only while it is still the answer to something: the
+    # file is unexplained otherwise, and "what is sa-key.json for" arrives at step 3.
+    if [[ -f "$SA_KEY" && "$(gate_status G10)" != green ]]; then
+      echo "  $(dim "Keep $(wsp artifacts/sa-key.json) — step 3 above is the step that uploads it.")"
+      echo
+    fi
     echo "  Then run $(bold "bin/onboard") again. Nothing already green gets redone."
     echo
     exit 40 ;;
