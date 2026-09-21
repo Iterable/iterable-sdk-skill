@@ -131,7 +131,20 @@ cat <<EOF
     Iterable project, so not a customer's address.
 
 EOF
-read -r -p "  Email the app signs in as: " EMAIL < /dev/tty
+# The device already knows, if the app has run: the SDK logs the identity in the
+# body of its own registerDeviceToken call. Offered as a default rather than used
+# silently — it is still the developer's choice which user the proof goes to.
+SEEN="$(app_identity | head -3)"
+if [[ -n "$SEEN" ]]; then
+  echo "  The app on the device registered:"
+  printf '    %s\n' $SEEN
+  echo
+  DEFAULT="$(printf '%s\n' "$SEEN" | head -1)"
+  read -r -p "  Email the app signs in as [$DEFAULT]: " EMAIL < /dev/tty
+  EMAIL="${EMAIL:-$DEFAULT}"
+else
+  read -r -p "  Email the app signs in as: " EMAIL < /dev/tty
+fi
 [[ -n "$EMAIL" ]] || { echo "  No email given."; exit 10; }
 save_env ITBL_EMAIL "$EMAIL"
 echo "  $(green ✓) test user: $EMAIL"

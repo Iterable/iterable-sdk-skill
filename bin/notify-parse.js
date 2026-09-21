@@ -91,7 +91,13 @@ process.stdin.on("data", (c) => (input += c)).on("end", () => {
     const hit = mine.find((r) => carries(r) && fresh(r));
     if (hit) {
       const lag = sentAt && hit.when ? `, ${Math.round((hit.when - sentAt) / 1000)}s after the send` : "";
-      verdict(0, `${describe(hit)}${lag}`);
+      // Re-running the ladder does not re-send, so this green can be hours old.
+      // Say how old, or it reads as a push that just arrived.
+      const mins = hit.when ? Math.round((Date.now() - hit.when) / 60000) : null;
+      // Only when it is old enough to mislead: a proof sent a minute ago needs no
+      // caveat, and the line has to survive brief()'s 100 characters.
+      const age = mins === null || mins < 10 ? "" : mins < 60 ? ` (${mins}m ago)` : ` (${Math.round(mins / 60)}h ago)`;
+      verdict(0, `${describe(hit)}${lag}${age}`);
     }
     if (mine.some((r) => r.redacted)) {
       verdict(2, `${mine.length} notification(s) from ${PKG}, content redacted — cannot match the marker`);

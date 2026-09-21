@@ -67,7 +67,7 @@ Underneath, both use the same pieces, and the split is structural rather than co
 | `bin/gates` | **Verifier.** Read-only. Never provisions anything |
 | `bin/provision` | **Actor.** Idempotent; ends by handing off to `bin/gates` to be judged |
 | `bin/discover` | Read-only list of your Firebase projects and their Android apps |
-| `bin/iterable-keys` | Walks the four Iterable dashboard steps that have no API, captures the keys, then hands off to `bin/gates` |
+| `bin/iterable-keys` | Walks the four Iterable dashboard steps that have no API, captures the keys, then hands off to `bin/gates`. Offers the identity the app already registered, read from the device |
 | `bin/proof-push` | **Actor.** Sends the one push the ladder exists to prove, and records the marker it sent. Never checks whether it arrived |
 | `bin/teardown` | Removes only what the tool added |
 | `tests/wizard-decline.exp` | Drives the wizard through a pty and asserts that declining changes nothing |
@@ -139,6 +139,17 @@ remembered one.
 `bin/proof-push` writes a marker into the message it sends; G16 requires that marker to match. Sent
 some other way — a **Test Push** from the dashboard, say — there is no marker, and G16 falls back to
 the SDK's own notification channel, which is as much as the OS can honestly tell you.
+
+**If you want to watch it arrive, clear the shade first.** Android groups a second notification from
+the same app with the first and marks the children `SILENT`: no banner, no sound. The push arrives,
+G16 sees it, and the screen shows nothing — which looks exactly like a push that failed. `bin/proof-push`
+warns when an earlier proof is still sitting there. G16 also says how long ago the push landed once
+it is more than ten minutes old, because re-running the ladder does not re-send.
+
+The test identity is the other thing worth not guessing. `ITBL_EMAIL` has to be the value the app
+passes to `setEmail()`, and the app decides that in code — so `bin/iterable-keys` reads the identity
+out of the SDK's own `registerDeviceToken` request in `logcat` and offers it as the default. A wrong
+answer here makes G15 report "no user yet", which is indistinguishable from a broken Iterable project.
 
 ## Done means a push arrived
 

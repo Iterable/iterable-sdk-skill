@@ -667,6 +667,40 @@ code doesn't have. Cheap to write, invisible to every test that doesn't read the
 
 ---
 
+### "The emulator doesn't even show up" — why a green G16 can look like nothing happened (2026-09-21, evening)
+
+Asked for visual confirmation, the device produced a contradiction: `dumpsys` had the proof record,
+G16 was green, and four screenshots in a row showed an untouched app. The OS settled it —
+`airtimeMs=5698, posttimeToFirstVisibleExpansionMs=516, isNoisy=true, mImportance=HIGH` — the banner
+had been on screen for 5.7 seconds. Screenshot polling kept landing outside that window; a
+`screenrecord` sampled at 2fps caught it in one frame.
+
+But the first two attempts genuinely showed nothing, and that part was real. **Android groups a second
+notification from the same app with the first and marks the children `SILENT`** — verified directly:
+`flags=AUTO_CANCEL|SILENT` on both children under an `AUTOGROUP_SUMMARY`, where a lone proof carries
+only `AUTO_CANCEL`. So the second proof push of a session arrives, satisfies G16, and produces no
+banner and no sound. To anyone judging the integration by watching the screen — which is what a
+developer does — that is indistinguishable from a push that never came. `bin/proof-push` now warns
+when an earlier proof is still in the shade, and G16 states the age of the arrival once it is over ten
+minutes old, because re-running the ladder does not re-send and the green can be hours stale.
+
+Clearing the shade from the CLI has no obvious command; `cmd notification` offers no dismiss. Two that
+do work: `cmd notification list` plus `snooze --for <ms> <key>` (the key contains `|`, so it needs
+quoting for the *device's* shell or it is parsed as a pipe), and `set_exempt_th_force_grouping`, which
+is the grouping behaviour itself.
+
+**The test identity should never have been a free-text prompt.** It was typed wrong three times across
+runs — `franco@testemail.com`, `francotest@emailtest.com` — and each time G15 read "no user yet", which
+looks like a broken Iterable project. The authority was on the device all along: the SDK logs its own
+`registerDeviceToken` body, `"email": "test@useremail.com"`. `app_identity()` reads it and
+`bin/iterable-keys` offers it as the default. Worth noting what didn't work: the app has no login
+screen, and no such literal appears in its dex, so neither reading the UI nor unpacking the APK would
+have answered it. The request body did.
+
+Same shape as the device picker — the developer can't be expected to recall a value the machine
+already knows, and the fix is to offer it rather than ask for it. Silence stays silence: nothing
+registered yet means no default, because a guessed identity is worse than a question.
+
 ## Testing strategy
 
 The gates tell us whether a *run* succeeded. These tests tell us whether the *gates* can be

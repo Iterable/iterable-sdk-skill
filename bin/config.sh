@@ -274,6 +274,20 @@ target_serial() {
   return 1
 }
 
+# Which identity the app actually registered, straight out of the SDK's own request
+# body in logcat. The developer cannot reliably answer this from memory — the app
+# decides it in code, and a wrong answer looks exactly like a broken Iterable
+# project — so ask the device instead of asking them. Prints one address per line,
+# most recent first; empty if the buffer has rotated or the app never registered.
+app_identity() {
+  local d; d="$(device_serial)" || return 0
+  adb -s "$d" logcat -d 2>/dev/null \
+    | grep -F 'IterableRequest' \
+    | grep -oE '"email": *"[^"]+"' \
+    | grep -oE '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}' \
+    | tail -r | awk '!seen[$0]++'
+}
+
 # Starts an AVD and waits for the OS, not just the port: adb answers well before
 # sys.boot_completed, and a gate that reads a half-booted device gets nonsense.
 # Lives here rather than in the wizard only so a test can reach the timeout branch

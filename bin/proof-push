@@ -40,6 +40,16 @@ if [[ -z "$tid" ]]; then
   [[ -n "$tid" ]] || { echo "could not read a template id out of: $(itbl_err "$ITBL_BODY")" >&2; exit 1; }
 fi
 
+# Counted before the send, reported after. Android groups a second notification
+# from the same app with the first and marks it SILENT: it arrives, G16 sees it,
+# and the screen shows nothing at all — which a developer watching the device
+# reads as a failed push.
+PRIOR_PROOF=""
+if PP_DEV="$(device_serial 2>/dev/null)"; then
+  adb -s "$PP_DEV" shell dumpsys notification --noredact 2>/dev/null \
+    | grep -q 'itbl-onboard-' && PRIOR_PROOF=1
+fi
+
 sent_at="$(node -e 'process.stdout.write(String(Date.now()))')"
 itbl_post "$ITBL_SERVER_KEY" /api/templates/push/proof \
   "$(node -e 'process.stdout.write(JSON.stringify({templateId:Number(process.argv[1]),recipientEmail:process.argv[2]}))' "$tid" "$ITBL_EMAIL")" \
@@ -51,6 +61,12 @@ save_resolved ITBL_PROOF_SENT_AT "$sent_at"
 
 echo
 echo "  Sent template $tid to $ITBL_EMAIL, marked $MARKER."
+if [[ -n "$PRIOR_PROOF" ]]; then
+  echo
+  echo "  $(bold "An earlier proof is still in the shade.") Android will bundle this one with"
+  echo "  it and mark it SILENT: no banner, no sound. It still arrives and G16 still"
+  echo "  sees it. To watch it land, clear the shade first and send again."
+fi
 echo "  $(dim "Whether it arrived is not this script's call:")"
 echo "      bin/gates      # G16 reads the device"
 echo

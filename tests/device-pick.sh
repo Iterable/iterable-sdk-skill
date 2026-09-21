@@ -43,6 +43,7 @@ case "$*" in
   # A booting emulator answers adb long before the OS is up, which is the whole
   # reason boot_avd waits on this property instead of on the port.
   "shell getprop sys.boot_completed") [[ -f "${STUB_BOOTED:-/nonexistent}" ]] && echo 1; exit 0 ;;
+  "logcat -d") [[ -n "${STUB_LOGCAT:-}" ]] && cat "$STUB_LOGCAT"; exit 0 ;;
 esac
 exit 0
 ADB
@@ -124,6 +125,38 @@ boots "an AVD that comes up is the serial it came up on" full 0 emulator-5580
 # so "it may still come up" matters: the run is not a verdict about their project.
 boots "one that never boots gives up, and says so"       port 1 "did not finish booting"
 boots "one that never attaches at all also gives up"     none 1 "did not finish booting"
+
+echo
+echo "  Which identity the app registered"
+echo
+
+# identity <label> <logcat-body> <expected-output>
+identity() {
+  local label="$1" body="$2" want="$3" out
+  printf '%s\n' "$body" > "$STUB/logcat.txt"
+  out="$(PATH="$STUB:$PATH" WS="$STUB/ws" STUB_DEVICES="$A=Pixel_9_Pro" STUB_LOGCAT="$STUB/logcat.txt" \
+    bash -c 'source bin/config.sh >/dev/null 2>&1; app_identity' 2>&1 | tr '\n' ' ')"
+  [[ "${out% }" == "$want" ]] && ok "$label → ${out:-<empty>}" \
+    || bad "$label — wanted '$want', got '${out% }'"
+}
+
+REG='V IterableRequest: URI : https://api.iterable.com/api/users/registerDeviceToken'
+identity "reads the address out of the SDK's own request" \
+  "$REG
+V IterableRequest:   \"email\": \"test@useremail.com\"," \
+  "test@useremail.com"
+
+# A developer who changed the signed-in identity mid-session has both in the
+# buffer. The newest is the one whose token is current, so it has to come first.
+identity "most recent identity first when it changed" \
+  "V IterableRequest:   \"email\": \"old@example.com\",
+V IterableRequest:   \"email\": \"new@example.com\"," \
+  "new@example.com old@example.com"
+
+# Silence must stay silence: offering a guessed default is worse than asking.
+identity "nothing registered yet says nothing" "D SomeOtherTag: hello" ""
+identity "ignores addresses logged by anything else" \
+  "V OtherLibrary:   \"email\": \"noise@example.com\"," ""
 
 echo
 echo "  Labels and truncation"
