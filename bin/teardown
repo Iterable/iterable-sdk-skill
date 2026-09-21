@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Removes only what this tool added: the service account, its role binding, its
+# keys, and the local artifacts. Never touches your Firebase project, your app,
+# or anything you had before.
+
+source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
+
+require_pid || exit 10
+
+echo
+echo "  Would remove from $(bold "$PID"):"
+echo "    · service account $SA_EMAIL (and all its keys)"
+echo "    · its $FCM_ROLE binding"
+echo "    · local files: workspace/artifacts/"
+echo
+echo "  Leaves untouched: the project, Firebase, your Android app, and any"
+echo "  credential you created yourself."
+echo
+
+if interactive; then
+  read -r -p "  Proceed? [y/N] " ans
+  [[ "$ans" == [yY]* ]] || { echo "  Nothing removed."; echo; exit 0; }
+elif [[ "${1:-}" != --yes ]]; then
+  echo "  Non-interactive: re-run with --yes to confirm."
+  exit 10
+fi
+
+echo
+if gcloud iam service-accounts describe "$SA_EMAIL" >/dev/null 2>&1; then
+  gcloud projects remove-iam-policy-binding "$PID" \
+    --member="serviceAccount:$SA_EMAIL" --role="$FCM_ROLE" --quiet >/dev/null 2>&1 \
+    && echo "  removed role binding"
+  # Deleting the account revokes its keys, so no separate key deletion is needed.
+  gcloud iam service-accounts delete "$SA_EMAIL" --quiet \
+    && echo "  deleted $SA_EMAIL"
+else
+  echo "  service account already gone"
+fi
+
+rm -rf "$ART" && echo "  removed local artifacts"
+rm -f "$WS/state.tsv"
+echo
+echo "  Done. bin/gates will now show the Google side back at its original state."
+echo

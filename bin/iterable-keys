@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+# Walks the Iterable dashboard steps that have no API, and captures what they
+# produce. The three creation steps genuinely cannot be automated: Iterable's
+# public API has no endpoint for creating an API key, creating a mobile app, or
+# configuring a push integration (checked against all 131 paths in
+# https://api.iterable.com/api-docs).
+#
+# So you click, and this proves the result. Keys are read with the terminal echo
+# off, written only to workspace/.env mode 0600, and never printed back.
+
+source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
+
+interactive || {
+  cat <<'EOF'
+  bin/iterable-keys needs a terminal — it prompts for secrets.
+  For a scripted run, write workspace/.env yourself (mode 0600):
+
+      ITBL_SERVER_KEY=...
+      ITBL_MOBILE_KEY=...
+      ITBL_EMAIL=you@example.com
+EOF
+  exit 10
+}
+
+ask_yn()  { local a; read -r -p "  $1 [y/N] " a; [[ "$a" == [yY]* ]]; }
+# Echo off, and the value never goes to stdout, a log, or the shell history.
+ask_secret() {
+  local v; read -r -s -p "  $1: " v < /dev/tty; echo >&2
+  printf '%s' "$v"
+}
+pause_enter() { read -r -p "  Press enter when that's done. " _ < /dev/tty; }
+
+echo
+echo "  ── $(bold "Iterable") ─────────────────────────────────────────────────────"
+echo
+echo "  Four things here have to be done by hand. Iterable has no API for any of"
+echo "  them, so there is nothing to automate — but everything they produce gets"
+echo "  proved by a real API call afterwards."
+echo
+
+# ------------------------------------------------------------------ data centre
+if ask_yn "Is this an EU (EDC-based) Iterable project?"; then
+  ITBL_BASE=https://api.eu.iterable.com
+  save_env ITBL_BASE "$ITBL_BASE"
+else
+  save_env ITBL_BASE ""    # fall back to the default rather than pinning it
+  ITBL_BASE=https://api.iterable.com
+fi
+echo "  $(green ✓) API base: $ITBL_BASE"
+
+# -------------------------------------------------------------- 1 & 2: the keys
+cat <<EOF
+
+  $(bold "Step 1 — create two API keys")
+
+    Open  $(bold "https://app.iterable.com/settings/apiKeys")
+    Click $(bold "New API Key") twice:
+
+      · one $(bold "Server-side") key   — this tool uses it only to read back what you set up
+      · one $(bold "Mobile") key        — the key your app ships with
+
+    Leave $(bold "Require JWT authentication") OFF on the mobile key for now.
+    Iterable's own integration checklist recommends starting without JWT so an
+    SDK problem and a JWT problem can't be mistaken for each other. Switch to a
+    JWT-enabled key once push is working.
+
+    A key is shown once. If you lose it, make another — they are cheap.
+
+EOF
+pause_enter
+
+SERVER="$(ask_secret "Paste the Server-side key")"
+[[ -n "$SERVER" ]] || { echo "  Nothing pasted."; exit 10; }
+MOBILE="$(ask_secret "Paste the Mobile key")"
+[[ -n "$MOBILE" ]] || { echo "  Nothing pasted."; exit 10; }
+
+save_env ITBL_SERVER_KEY "$SERVER"
+save_env ITBL_MOBILE_KEY "$MOBILE"
+echo "  $(green ✓) both keys stored in workspace/.env (mode 0600), not printed anywhere"
+
+# --------------------------------------------------------- 3: the mobile app
+cat <<EOF
+
+  $(bold "Step 2 — create the mobile app")
+
+    Open  $(bold "https://app.iterable.com/integrations/mobileApps/create")
+
+    (or navigate: $(bold "Settings > Apps and Websites") → $(bold "Add a new app or website"))
+
+      · Platform      $(bold "Android")
+      · Package name  $(bold "${PACKAGE:-<your package name>}")
+
+    The package name must match exactly — Iterable matches your device tokens
+    against it, and a mismatch fails silently much later.
+
+EOF
+pause_enter
+
+# ------------------------------------------------- 4: the push integration
+cat <<EOF
+
+  $(bold "Step 3 — configure the Firebase push integration")
+
+    Same page: open the app you just made, find the $(bold "Push") section, and click
+    $(bold "Configure") on the Firebase row.
+
+      · FCM type   $(bold "Data notifications")   ← not "Notification messages"
+      · Upload     $(bold "workspace/artifacts/sa-key.json")
+
+    $(bold "Data notifications") is the one that matters. With "Notification messages"
+    the Firebase SDK swallows the push and Iterable's SDK never sees it, so
+    everything looks configured and no push ever arrives. This is the single
+    most common way this integration fails.
+
+EOF
+pause_enter
+
+# ----------------------------------------------------------- the test user
+cat <<EOF
+
+  $(bold "Step 4 — pick a test user")
+
+    Any email address. It becomes a real user profile in this Iterable project,
+    so use something disposable rather than a customer's address.
+
+EOF
+read -r -p "  Test user email: " EMAIL < /dev/tty
+[[ -n "$EMAIL" ]] || { echo "  No email given."; exit 10; }
+save_env ITBL_EMAIL "$EMAIL"
+echo "  $(green ✓) test user: $EMAIL"
+
+echo
+echo "  $(bold "Now proving it.")"
+echo
+exec "$(dirname "${BASH_SOURCE[0]}")/gates"

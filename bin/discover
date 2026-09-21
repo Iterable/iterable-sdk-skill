@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# Pure read. Lists your Firebase projects and the Android apps registered in each,
+# so you can point the walk at something that already exists. Writes nothing.
+#
+# The wizard shows the same information as a menu; this exists for the
+# non-interactive path, where you have to put the answer in resolved.env yourself.
+
+source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
+
+[[ -n "$(tok)" ]] || { echo "Not authenticated. Run: gcloud auth login"; exit 10; }
+
+echo
+echo "  Firebase projects visible to $(gcloud config get-value account 2>/dev/null)"
+echo
+
+PROJECTS="$(firebase_projects)" || {
+  echo "  Could not list Firebase projects."; exit 20; }
+[[ -n "$PROJECTS" ]] || { echo "  None. A project needs Firebase enabled before push can work."; exit 20; }
+
+printf '  %-30s %-22s %s\n' PROJECT NAME "ANDROID APPS (package → appId)"
+printf '  %-30s %-22s %s\n' "------------------------------" "----------------------" "-----------------------------"
+
+FOUND=0
+while IFS=$'\t' read -r p name; do
+  [[ -n "$p" ]] || continue
+  apps="$(android_apps_of "$p" 2>/dev/null \
+    | awk -F'\t' -v pad="$(printf '%56s' '')" \
+        '{printf "%s%s → %s", (NR>1 ? "\n" pad : ""), $1, $2}')"
+  if [[ -n "$apps" ]]; then
+    printf '  %-30s %-22s %s\n' "$p" "${name:0:22}" "$apps"
+    FOUND=1
+  else
+    printf '  %-30s %-22s %s\n' "$p" "${name:0:22}" "$(dim 'no Android app')"
+  fi
+done <<< "$PROJECTS"
+
+echo
+if ((FOUND)); then
+  cat <<EOF
+  Pick a project that already has an Android app — that is the zero-mutation path:
+  G2-G5 become pure reads, and the only thing added is a service account plus key.
+
+      cat >> workspace/resolved.env <<'CONF'
+      PID=<project-id>
+      PACKAGE=<package-name>
+      CONF
+
+  Then:  bin/onboard
+EOF
+else
+  echo "  No project has an Android app yet. Registering one needs CREATE_APP=1."
+fi
+echo
