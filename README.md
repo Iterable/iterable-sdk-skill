@@ -79,6 +79,7 @@ Underneath, both use the same pieces, and the split is structural rather than co
 | `tests/no-raw-http.sh` | Offline lint: every API call goes through a wrapper, and no credential reaches `resolved.env` |
 | `tests/device-token-log.sh` | Pins G14 against recorded logcat: which absences mean something, and which mean nothing |
 | `tests/device-notify.sh` | Pins G16 against recorded `dumpsys notification`: nothing but the push we sent reads as the push we sent |
+| `tests/device-pick.sh` | Pins which device the gates read, with a stubbed `adb` — including the serial that isn't there |
 
 ### The Iterable half is deliberately hand-driven
 
@@ -116,8 +117,18 @@ the run says so in those words.
 ### The device half reads the device
 
 G13, G14 and G16 run over `adb` against the developer's own app. They read; they never build,
-install, launch or send. With one device attached they use it; with several they stop and ask which,
-because reporting a green gate about a device you weren't thinking of is worse than a question.
+install, launch or send.
+
+The wizard asks which device to use — **even when only one is attached**, because a phone left
+plugged in to charge is still the wrong thing to prove a push on, and `emulator-5556` is a port
+number nobody recognises as their own device. Every line names the AVD instead. AVDs that aren't
+running are offered too, and the wizard boots the one you pick. The choice is remembered as the
+**AVD name**, not the serial: emulator serials are handed out in boot order, so the same AVD is
+`emulator-5554` today and `5556` tomorrow.
+
+`bin/gates` never asks — it must stay safe to drive from a loop. With several devices attached it
+names them all and exits; `ANDROID_SERIAL` overrides everything, and `TARGET_DEVICE=` forgets the
+remembered one.
 
 | Gate | What it reads | Why that and not the obvious thing |
 |---|---|---|

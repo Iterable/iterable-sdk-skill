@@ -4,7 +4,9 @@
 set -uo pipefail
 
 BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WS="$(cd "$BIN/.." && pwd)/workspace"
+# Overridable so a test can run against a scratch workspace instead of the
+# developer's live one. A test that reads real resolved.env isn't offline.
+: "${WS:=$(cd "$BIN/.." && pwd)/workspace}"
 
 # Anything resolved from live state (the project's existing package name, app id)
 # is cached here so the verifier and the actor agree on what they are talking about.
@@ -16,7 +18,9 @@ WS="$(cd "$BIN/.." && pwd)/workspace"
 if [[ -f "$WS/resolved.env" ]]; then
   while IFS='=' read -r _k _v; do
     [[ "$_k" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
-    [[ -n "${!_k:-}" ]] && continue
+    # Defined beats cached, even when defined empty: `TARGET_DEVICE= bin/gates` is
+    # how you say "forget the remembered one", and it has to mean that.
+    [[ -n "${!_k+x}" ]] && continue
     export "$_k=$_v"
   done < "$WS/resolved.env"
   unset _k _v
@@ -48,6 +52,44 @@ dim()   { printf '\033[2m%s\033[0m' "$1"; }
 bold()  { printf '\033[1m%s\033[0m' "$1"; }
 
 interactive() { [[ -t 0 && -t 1 && "${NON_INTERACTIVE:-0}" != 1 ]]; }
+
+# Collapse a tool's multi-line diagnostic to one useful line. gcloud's reauth error
+# is 12 lines; repeating it once per gate buries the actual ask.
+#
+# One line per gate is what makes the ladder readable as a table, so long verdicts
+# still get cut — but on a word boundary and with an ellipsis. A bare `cut -c1-100`
+# ended a remedy mid-word ("if the app signs in as a different addres"), which
+# reads like the whole verdict and quietly loses the half that says what to do.
+brief() {
+  tr '\n' ' ' | sed 's/ERROR: ([^)]*) //; s/  */ /g' \
+    | awk '{ if (length($0) > 100) { s = substr($0, 1, 99); sub(/ [^ ]*$/, "", s); print s "…" } else print }'
+}
+
+# Did a push actually arrive? The one question the whole tool answers, and the
+# front ends must not answer it from the exit code alone: rc 40 says something is
+# pending, which is true both before and after G16 goes green.
+push_proven() { grep -q "^G16	green" "$WS/state.tsv" 2>/dev/null; }
+
+# What a human has to do about the gates that are merely pending, one line each,
+# read out of state.tsv rather than guessed. Shared by both front ends: they were
+# drifting on this, and advice that disagrees with itself teaches nobody anything.
+pending_advice() {
+  local id status
+  [[ -f "$WS/state.tsv" ]] || return 0
+  while IFS=$'\t' read -r id status; do
+    [[ "$status" == pending ]] || continue
+    case "$id" in
+      G13) echo "run the app on the device, and accept the notification prompt" ;;
+      G14) echo "launch the app, so the SDK registers a token" ;;
+      # Naming the address is the point. This is the join key between the app and
+      # Iterable, and a test user who signs in as anyone else looks exactly like a
+      # broken integration from here.
+      G15) echo "sign in to the app as ${ITBL_EMAIL:-your test user} — that exact address, or no token is ever filed under it" ;;
+      G16) echo "send the proof push:  $(bold "bin/proof-push")" ;;
+      G17) echo "set ITBL_CAMPAIGN_ID and send through a campaign, for server-side corroboration" ;;
+    esac
+  done < "$WS/state.tsv"
+}
 
 tok() { gcloud auth print-access-token 2>/dev/null; }
 
@@ -198,19 +240,49 @@ urlenc() { node -e 'process.stdout.write(encodeURIComponent(process.argv[1]))' "
 # adb: the tool never builds or installs their app for them, and never sends from
 # the device. How long to keep asking a device that answers "not yet".
 : "${DEVICE_WAIT:=45}"
+# A cold AVD boot is slow enough that the wizard has to say so rather than look hung.
+: "${BOOT_WAIT:=240}"
 
 # `adb devices` also lists entries in state `offline`, `unauthorized` and
 # `no permissions`, none of which answer a shell command.
 adb_devices() { adb devices 2>/dev/null | awk '$2=="device"{print $1}'; }
+
+avd_list() { emulator -list-avds 2>/dev/null; }
+
+# The AVD behind a serial, empty for a physical phone. `emulator-5556` is a port
+# number, which is not a thing anyone recognises as their own device — every
+# message a human reads should name the AVD instead.
+avd_of() { adb -s "$1" emu avd name 2>/dev/null | head -1 | tr -d '\r'; }
+
+device_label() {
+  local avd; avd="$(avd_of "$1")"
+  [[ -n "$avd" ]] && { printf '%s (%s)' "$avd" "$1"; return 0; }
+  printf '%s (%s)' "$(adb -s "$1" shell getprop ro.product.model 2>/dev/null | tr -d '\r')" "$1"
+}
+
+# A remembered device, resolved fresh every run. TARGET_DEVICE holds an AVD name
+# or a physical serial, never an emulator serial: those are port numbers handed
+# out in boot order, so the same AVD is emulator-5554 today and 5556 tomorrow and
+# a remembered serial would quietly point at whatever booted first.
+target_serial() {
+  local want="$1" s
+  for s in $(adb_devices); do
+    [[ "$s" == "$want" ]] && { printf '%s' "$s"; return 0; }
+    [[ "$(avd_of "$s")" == "$want" ]] && { printf '%s' "$s"; return 0; }
+  done
+  return 1
+}
+
+: "${TARGET_DEVICE:=}"
 
 # One serial, or the reason there isn't one. ANDROID_SERIAL wins because adb
 # honours it natively, so a developer who already exports it keeps their setup.
 #
 # With several devices attached this deliberately does not choose. Picking the
 # first one and reporting a green gate about a device the developer wasn't
-# thinking of is worse than asking, and the ask is one command long.
+# thinking of is worse than asking. bin/wizard asks; everything else says how.
 device_serial() {
-  local list n
+  local list n s
   list="$(adb_devices)"
   # Taken on trust, a serial for a device that isn't there turns every read into a
   # silent failure: `adb -s` writes "device not found" to stderr and exits, and a
@@ -221,11 +293,18 @@ device_serial() {
     echo "ANDROID_SERIAL=$ANDROID_SERIAL is not connected (adb sees: ${list:-nothing})" | tr '\n' ' '
     return 1
   fi
+  if [[ -n "$TARGET_DEVICE" ]]; then
+    s="$(target_serial "$TARGET_DEVICE")" && { printf '%s' "$s"; return 0; }
+    echo "$TARGET_DEVICE is not running — start it, or run bin/wizard to pick another"
+    return 1
+  fi
   n="$(printf '%s' "$list" | grep -c '[^[:space:]]')"
   case "$n" in
     0) echo "no device — start an emulator or attach a phone, then re-run"; return 1 ;;
     1) printf '%s' "$list"; return 0 ;;
-    *) echo "$n devices attached — say which: export ANDROID_SERIAL=$(printf '%s' "$list" | head -1)"
+    *) local labels=""
+       for s in $list; do labels="${labels:+$labels, }$(device_label "$s")"; done
+       echo "$n devices attached ($labels) — pick one with bin/wizard, or export ANDROID_SERIAL=$(printf '%s' "$list" | head -1)"
        return 1 ;;
   esac
 }

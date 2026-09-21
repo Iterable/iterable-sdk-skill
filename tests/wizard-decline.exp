@@ -87,12 +87,26 @@ expect {
   timeout { bad "app choice not confirmed" }
 }
 
+# The device step sits between the app choice and consent. Any of its three shapes
+# is fine here; what must not happen is this test booting an emulator, so the
+# picker gets `q` rather than a choice that might mean "start it".
+expect {
+  "Use it?" { send "y\r" }
+  -re "Choose 1-\[0-9\]+" { send "q\r" }
+  "No devices and no AVDs" { }
+  timeout { bad "no device step before consent" }
+}
+
 expect {
   "Go ahead?" { send "n\r" }
   # We deliberately chose a project with a missing service account, so a green
   # ladder here means the chooser and the ladder disagree — a real defect.
-  "Everything on the Google side is already done" {
+  "Done — a push reached the device" {
     bad "chose a project that needs work, but the ladder came back all green"
+  }
+  # Same disagreement, other shape: nothing red and nothing to provision.
+  "no push has been proven yet" {
+    bad "chose a project that needs work, but nothing was left for the tool to do"
   }
   timeout { bad "never reached the consent prompt" }
 }

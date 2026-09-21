@@ -118,13 +118,20 @@ pause_enter
 # ----------------------------------------------------------- the test user
 cat <<EOF
 
-  $(bold "Step 4 — pick a test user")
+  $(bold "Step 4 — the test identity")
 
-    Any email address. It becomes a real user profile in this Iterable project,
-    so use something disposable rather than a customer's address.
+    Not any address: this has to be the one your app signs in with — the value
+    it passes to $(bold "IterableApi.getInstance().setEmail()"). It is the join key
+    between the app and Iterable, and if the two disagree, the token is filed
+    under one identity while the proof push is sent to the other. That reads
+    exactly like a broken integration and is not one.
+
+    If the app doesn't sign anyone in yet, pick something disposable here and
+    make the app use the same value — it becomes a real user profile in this
+    Iterable project, so not a customer's address.
 
 EOF
-read -r -p "  Test user email: " EMAIL < /dev/tty
+read -r -p "  Email the app signs in as: " EMAIL < /dev/tty
 [[ -n "$EMAIL" ]] || { echo "  No email given."; exit 10; }
 save_env ITBL_EMAIL "$EMAIL"
 echo "  $(green ✓) test user: $EMAIL"

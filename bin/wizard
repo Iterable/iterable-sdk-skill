@@ -136,6 +136,101 @@ if ((KEEP == 0)); then
   echo "  $(green ✓) app: $PACKAGE"
 fi
 
+# -------------------------------------------------------------------- the device
+# `emulator-5556` is a port number. Asked to confirm one, a developer is being
+# asked about a string they have no way to recognise — so every line here names
+# the AVD, and the remembered choice is stored as that name too.
+echo
+echo "  ── $(bold "Device") ─────────────────────────────────────────────────────────"
+
+boot_avd() {
+  local avd="$1" waited=0 s
+  echo "  Starting $avd. A cold boot takes a minute or two — leave it." >&2
+  ( emulator -avd "$avd" -no-boot-anim >/dev/null 2>&1 & ) >/dev/null 2>&1
+  while ((waited < BOOT_WAIT)); do
+    if s="$(target_serial "$avd")" \
+       && [[ "$(adb -s "$s" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == 1 ]]; then
+      printf '%s' "$s"; return 0
+    fi
+    sleep 5; waited=$((waited + 5))
+  done
+  echo "  $avd did not finish booting in ${BOOT_WAIT}s. It may still come up." >&2
+  return 1
+}
+
+# Field 1 of every option is the machine value — an AVD name, or a serial for a
+# phone, which has no AVD name to go by. Same contract as the project picker.
+device_options() {
+  local s avd running=" "
+  for s in $(adb_devices); do
+    avd="$(avd_of "$s")"
+    if [[ -n "$avd" ]]; then
+      running="$running$avd "
+      printf '%-28s running\n' "$avd"
+    else
+      printf '%-28s running · %s\n' "$s" "$(adb -s "$s" shell getprop ro.product.model 2>/dev/null | tr -d '\r')"
+    fi
+  done
+  for avd in $(avd_list); do
+    [[ "$running" == *" $avd "* ]] && continue
+    printf '%-28s not running — start it\n' "$avd"
+  done
+}
+
+if DEV="$(device_serial)"; then WHY=""; else WHY="$DEV"; DEV=""; fi
+CHOSE=""
+if [[ -n "$DEV" ]]; then
+  echo
+  echo "  Device:  $(bold "$(device_label "$DEV")")"
+  echo
+  # Asked even when there is exactly one. A phone left plugged in to charge, or
+  # yesterday's emulator, is still the wrong device to prove a push on — and the
+  # only person who knows which one is meant is the one reading this.
+  if ask_yn "Use it?"; then
+    CHOSE="$(avd_of "$DEV")"; CHOSE="${CHOSE:-$DEV}"
+  fi
+else
+  echo
+  echo "  $WHY"
+fi
+
+if [[ -z "$CHOSE" ]]; then
+  echo
+  echo "  $(bold "Pick a device")"
+  echo
+  OPTS="$(device_options)"
+  if [[ -z "$OPTS" ]]; then
+    echo "  No devices and no AVDs. Create one in Android Studio, or attach a phone."
+    echo "  Everything before G13 still works — re-run when you have one."
+    echo
+  else
+    LINE="$(printf '%s\n' "$OPTS" | menu)" || LINE=""
+    if [[ -n "$LINE" ]]; then
+      CHOSE="$(awk '{print $1}' <<< "$LINE")"
+      if [[ "$LINE" == *"start it"* ]]; then
+        echo
+        boot_avd "$CHOSE" >/dev/null || true
+      fi
+    fi
+  fi
+fi
+
+if [[ -n "$CHOSE" ]]; then
+  save TARGET_DEVICE "$CHOSE"
+  # The AVD name is what gets remembered; the serial is resolved fresh, here and
+  # on every later run, because emulator serials are handed out in boot order.
+  if SER="$(target_serial "$CHOSE")"; then
+    export ANDROID_SERIAL="$SER"
+    echo
+    echo "  $(green ✓) device: $(device_label "$SER")"
+  else
+    echo
+    echo "  $(bold "$CHOSE") is not up yet. The device gates will wait for it."
+  fi
+else
+  echo "  No device chosen — G13 onwards will stay blocked, and say so."
+fi
+
 # ------------------------------------------------------------------- the ladder
 echo
 echo "  $(bold "Checking what already works")"
@@ -143,9 +238,27 @@ QUIET_VERDICT=1 "$BIN/gates"
 LADDER=$?
 
 if ((LADDER == 0)); then
-  echo "  $(bold "Everything on the Google side is already done.") Nothing to change."
+  echo "  $(bold "Done — a push reached the device.") Nothing to change."
   echo
   exit 0
+fi
+
+# Everything the tool can do is already done, and what's left is someone running
+# the app or sending the proof. Saying "what I would change in your project" here,
+# then reporting "done" after provisioning nothing, was a lie in the front door:
+# rc 40 means no push has been proven.
+if ((LADDER == 40)); then
+  if push_proven; then
+    echo "  $(bold "A push arrived — and something above is still pending.")"
+  else
+    echo "  $(bold "Nothing is broken — and no push has been proven yet.")"
+  fi
+  echo
+  pending_advice | sed 's/^/      /'
+  echo
+  echo "  Then run $(bold "bin/onboard") again. Nothing already green gets redone."
+  echo
+  exit 40
 fi
 
 # -------------------------------------------------------------------- the plan
@@ -181,10 +294,11 @@ echo
 RC=$?
 echo
 
-if ((RC == 0)); then
+# provision ends by exec'ing the verifier, so RC is the whole ladder's verdict and
+# not a report on provisioning. 0 really does mean a push arrived; 40 means the
+# provisioning worked and nobody has run the app or sent the proof yet.
+if ((RC == 0 || RC == 40)); then
   cat <<EOF
-  $(bold "Done — and verified, not assumed.")
-
   Your service-account key:  workspace/artifacts/sa-key.json
   This is the file Iterable's Firebase push integration asks you to upload.
 
@@ -193,10 +307,24 @@ EOF
     rm -f "$SA_KEY" && echo "  Removed. The key still exists in Google — bin/teardown removes it there."
   fi
   echo
-  echo "  To undo everything this added: $(bold "bin/teardown")"
-  echo
-  exit 0
 fi
+
+case "$RC" in
+  0)
+    echo "  $(bold "Done — a push reached the device.") Verified, not assumed."
+    echo
+    echo "  To undo everything this added: $(bold "bin/teardown")"
+    echo
+    exit 0 ;;
+  40)
+    echo "  $(bold "Nothing is broken — and no push has been proven yet.")"
+    echo
+    pending_advice | sed 's/^/      /'
+    echo
+    echo "  Then run $(bold "bin/onboard") again. Nothing already green gets redone."
+    echo
+    exit 40 ;;
+esac
 
 echo "  Stopped short. The ladder above shows the first red gate — that is the real problem."
 echo "  Re-run bin/onboard to retry; nothing already green is redone."

@@ -13,9 +13,7 @@ FAILED=0
 STATE="$WS/state.tsv"
 mkdir -p "$WS"; : > "$STATE"
 
-# Collapse a tool's multi-line diagnostic to one useful line. gcloud's
-# reauth error is 12 lines; repeating it once per gate buries the actual ask.
-brief() { tr '\n' ' ' | sed 's/ERROR: ([^)]*) //; s/  */ /g' | cut -c1-100; }
+# brief() lives in config.sh so it can be tested without running the ladder.
 
 # Three states, not two. A gate downstream of a red prerequisite is *blocked*,
 # not failed: it says nothing about the system, so running it only produces
@@ -292,7 +290,14 @@ if ((FAILED == 0)); then
     if [[ "${QUIET_VERDICT:-0}" != 1 ]]; then
       echo "  Nothing is broken, and this is not done."
       echo "    ${PENDING% } — ran fine, the state just hasn't happened yet."
-      echo "  $(dim "No push has been proven. Do not read this as success.")"
+      # Which of the two true things to say depends on G16. Saying "no push has been
+      # proven" while G16 is green is the same class of error as the false green,
+      # just pointing the other way.
+      if [[ "$GREEN" == *" G16 "* ]]; then
+        echo "  $(dim "A push did arrive — G16 saw it. Something else above is still pending.")"
+      else
+        echo "  $(dim "No push has been proven. Do not read this as success.")"
+      fi
       echo
     fi
     exit 40

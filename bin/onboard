@@ -55,20 +55,13 @@ case $LADDER in
     exit 0
     ;;
   40)
-    echo "  $(bold "Nothing is broken — and no push has been proven.")"
+    if push_proven; then
+      echo "  $(bold "A push arrived — and something above is still pending.")"
+    else
+      echo "  $(bold "Nothing is broken — and no push has been proven.")"
+    fi
     echo
-    # Same discipline as the red branch below: read which gates are pending out of
-    # state.tsv rather than hardcoding a guess about where a run gets stuck.
-    while IFS=$'\t' read -r id status; do
-      [[ "$status" == pending ]] || continue
-      case "$id" in
-        G13) echo "      run the app and accept the notification prompt" ;;
-        G14) echo "      launch the app on the device, so the SDK registers a token" ;;
-        G15) echo "      sign in as ${ITBL_EMAIL:-your test user} in the app, so a token reaches Iterable" ;;
-        G16) echo "      send the proof push:  $(bold "bin/proof-push")" ;;
-        G17) echo "      set ITBL_CAMPAIGN_ID and send through a campaign, for server-side corroboration" ;;
-      esac
-    done < "$WS/state.tsv"
+    pending_advice | sed 's/^/      /'
     echo
     echo "  Then run $(bold "bin/onboard") again. Nothing already green gets redone."
     echo

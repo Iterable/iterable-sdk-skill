@@ -60,8 +60,11 @@ g15() {
   # "No user exists" is neither a defect nor a bad key: the app has not run and
   # registered a token yet. Gate rule 2 — a not-yet state reported as a failure
   # blames the customer for work that is merely pending. Returns 2, not 1.
+  # The other reading of the same answer, and the more common one: the app signs in
+  # as somebody else. Naming both is the difference between a next step and a
+  # mystery, and nothing on this side can tell them apart.
   if [[ "$ITBL_CODE" == 400 ]] && grep -qi 'no user exists' <<< "$ITBL_BODY"; then
-    echo "no user yet — the app has not registered $ITBL_EMAIL with Iterable"
+    echo "no user yet — nothing has registered $ITBL_EMAIL (is that what the app signs in as?)"
     return 2
   fi
   out="$(classify_itbl_response "$ITBL_CODE" "$ITBL_BODY")" || { echo "$out"; return 1; }

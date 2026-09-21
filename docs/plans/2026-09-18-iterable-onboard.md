@@ -605,7 +605,46 @@ nobody has seen fail is a lint nobody knows works.
 
 **A cache must not outrank the caller.** `config.sh` used to `source resolved.env`, which silently
 overrode the environment: `PID=other bin/gates` read the remembered project and reported gates about
-an app nobody asked about. It now loads key by key and skips anything already set.
+an app nobody asked about. It now loads key by key and skips anything already **defined** — even
+defined empty, so `TARGET_DEVICE= bin/gates` is how you forget a remembered choice.
+
+### What a first real trial found (2026-09-21, later the same day)
+
+Franco ran the tool himself, which is worth more than any amount of re-reading it. Three findings,
+none of them in the half that had just been tested.
+
+**A device needs a picker, not an instruction.** The ladder said `2 devices attached — say which:
+export ANDROID_SERIAL=emulator-5554`. Correct, and useless: a port number is not something anyone
+recognises as their own device, and being told to go export a variable is the "run something and
+come back" the wizard exists to avoid. So the wizard now picks — listing AVD names, offering AVDs
+that aren't running and booting the one you choose, **and asking even when there is exactly one
+attached**, because a phone left plugged in to charge is still the wrong device to prove a push on.
+`bin/gates` still never prompts; it names all the candidates and exits. The remembered choice is the
+AVD name rather than the serial, since emulator serials are handed out in boot order.
+
+**"Any email address" was a lie in the prompt.** `bin/iterable-keys` asked for a test user as
+though it were free-form. It is the join key between the app and Iterable: the SDK files the token
+under whatever the app passes to `setEmail()`, and the proof push goes to `ITBL_EMAIL`. Franco typed
+a different address than the app signs in with, and G15 duly reported "no user yet" — which reads
+exactly like a broken Iterable project and is not one. The prompt now says what the value has to be,
+and G15's verdict names the other possibility.
+
+**A verdict cut mid-word reads like the whole verdict.** `brief()` truncated at 100 characters with
+`cut`, which ended G15's new remedy at "...signs in as a different addres" — the half that says what
+to do, gone silently. It now cuts on a word boundary and appends an ellipsis, and it moved to
+`config.sh` so a test can reach it without running the ladder.
+
+Two verdicts were also lying by construction, in opposite directions. The wizard ran the Google
+half, found nothing to provision, and printed **"Done — and verified, not assumed"** when no push
+had been proven; and once G16 did go green while something else was pending, the ladder still said
+**"No push has been proven"**. Both now read the state instead of the exit code: `push_proven()`
+asks G16, and the wizard's rc-40 branch says what is pending instead of offering to provision
+nothing. The lesson is the plan's own, turned on the reporting layer — an exit code says *something*
+is pending, never *what*, and a summary that infers the rest will eventually infer wrong.
+
+Still unverified by execution: the wizard booting an AVD that never comes up. The loop is bounded by
+`BOOT_WAIT` and says so when it gives up, but driving that branch through a pty kept mismatching the
+prompt, so it is inspection only.
 
 ---
 
