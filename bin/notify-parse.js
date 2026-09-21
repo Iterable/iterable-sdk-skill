@@ -34,10 +34,13 @@ process.stdin.on("data", (c) => (input += c)).on("end", () => {
 
   for (const line of lines) {
     if (/^\s*NotificationRecord\(/.test(line)) {
-      cur = { pkg: "", channel: "", channelName: "", when: 0, title: "", text: "", redacted: false };
+      cur = { pkg: "", channel: "", channelName: "", when: 0, title: "", text: "", redacted: false, silent: false };
       records.push(cur);
       cur.pkg = (/pkg=(\S+)/.exec(line) || [])[1] || "";
       cur.channel = (/channel=(\S+)/.exec(line) || [])[1] || "";
+      // Android groups a second notification from the same app with the first and
+      // marks the children SILENT: it arrived, and nothing appeared on screen.
+      cur.silent = /flags=[A-Z_|]*\bSILENT\b/.test(line);
       continue;
     }
     // A record block ends at the next section header, which sits at a shallower
@@ -90,14 +93,17 @@ process.stdin.on("data", (c) => (input += c)).on("end", () => {
     const fresh = (r) => !sentAt || !r.when || r.when >= sentAt - 5000;
     const hit = mine.find((r) => carries(r) && fresh(r));
     if (hit) {
-      const lag = sentAt && hit.when ? `, ${Math.round((hit.when - sentAt) / 1000)}s after the send` : "";
-      // Re-running the ladder does not re-send, so this green can be hours old.
-      // Say how old, or it reads as a push that just arrived.
+      // Re-running the ladder does not re-send, so say how old the arrival is every
+      // time. Read without an age, a green about a two-hour-old push reads as a push
+      // that just landed — and someone watching the device sees nothing happen and
+      // concludes the gate is lying. Only the text is quoted, not the title too:
+      // it carries the marker, and the line has to survive brief()'s 100 characters.
+      const at = hit.when ? new Date(hit.when).toLocaleTimeString() : "unknown time";
+      const lag = sentAt && hit.when ? `, ${Math.round((hit.when - sentAt) / 1000)}s after send` : "";
       const mins = hit.when ? Math.round((Date.now() - hit.when) / 60000) : null;
-      // Only when it is old enough to mislead: a proof sent a minute ago needs no
-      // caveat, and the line has to survive brief()'s 100 characters.
-      const age = mins === null || mins < 10 ? "" : mins < 60 ? ` (${mins}m ago)` : ` (${Math.round(mins / 60)}h ago)`;
-      verdict(0, `${describe(hit)}${lag}${age}`);
+      const age = !mins ? "" : mins < 60 ? `, ${mins}m ago` : `, ${Math.round(mins / 60)}h ago`;
+      const quiet = hit.silent ? " — SILENT, no banner" : "";
+      verdict(0, `"${hit.text || hit.title}" at ${at}${lag}${age}${quiet}`);
     }
     if (mine.some((r) => r.redacted)) {
       verdict(2, `${mine.length} notification(s) from ${PKG}, content redacted — cannot match the marker`);

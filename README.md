@@ -142,9 +142,17 @@ the SDK's own notification channel, which is as much as the OS can honestly tell
 
 **If you want to watch it arrive, clear the shade first.** Android groups a second notification from
 the same app with the first and marks the children `SILENT`: no banner, no sound. The push arrives,
-G16 sees it, and the screen shows nothing — which looks exactly like a push that failed. `bin/proof-push`
-warns when an earlier proof is still sitting there. G16 also says how long ago the push landed once
-it is more than ten minutes old, because re-running the ladder does not re-send.
+G16 sees it, and the screen shows nothing — which looks exactly like a push that failed.
+
+G16 says so itself, because a caveat only `bin/proof-push` prints is invisible to anyone running the
+verifier:
+
+```
+✓  G16  Push arrives on device   "G16 proof itbl-onboard-1789996750" at 2:19:13 PM, 2s after send — SILENT, no banner
+```
+
+It also states how long ago every arrival landed, since re-running the ladder does not re-send and a
+green can be hours old. If G16 is green and you saw nothing, those two lines tell you which it was.
 
 The test identity is the other thing worth not guessing. `ITBL_EMAIL` has to be the value the app
 passes to `setEmail()`, and the app decides that in code — so `bin/iterable-keys` reads the identity

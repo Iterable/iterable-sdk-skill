@@ -42,7 +42,19 @@ echo "  notify-parse.js — recorded notification dumps, no device"
 echo
 
 # The green with a marker: this is the push we sent, and the lag proves it.
-case_is "marker matched"        dumpsys-notification-arrived.txt "$MARKER" 0 "after the send"
+case_is "marker matched"        dumpsys-notification-arrived.txt "$MARKER" 0 "after send"
+# Re-running the ladder does not re-send, so a green can be about an old push. It
+# has to say so — read without an age it means "a push just landed", and someone
+# watching the device sees nothing and concludes the gate is lying.
+case_is "says how old it is"    dumpsys-notification-arrived.txt "$MARKER" 0 " ago"
+# Arrived and invisible: Android bundles a second notification from the same app
+# with the first and marks it SILENT. The gate is right and the developer, who saw
+# no banner, is also right — so the verdict has to reconcile them.
+case_is "arrived but silent"    dumpsys-notification-silent.txt  "$MARKER" 0 "SILENT, no banner"
+# ...and the ordinary arrival must not claim that.
+out="$(node bin/notify-parse.js com.dogshelter "$MARKER" "$SENT_AT" < tests/fixtures/dumpsys-notification-arrived.txt)"
+[[ "$out" != *SILENT* ]] && ok "a banner-showing arrival says nothing about SILENT" \
+  || bad "non-silent arrival claimed SILENT: $out"
 # The green without one: somebody else sent it, so the channel is all we have.
 case_is "no marker, channel"    dumpsys-notification-arrived.txt -         0 "iterable channel"
 # A marker from an earlier run must not match a notification still on screen.

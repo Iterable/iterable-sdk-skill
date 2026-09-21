@@ -687,7 +687,25 @@ minutes old, because re-running the ladder does not re-send and the green can be
 Clearing the shade from the CLI has no obvious command; `cmd notification` offers no dismiss. Two that
 do work: `cmd notification list` plus `snooze --for <ms> <key>` (the key contains `|`, so it needs
 quoting for the *device's* shell or it is parsed as a pipe), and `set_exempt_th_force_grouping`, which
-is the grouping behaviour itself.
+is the grouping behaviour itself. Snoozing is not clearing — snoozed notifications come back when the
+timer expires, which is how a shade "cleared" for one test had six proofs in it twenty minutes later.
+
+**The warning on the actor was in the wrong place.** Reported again as "it says arrived on the device
+but it didn't really, maybe it's reading an old value", and the first thing to check was whether the
+gate fabricates: with an empty shade it reports `·` pending, so it does not. The push had arrived,
+silently, and `bin/proof-push` had said so — but the complaint came from reading `bin/gates`, which
+had not. A caveat only the actor prints is invisible to anyone who runs the verifier, which is the
+normal way to use this tool.
+
+So G16 now carries both facts itself: `"G16 proof itbl-onboard-1789996750" at 2:19:13 PM, 2s after
+send — SILENT, no banner`. It reads `flags` off the record, and it states the age of every arrival
+rather than only stale ones — the earlier ten-minute threshold existed to fit `brief()`, which is a
+formatting reason for withholding the one fact that reconciles a green gate with a developer who saw
+nothing. Quoting only the notification's text, not its title as well, buys back the characters.
+
+The general rule: **when the tool and the developer disagree about reality, the verdict is what has to
+explain the difference.** "Arrived" and "I saw nothing" were both true here, and only the gate was in
+a position to say why.
 
 **The test identity should never have been a free-text prompt.** It was typed wrong three times across
 runs — `franco@testemail.com`, `francotest@emailtest.com` — and each time G15 read "no user yet", which
