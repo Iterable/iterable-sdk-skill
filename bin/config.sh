@@ -87,6 +87,28 @@ fi
 : "${DRIVER:=developer}"
 agent_driven() { [[ "$DRIVER" == agent ]]; }
 
+# The router saying "not yours to run" was not enough: a caller that never reads
+# `next` still reaches the actor, and one did. So the actor asks the same question
+# and answers it from disk, in the shape the consent gate already uses.
+#
+# A tty is the strongest available evidence that a human is present — the wizard has
+# one, a chat tool does not. Failing that, the only yes that counts is the recorded
+# one, which is why this reads the file rather than $DRIVER: the environment loses
+# here on purpose, so `DRIVER=agent bin/onboard --apply` cannot authorise itself.
+may_drive_setup() {
+  [[ -t 0 ]] && return 0
+  [[ "${APPROVED:-0}" == 1 ]] && return 0
+  [[ -f "$WS/resolved.env" ]] && grep -q '^DRIVER=agent$' "$WS/resolved.env"
+}
+
+# Printed instead of doing the work. The banner is the remedy; this line is why it
+# appeared in the middle of something that looked like it was about to run.
+handoff_refusal() {
+  handoff_banner
+  printf '  %s\n' "$(dim "Not run: this changes a Google project and nobody recorded a request for it to be")"
+  printf '  %s\n\n' "$(dim "driven from a chat. That record is: $BIN/agent set DRIVER=agent")"
+}
+
 ART="$WS/artifacts"
 GS_JSON="$ART/google-services.json"
 SA_KEY="$ART/sa-key.json"

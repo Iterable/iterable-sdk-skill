@@ -94,6 +94,13 @@ default exists — a project with no app has no `google-services.json` to downlo
 misses `CREATE_APP=1` is one improvisation away from faking the file to keep a build green. `bin/agent
 set DRIVER=agent` is the developer choosing otherwise; nothing else may set it.
 
+That routing is advice to whoever reads it, and twice an agent ran the setup anyway — so the actor
+asks the same question and answers it from disk. `bin/provision` and `bin/onboard --apply` exit `10`
+with the handoff block unless a terminal is attached, or `DRIVER=agent` is *recorded* in
+`resolved.env`. Recorded, not exported: `DRIVER=agent bin/onboard --apply` is a caller authorising
+itself, so the environment loses here on purpose. A tty is the one thing a chat cannot fake, which
+is what lets the wizard through the same gate without an exception written for it.
+
 Consent is a mechanism here, not a paragraph. Nothing reaches somebody's Google project until a yes
 is recorded against *that project*: `next` routes to `approve_firebase` ahead of any mutation, and
 `bin/provision` exits `10` without making a single call if the record is missing — so an agent that

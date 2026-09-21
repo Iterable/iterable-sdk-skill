@@ -11,6 +11,15 @@
 #   tests/wizard-decline.exp [project-menu-choice] [app-menu-choice]
 
 set timeout 180
+
+# A scratch workspace, set before anything sources config.sh. Two reasons: the tool
+# refuses to resolve a workspace inside itself, which is where a test run from the
+# repo would land, and a run that picks a project must not overwrite the choice the
+# developer is actually working on.
+set ws "/tmp/itbl-wizard-decline.ws"
+file delete -force $ws
+file mkdir $ws
+set env(WS) $ws
 # Menu positions shift as projects come and go, so find the project to use rather
 # than hardcoding an index. Two requirements, and the second one was learned the
 # hard way: the project must have an Android app (or the run goes down the
@@ -41,18 +50,25 @@ if {$proj == 0} {
   exit 0
 }
 
-# The run picks a project, which rewrites resolved.env. Put the developer's own
-# selection back afterwards — a test must not change what they are working on.
-set saved "/tmp/itbl-resolved.env.test"
-catch { exec cp workspace/resolved.env $saved }
 proc finish {code msg} {
-  global saved
-  catch { exec cp $saved workspace/resolved.env }
-  catch { exec rm -f $saved }
+  global ws
+  catch { file delete -force $ws }
   puts "\n$msg"
   exit $code
 }
 proc bad {msg} { finish 1 "FAIL: $msg" }
+
+# The driver gate refuses setup nobody handed over, and it reads a tty as proof that
+# a human is present. The wizard is the one caller that must always pass it — if this
+# breaks, the wizard refuses itself, and nothing offline can catch it because every
+# other test here runs without a terminal.
+spawn bash -c "source bin/config.sh; may_drive_setup && echo DRIVE-OK || echo DRIVE-REFUSED"
+expect {
+  "DRIVE-OK" { }
+  "DRIVE-REFUSED" { bad "the driver gate refuses a caller with a terminal — the wizard cannot provision" }
+  timeout { bad "driver gate probe never answered" }
+}
+expect eof
 
 spawn bash bin/wizard
 

@@ -84,26 +84,43 @@ So when `next.kind` is `run_in_terminal`:
 Offer the alternative once, in the same message, as a real choice: one
 `AskUserQuestion` with *I'll run it in my terminal* (recommended — say why in a
 clause) and *You run it for me here*. If they pick the second, record it with
-`<root>/bin/agent set DRIVER=agent` and the routing switches to the table below.
+`<root>/bin/agent set DRIVER=agent`, which unlocks *Once they hand it to you* below.
 **Only they can make that choice.** Setting `DRIVER=agent` because handing over felt
 slow is taking the decision the default exists to leave with them.
 
+The scripts hold the same line, so this is not on your memory: `bin/provision` and
+`bin/onboard --apply` refuse with exit `10` and print the handoff block when nothing
+on disk records that request. **If you see that refusal, you skipped the handover** —
+relay the block, do not look for a flag that gets you past it, and never set
+`APPROVED=1` (the CI form, for a job with no human in it) to make it go away.
+
+## Every state, and the one thing it asks of you
+
 | `next.kind` | What you do |
 |---|---|
-| `run_in_terminal` | The default. Relay the handoff block, say you'll wait, stop. |
+| `run_in_terminal` | The default for the whole Google half. Relay the handoff block, say you'll wait, stop. |
 | `install_tools` | Report exactly which binaries are missing (`missing_tools`) and what each unlocks: `gcloud` the Google half, `adb` the device half, `node` the JSON parsing, `java` the keystore reads. Do not install them. |
 | `authenticate` | Ask the developer to run `gcloud auth login` **themselves**, in their own terminal. You never handle their Google credentials. |
 | `choose_target` | Run `<root>/bin/agent discover` for the JSON list of their Firebase projects and Android apps, then ask **one** `AskUserQuestion` listing real projects (a project that already has their package is the zero-mutation path — say so). Record it with `<root>/bin/agent set PID=… PACKAGE=…`. |
 | `project_unreachable` | Relay `next.summary` verbatim; it is a permissions answer from Google, not something to work around. |
-| `approve_firebase` | Only reachable once they asked you to drive it. Nothing has touched their project yet, and nothing will until they say yes. See *Asking before you change their project*. |
-| `register_app` | Their Firebase project has no Android app, so there is no `google-services.json` to download and nothing downstream can work. Registering one is a real mutation: ask outright, then re-run with `CREATE_APP=1`. **This is the state that must never turn into a workaround** — if you cannot register the app, hand over to the terminal instead of writing code around the missing file. |
-| `provision` | Show `next.summary`, then run `<root>/bin/onboard --apply`. It creates the service account, binds the send-push role and nothing more, downloads `google-services.json`, and ends by re-running the ladder. Their yes is already recorded by this point — do not ask twice. |
 | `iterable_keys` | Four steps in their Iterable account that only they can do. Walk them **one at a time** — see *The four Iterable steps* below. |
 | `install_app` / `run_app` / `send_proof` | The device half — hand off to `iterable-verify`. |
 | `done` | A real push reached the device. Say which device and chain onward. |
 
 `next.command` is the command for that step when there is one. Run it; do not
 compose your own equivalent.
+
+### Once they hand it to you
+
+You reach these three only after `bin/agent set DRIVER=agent`. Until then `next`
+never names them, and the scripts behind them refuse. Reading a command out of this
+table and running it anyway is the one shortcut this skill exists to prevent.
+
+| `next.kind` | What you do |
+|---|---|
+| `approve_firebase` | Nothing has touched their project yet, and nothing will until they say yes. See *Asking before you change their project*. |
+| `register_app` | Their Firebase project has no Android app, so there is no `google-services.json` to download and nothing downstream can work. Registering one is a real mutation: ask outright, then re-run with `CREATE_APP=1`. **This is the state that must never turn into a workaround** — if you cannot register the app, hand it back to the terminal instead of writing code around the missing file. |
+| `provision` | Show `next.summary`, then run `<root>/bin/onboard --apply`. It creates the service account, binds the send-push role and nothing more, downloads `google-services.json`, and ends by re-running the ladder. Their yes is already recorded by this point — do not ask twice. |
 
 ## Asking before you change their project
 

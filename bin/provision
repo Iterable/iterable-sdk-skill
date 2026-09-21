@@ -14,6 +14,14 @@ require_pid || exit 10
 # and not only in the skills: prose asks an agent to ask, and an agent that skips it
 # would be the only thing standing between a client's cloud project and a script.
 # Exit 10 — blocked on a human — because that is exactly what this is.
+# Who runs this comes before whether it is allowed, because the terminal path asks
+# for consent in person: an agent that gets past the driver gate by collecting the
+# approval first has collected permission for work that was never its to do.
+if ! may_drive_setup; then
+  handoff_refusal
+  exit 10
+fi
+
 if ! approved; then
   firebase_consent_banner
   exit 10

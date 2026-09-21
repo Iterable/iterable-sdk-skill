@@ -41,6 +41,9 @@ echo "  Approval — the tool refuses before it asks Google anything"
 echo
 
 WS1="$TMP/unapproved"
+# Handed over on purpose, because consent is what this block is about: the driver gate
+# below refuses earlier and for a different reason, and that reason is tested there.
+mkdir -p "$WS1"; echo "DRIVER=agent" > "$WS1/resolved.env"
 out="$(provision_run "$WS1")"; rc=$?
 calls="$(wc -l < "$WS1/calls" 2>/dev/null || echo 0)"
 
@@ -77,6 +80,10 @@ rec="$(CALLS="$WS3/calls" PATH="$STUB:/usr/bin:/bin" WS="$WS3" PID=proj PACKAGE=
 ((rrc == 0)) && grep -q '"approved":true' <<< "$rec" \
   && ok "agent approve firebase records it: $(tr -d '\n' <<< "$rec" | cut -c1-72)" \
   || bad "agent approve firebase returned rc $rrc: $rec"
+# A recorded yes answers *whether*, and the driver gate below answers *who* — so this
+# needs both records to get through, and that is the intended reading of consent from
+# a chat: they agreed to the changes and they agreed to you making them.
+echo "DRIVER=agent" >> "$WS3/resolved.env"
 provision_run "$WS3" >/dev/null 2>&1
 calls="$(wc -l < "$WS3/calls" 2>/dev/null || echo 0)"
 ((calls > 0)) && ok "a recorded yes gets past the gate too" \
@@ -89,6 +96,50 @@ out="$(PATH="$STUB:/usr/bin:/bin" WS="$WS4" PID="" bash bin/agent approve fireba
 ((rc == 30)) && grep -q 'no project chosen' <<< "$out" \
   && ok "refuses to record a yes with no project named" \
   || bad "approving with no project gave rc $rc: $out"
+
+echo
+echo "  Driver — the actor refuses setup the developer never handed over"
+echo
+
+# Twice in one day, an agent ran the setup itself while the router was telling it to
+# hand over. Routing is advice to whoever reads it; this is the part that cannot be
+# skipped by not reading. Neither case here has a tty, which is what a chat tool looks
+# like from inside the script.
+WS5="$TMP/env-driver"
+out="$(provision_run "$WS5" DRIVER=agent APPROVED=0)"; rc=$?
+calls="$(wc -l < "$WS5/calls" 2>/dev/null || echo 0)"
+
+((rc == 10 && calls == 0)) \
+  && ok "DRIVER=agent in the environment authorises nothing — rc 10, no calls" \
+  || bad "an environment variable got past the driver gate: rc $rc, $calls call(s)"
+
+grep -qF "RUN THIS IN YOUR TERMINAL" <<< "$out" \
+  && ok "the refusal is the handoff block — it says where to go instead" \
+  || bad "refused without telling anyone what to do instead: $out"
+
+# Order matters: asked for approval first, an agent collects permission for work that
+# was never its to do, and the developer reads that as having been consulted.
+grep -qF "APPROVAL NEEDED" <<< "$out" \
+  && bad "asked for approval before refusing — consent for somebody else's job" \
+  || ok "does not ask for consent it has no use for"
+
+# The recorded form is the developer's own choice, and it does work.
+WS6="$TMP/recorded-driver"; mkdir -p "$WS6"
+echo "DRIVER=agent" > "$WS6/resolved.env"
+provision_run "$WS6" APPROVED=1 >/dev/null 2>&1
+calls="$(wc -l < "$WS6/calls" 2>/dev/null || echo 0)"
+((calls > 0)) && ok "a recorded DRIVER=agent gets through — they can still delegate it" \
+  || bad "the recorded driver choice was refused as well: nothing can provision"
+
+# The helper itself, because bin/onboard --apply guards on it at its own call site.
+drive_check() { WS="$1" PATH="$STUB:/usr/bin:/bin" bash -c '
+  source bin/config.sh >/dev/null 2>&1; may_drive_setup' < /dev/null; }
+WS7="$TMP/helper"; mkdir -p "$WS7"
+drive_check "$WS7" && bad "may_drive_setup allows a bare non-tty caller" \
+  || ok "may_drive_setup: no tty, no record, no"
+echo "DRIVER=developer" > "$WS7/resolved.env"
+drive_check "$WS7" && bad "may_drive_setup allows DRIVER=developer" \
+  || ok "may_drive_setup: recorded as the developer's job, still no"
 
 echo
 ((FAILED)) && { echo "  FAILED"; exit 1; }

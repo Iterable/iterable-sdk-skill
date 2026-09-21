@@ -92,6 +92,14 @@ if [[ -z "$PID" ]]; then
   exit 20
 fi
 
+# Refused before the approval question rather than after it, so nobody is asked to
+# consent to work this caller is not the one who should be doing. The dry run stays
+# open to everybody: printing the plan changes nothing.
+if ((APPLY)) && ! may_drive_setup; then
+  handoff_refusal
+  exit 10
+fi
+
 if ! approved; then
   firebase_consent_banner
   exit 10
