@@ -506,7 +506,9 @@ device_serial() {
     1) printf '%s' "$list"; return 0 ;;
     *) local labels=""
        for s in $list; do labels="${labels:+$labels, }$(device_label "$s")"; done
-       echo "$n devices attached ($labels) — pick one with bin/wizard, or export ANDROID_SERIAL=$(printf '%s' "$list" | head -1)"
+       # Remedy first, list second: brief() truncates at 100 characters, and two
+       # AVD names are enough to push the only actionable part of this off the end.
+       echo "$n devices attached — pick one: bin/agent set TARGET_DEVICE=<name|serial> ($labels)"
        return 1 ;;
   esac
 }
