@@ -94,6 +94,33 @@ Write the code for each of these. Only genuinely developer-supplied inputs
 legitimate things to pause and ask for — wiring is not. Don't substitute
 `INTEGRATION_STATUS.md`-style essays for doing the work.
 
+### Proving it works when you don't have the dashboard
+
+`setting-up-android-push-notifications` ends with **Test Push** from the
+dashboard (**Settings > Apps and Websites** → the app). Plenty of app
+developers don't own that dashboard, so don't present it as the only proof and
+don't leave them to invent one. From the device alone:
+
+1. **The token reached Iterable** — `adb logcat -s IterableRequest`, look for a
+   `registerDeviceToken` response with `"code": "Success"`.
+2. **Don't panic at `UnknownEmailError`.** Shortly after that success, calls
+   like `getMessages` can still answer `"No user exists with email …"`. The
+   profile lags the token registration; wait and re-check before changing any
+   code. Changing code here is how a working integration gets "fixed" into a
+   broken one.
+3. **The channel exists** — `adb shell dumpsys notification` shows
+   `NotificationChannel{mId='<the.package.name>', mName=iterable channel}`,
+   created by the SDK.
+4. **A push actually arrived** —
+   `adb shell dumpsys notification | grep 'pkg=<the.package.name>'` prints the
+   `android.title` and `android.text` that landed. Prefer this to a logcat
+   marker: the OS is neither the sender nor the app, and it needs no code in
+   the app. (`adb shell cmd notification list` is the terser form.)
+
+To get a push *sent* at all, hand the dashboard owner two things: the token
+from step 1's request body, and the exact identity value you passed to
+`setEmail`/`setUserId`. Sending it is theirs; steps 1–4 are yours.
+
 ---
 
 ## Preflight — STOP and gather these before writing any code
