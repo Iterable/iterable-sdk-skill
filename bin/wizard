@@ -245,16 +245,7 @@ fi
 # then reporting "done" after provisioning nothing, was a lie in the front door:
 # rc 40 means no push has been proven.
 if ((LADDER == 40)); then
-  if push_proven; then
-    echo "  $(bold "A push arrived — and something above is still pending.")"
-  else
-    echo "  $(bold "Nothing is broken — and no push has been proven yet.")"
-  fi
-  echo
-  pending_advice | sed 's/^/      /'
-  echo
-  echo "  Then run $(bold "bin/onboard") again. Nothing already green gets redone."
-  echo
+  pending_tail
   exit 40
 fi
 
@@ -307,18 +298,7 @@ case "$RC" in
     echo
     exit 0 ;;
   40)
-    echo "  $(bold "Nothing is broken — and no push has been proven yet.")"
-    echo
-    pending_advice | sed 's/^/      /'
-    echo
-    # Said rather than asked, and only while it is still the answer to something: the
-    # file is unexplained otherwise, and "what is sa-key.json for" arrives at step 3.
-    if [[ -f "$SA_KEY" && "$(gate_status G10)" != green ]]; then
-      echo "  $(dim "Keep $(wsp artifacts/sa-key.json) — step 3 above is the step that uploads it.")"
-      echo
-    fi
-    echo "  Then run $(bold "bin/onboard") again. Nothing already green gets redone."
-    echo
+    pending_tail
     exit 40 ;;
 esac
 

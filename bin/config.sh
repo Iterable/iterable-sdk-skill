@@ -224,13 +224,46 @@ advice_for() {
   esac
 }
 
-pending_advice() {
+pending_advice() { # [gate to leave out — the one already named above it]
   local id status owner name detail
   [[ -f "$WS/state.tsv" ]] || return 0
   while IFS=$'\t' read -r id status owner name detail; do
     [[ "$status" == pending ]] || continue
+    [[ -n "${1:-}" && "$id" == "$1" ]] && continue
     advice_for "$id" | sed "s|\(bin/[a-z-]*\)|$(bold '\1')|"
   done < "$WS/state.tsv"
+}
+
+# The whole rc 40 ending, in one place because it had drifted into three. The wizard's
+# copy printed the list and no box, which left the only command on the screen a
+# relative path — from the developer's own project, the one directory where bin/… does
+# not resolve. The box exists to carry a path that does.
+#
+# One thing to do, then what waits behind it. Never the same item twice: printed in
+# the box and again in the list, the second copy reads as a second task.
+pending_tail() {
+  local owner kind gate cmd summary rest
+  IFS="$NEXT_SEP" read -r owner kind gate cmd summary <<< "$(next_action)"
+  if push_proven; then
+    echo "  $(bold "A push arrived — and something above is still pending.")"
+  else
+    echo "  $(bold "Nothing is broken — and no push has been proven yet.")"
+  fi
+  blocker_banner
+  rest="$(pending_advice "$gate")"
+  if [[ -n "$rest" ]]; then
+    echo "  $(dim "Waiting behind it:")"
+    sed 's/^/      /' <<< "$rest"
+    echo
+  fi
+  # Said rather than asked, and only while it is still the answer to something: the
+  # file is unexplained otherwise, and "what is sa-key.json for" arrives at step 3.
+  if [[ -f "$SA_KEY" && "$(gate_status G10)" != green ]]; then
+    echo "  $(dim "Keep $(wsp artifacts/sa-key.json) — the Iterable push integration step uploads it.")"
+    echo
+  fi
+  echo "  Then run $(bold "bin/onboard") again. Nothing already green gets redone."
+  echo
 }
 
 # One row of the ladder, by column. The front ends need a gate's name and status

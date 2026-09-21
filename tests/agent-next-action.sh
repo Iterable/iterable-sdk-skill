@@ -222,6 +222,28 @@ banner_says "the tool cannot do this part" "nothing to run — plugging a phone 
 state "$(row G10 pending human "Iterable API keys work" "no server-side key yet")"
 banner_says "it walks you through it" "a human step the tool still narrates"
 
+# ------------------------------------------------ the ending, shared by all of them
+# The wizard's copy of this had drifted: it printed the list of outstanding work and
+# no box, which left the only command on the screen a relative path — shown to
+# somebody standing in their own project, the one directory where bin/… cannot
+# resolve. Front ends may differ in how they ask; they may not differ in this.
+state "$(row G10 pending human "Iterable API keys work" "no server-side key yet")" \
+      "$(row G16 pending tool "Push arrives on device" "nothing on the device yet")"
+tail_out="$(pending_tail 2>&1 | LC_ALL=C sed $'s/\033\\[[0-9;]*m//g')"
+
+grep -qF "$BIN/iterable-keys --step 1" <<< "$tail_out" \
+  && ok "$(printf '%-44s %s' "the next step is runnable from their project" "absolute path")" \
+  || bad "the rc 40 ending has no runnable command" "$(tr -s '\n ' ' ' <<< "$tail_out" | cut -c1-90)"
+
+n="$(grep -c "four Iterable dashboard steps" <<< "$tail_out")"
+((n == 1)) \
+  && ok "$(printf '%-44s %s' "named once, not boxed and listed again" "1 mention")" \
+  || bad "the next step appears $n times" "in the box and again in the list reads as two tasks"
+
+grep -qF "send the proof push" <<< "$tail_out" \
+  && ok "$(printf '%-44s %s' "what waits behind it is still shown" "G16 listed")" \
+  || bad "the rest of the outstanding work vanished" "only the next step survived"
+
 # A project with no recorded yes — the earlier cases recorded one for p.
 APPROVED=0 PID=q
 state "$(row G6 red tool "Service account exists" "not created yet")"

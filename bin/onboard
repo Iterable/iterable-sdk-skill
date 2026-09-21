@@ -59,19 +59,7 @@ case $LADDER in
     exit 0
     ;;
   40)
-    if push_proven; then
-      echo "  $(bold "A push arrived — and something above is still pending.")"
-    else
-      echo "  $(bold "Nothing is broken — and no push has been proven.")"
-    fi
-    # The one next thing in a box, and the rest of the outstanding work under it. A
-    # list of five equal-looking lines is a list nobody starts.
-    blocker_banner
-    echo "  $(dim "Also waiting on:")"
-    pending_advice | sed 's/^/      /'
-    echo
-    echo "  Then run $(bold "bin/onboard") again. Nothing already green gets redone."
-    echo
+    pending_tail
     exit 40
     ;;
   10)
