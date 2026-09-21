@@ -133,6 +133,9 @@ pitfalls:
       - "BuildConfig"
       - "local\\.properties"
       - "API_KEY"
+      - "getSecret"
+      - "buildFeatures"
+      - "build\\.gradle\\.kts"
     features: [integration]
 
   - id: 17

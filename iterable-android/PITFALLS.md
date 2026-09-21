@@ -220,7 +220,35 @@ hot-path subset; the full list lives here and is loaded on demand.
   `OPEN_EXCHANGE_RATES_API_KEY` pattern many repos already have) *looks* like
   it reads `local.properties` but does not — it only sees `gradle.properties` /
   `-P` flags, so it silently yields an empty key. Read the file yourself with
-  `Properties()`:
+  `Properties()`.
+
+  **Match the build language before you copy either block below** — Kotlin DSL
+  (`build.gradle.kts`) is the default for new projects, and the Groovy version
+  does not compile there.
+
+  ```kotlin
+  import java.util.Properties          // mandatory; Kotlin DSL has no auto-imports
+
+  fun getSecret(property: String, defaultValue: String = ""): String {
+      val f = rootProject.file("local.properties")
+      if (!f.exists()) return defaultValue
+      val props = Properties()
+      f.inputStream().use { props.load(it) }
+      return props.getProperty(property) ?: defaultValue
+  }
+
+  android {
+      defaultConfig {
+          buildConfigField("String", "ITERABLE_API_KEY", "\"${getSecret("ITERABLE_API_KEY")}\"")
+      }
+      buildFeatures { buildConfig = true }
+  }
+  ```
+  `buildConfig = true` is not optional on AGP 8.0+, which stopped defaulting it
+  on. Omit it and the build fails with `defaultConfig contains custom
+  BuildConfig fields, but the feature is disabled` (measured on AGP 8.4) — read
+  that message as "enable the flag", not as "the field is wrong".
+
   ```groovy
   def getSecret(property, defaultValue) {
       def f = rootProject.file("local.properties")
@@ -244,6 +272,12 @@ hot-path subset; the full list lives here and is loaded on demand.
   key is a **mobile** key (Iterable dashboard → API keys); a server-side key in
   an app exposes all project data. Confirm the file holding the key is
   gitignored before building.
+- **Third flavor — a stale key already in the file.** If `local.properties`
+  already holds `ITERABLE_API_KEY`, do **not** assume it is the right one.
+  It may belong to a different Iterable project, or be a rotated key. Show the
+  developer the value you found and ask them to confirm it against the key
+  they gave you; a mismatch authenticates as nothing and surfaces later as a
+  401 with no obvious cause.
 
 ## 17. Guessing the user identifier (e.g. a license/account email)
 

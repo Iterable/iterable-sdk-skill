@@ -122,8 +122,8 @@ done.
 
 | Input | Needed when | If missing |
 |---|---|---|
-| **`google-services.json`** (real, from the developer's Firebase Console) | Any push / FCM work — the `com.google.gms.google-services` plugin **fails the build without it** | **STOP and ask.** It's project-specific; you cannot generate it. |
-| **Mobile API key** | Always | Ask where it lives; expect `local.properties` (gitignored). Never hardcode. |
+| **`google-services.json`** (real, from the developer's Firebase Console) | Any push / FCM work — the `com.google.gms.google-services` plugin **fails the build without it** | **STOP and ask.** It's project-specific; you cannot generate it. Once you have it, check its `client[].client_info.android_client_info.package_name` against the module's `applicationId` **before building** — a mismatch fails the build with a message about the file, not about the mismatch. Also confirm it's gitignored or intended to be committed; it usually isn't ignored by default. |
+| **Mobile API key** | Always | Ask where it lives; expect `local.properties` (gitignored). Never hardcode. If the file **already** has a key, don't assume it's this project's — show the developer what you found and have them confirm it (pitfall #16). |
 | **Identity model** — `setEmail` vs `setUserId`, and where the value comes from | Always | Ask. Never guess (e.g. grabbing a license email). See rule 7. |
 | **JWT?** — is the mobile key JWT-protected? | Always | Ask, and **assume yes until told otherwise**: JWT is selected *by default* when a client-side key is created, and the setting can never be changed afterwards. If yes, an auth handler is mandatory (rule 1) **and the team needs a backend endpoint that mints the tokens** — if they don't have one, that is a blocker to raise, not something to work around (pitfall #22). |
 | **Data region** — US or EU | Always | Ask if their dashboard is `app.eu.iterable.com`. See pitfall #8. |
