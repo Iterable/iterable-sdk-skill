@@ -143,20 +143,7 @@ fi
 echo
 echo "  ── $(bold "Device") ─────────────────────────────────────────────────────────"
 
-boot_avd() {
-  local avd="$1" waited=0 s
-  echo "  Starting $avd. A cold boot takes a minute or two — leave it." >&2
-  ( emulator -avd "$avd" -no-boot-anim >/dev/null 2>&1 & ) >/dev/null 2>&1
-  while ((waited < BOOT_WAIT)); do
-    if s="$(target_serial "$avd")" \
-       && [[ "$(adb -s "$s" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == 1 ]]; then
-      printf '%s' "$s"; return 0
-    fi
-    sleep 5; waited=$((waited + 5))
-  done
-  echo "  $avd did not finish booting in ${BOOT_WAIT}s. It may still come up." >&2
-  return 1
-}
+# boot_avd lives in config.sh, so tests/device-pick.sh can drive its timeout.
 
 # Field 1 of every option is the machine value — an AVD name, or a serial for a
 # phone, which has no AVD name to go by. Same contract as the project picker.
@@ -225,7 +212,10 @@ if [[ -n "$CHOSE" ]]; then
     echo "  $(green ✓) device: $(device_label "$SER")"
   else
     echo
-    echo "  $(bold "$CHOSE") is not up yet. The device gates will wait for it."
+    # Remembered regardless — it is still the device they chose. But the gates do
+    # not wait for anything, so don't promise that they do.
+    echo "  $(bold "$CHOSE") is not up yet. Remembered it, and G13 onwards will"
+    echo "  report it as not running until you start it."
   fi
 else
   echo "  No device chosen — G13 onwards will stay blocked, and say so."

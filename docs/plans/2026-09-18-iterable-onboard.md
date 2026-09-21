@@ -642,9 +642,28 @@ asks G16, and the wizard's rc-40 branch says what is pending instead of offering
 nothing. The lesson is the plan's own, turned on the reporting layer — an exit code says *something*
 is pending, never *what*, and a summary that infers the rest will eventually infer wrong.
 
-Still unverified by execution: the wizard booting an AVD that never comes up. The loop is bounded by
-`BOOT_WAIT` and says so when it gives up, but driving that branch through a pty kept mismatching the
-prompt, so it is inspection only.
+### Two follow-ups, and what the second one cost to test (2026-09-21, end of day)
+
+`ITBL_EMAIL` was settled by asking the server rather than by picking the likeliest spelling. Three
+candidates had accumulated across runs; `getByEmail` answered 200 with one enabled GCM device for
+`com.dogshelter` on exactly one of them and 400 on the other two. The ladder then went **15 of 15,
+exit 0**. Worth keeping as a habit: the join key has an authority, and it isn't the developer's
+memory or the tool's cache.
+
+**The boot-failure branch is now executed, and getting there found a lie next to it.** The branch
+lived in `bin/wizard`, reachable only by a human choosing a stopped AVD, which is why three attempts
+to drive it through a pty failed. Moving `boot_avd` into `config.sh` — the same move `brief()` needed,
+for the same reason — made it a function a test can call. Three cases now run offline in about 8
+seconds with a stubbed `emulator` and `adb`, `BOOT_WAIT=3 BOOT_POLL=1`: an AVD that comes up, one that
+attaches to adb but never sets `sys.boot_completed`, and one that never attaches at all. The middle
+case is the one worth having — it is the only thing that proves the wait is on the OS rather than on
+the port, and adb answering early is exactly how a half-booted device gets read by a gate.
+
+The lie was the next line down. On a failed boot the wizard said "the device gates will wait for it",
+and they do not: `bin/gates` never waits for anything, by design, because it has to stay safe to
+drive from a loop. It now says the device is remembered and that G13 onwards will report it as not
+running. Third instance of the same defect class in two days — a message describing behaviour the
+code doesn't have. Cheap to write, invisible to every test that doesn't read the prose.
 
 ---
 

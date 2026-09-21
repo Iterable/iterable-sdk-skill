@@ -242,6 +242,7 @@ urlenc() { node -e 'process.stdout.write(encodeURIComponent(process.argv[1]))' "
 : "${DEVICE_WAIT:=45}"
 # A cold AVD boot is slow enough that the wizard has to say so rather than look hung.
 : "${BOOT_WAIT:=240}"
+: "${BOOT_POLL:=5}"
 
 # `adb devices` also lists entries in state `offline`, `unauthorized` and
 # `no permissions`, none of which answer a shell command.
@@ -270,6 +271,25 @@ target_serial() {
     [[ "$s" == "$want" ]] && { printf '%s' "$s"; return 0; }
     [[ "$(avd_of "$s")" == "$want" ]] && { printf '%s' "$s"; return 0; }
   done
+  return 1
+}
+
+# Starts an AVD and waits for the OS, not just the port: adb answers well before
+# sys.boot_completed, and a gate that reads a half-booted device gets nonsense.
+# Lives here rather than in the wizard only so a test can reach the timeout branch
+# without a pty and without a real cold boot.
+boot_avd() {
+  local avd="$1" waited=0 s
+  echo "  Starting $avd. A cold boot takes a minute or two — leave it." >&2
+  ( emulator -avd "$avd" -no-boot-anim >/dev/null 2>&1 & ) >/dev/null 2>&1
+  while ((waited < BOOT_WAIT)); do
+    if s="$(target_serial "$avd")" \
+       && [[ "$(adb -s "$s" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == 1 ]]; then
+      printf '%s' "$s"; return 0
+    fi
+    sleep "$BOOT_POLL"; waited=$((waited + BOOT_POLL))
+  done
+  echo "  $avd did not finish booting in ${BOOT_WAIT}s. It may still come up." >&2
   return 1
 }
 

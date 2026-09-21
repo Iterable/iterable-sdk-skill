@@ -79,7 +79,7 @@ Underneath, both use the same pieces, and the split is structural rather than co
 | `tests/no-raw-http.sh` | Offline lint: every API call goes through a wrapper, and no credential reaches `resolved.env` |
 | `tests/device-token-log.sh` | Pins G14 against recorded logcat: which absences mean something, and which mean nothing |
 | `tests/device-notify.sh` | Pins G16 against recorded `dumpsys notification`: nothing but the push we sent reads as the push we sent |
-| `tests/device-pick.sh` | Pins which device the gates read, with a stubbed `adb` — including the serial that isn't there |
+| `tests/device-pick.sh` | Pins which device the gates read, with a stubbed `adb` and `emulator` — the serial that isn't there, and the AVD that never boots |
 
 ### The Iterable half is deliberately hand-driven
 
