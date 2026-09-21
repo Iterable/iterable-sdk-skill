@@ -9,7 +9,7 @@
 
 source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
 
-trap 'echo; echo "  Stopped. Nothing in progress was left half-done — run bin/onboard again."; echo; exit 130' INT
+trap 'echo; echo "  Stopped. Nothing in progress was left half-done. To pick it up again:"; echo; run_line onboard; echo; exit 130' INT
 
 # Half the people who reach this wizard were sent here by an agent in another window,
 # and the loop has two ends: bin/handoff sends them, this brings them back. Printed on
@@ -77,7 +77,9 @@ if [[ -z "$(tok)" ]]; then
     echo
     gcloud auth login || { echo "  Sign-in did not complete."; exit 10; }
   else
-    echo "  Can't continue without it. Run bin/onboard again when ready."
+    echo "  Can't continue without it. When you are ready, run this again:"
+    echo
+    run_line onboard
     exit 10
   fi
 fi
@@ -255,7 +257,7 @@ fi
 # bin/provision refuses with, so no front end can describe different work.
 firebase_consent_banner prompt
 
-ask_yn "Go ahead?" || { echo; echo "  Nothing changed. Re-run bin/onboard any time."; echo; exit 0; }
+ask_yn "Go ahead?" || { echo; echo "  Nothing changed. Whenever you want to pick it up:"; echo; run_line onboard; echo; exit 0; }
 
 # Recorded, so the script that does the work can check the answer rather than trust
 # its caller — and so a re-run does not ask again for the same project.
@@ -285,7 +287,7 @@ if ((RC == 0)) && [[ -f "$SA_KEY" ]]; then
 
 EOF
   if ask_yn "Delete the local key now?"; then
-    rm -f "$SA_KEY" && echo "  Removed. The key still exists in Google — bin/teardown removes it there."
+    rm -f "$SA_KEY" && echo "  Removed. The key still exists in Google; teardown removes it there too."
   fi
   echo
 fi
@@ -294,7 +296,9 @@ case "$RC" in
   0)
     echo "  $(bold "Done — a push reached the device.") Verified, not assumed."
     echo
-    echo "  To undo everything this added: $(bold "bin/teardown")"
+    echo "  To undo everything this added:"
+    echo
+    run_line teardown
     echo
     exit 0 ;;
   40)
@@ -303,6 +307,8 @@ case "$RC" in
 esac
 
 echo "  Stopped short. The ladder above shows the first red gate — that is the real problem."
-echo "  Re-run bin/onboard to retry; nothing already green is redone."
+echo "  To retry once it is dealt with (nothing already green is redone):"
+echo
+run_line onboard
 echo
 exit "$RC"

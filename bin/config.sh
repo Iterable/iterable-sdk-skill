@@ -208,7 +208,7 @@ advice_for() {
     # Four dashboard steps, and the advice names the first one rather than all four:
     # this is the one stretch of the flow the developer does by hand, and a wall of
     # instructions is read as a document instead of followed as steps.
-    G10) echo "do the four Iterable dashboard steps, one at a time, starting with:  bin/iterable-keys --step 1" ;;
+    G10) echo "do the four Iterable dashboard steps, one at a time, starting with step 1" ;;
     G13) echo "run the app on the device, and accept the notification prompt" ;;
     # Launching the app again achieves nothing while it has no key to register with,
     # so the advice follows the reason rather than the gate.
@@ -219,10 +219,17 @@ advice_for() {
     # Iterable, and a test user who signs in as anyone else looks exactly like a
     # broken integration from here.
     G15) echo "sign in to the app as ${ITBL_EMAIL:-your test user} — that exact address, or no token is ever filed under it" ;;
-    G16) echo "send the proof push:  bin/proof-push" ;;
+    G16) echo "send the proof push" ;;
     G17) echo "set ITBL_CAMPAIGN_ID and send through a campaign, for server-side corroboration" ;;
   esac
 }
+
+# A command, on its own line, with a path that resolves from where the developer is
+# standing. Every "run bin/onboard again" in this tool was written when it was a repo
+# you cd'd into, where that was true. Installed as a plugin and run from somebody's
+# own project, it is a command that does not exist — and somebody typed one and got
+# `zsh: no such file or directory`, which is the tool's fault and not theirs.
+run_line() { printf '      %s\n' "$(bold "$BIN/$*")"; }
 
 pending_advice() { # [gate to leave out — the one already named above it]
   local id status owner name detail
@@ -230,7 +237,7 @@ pending_advice() { # [gate to leave out — the one already named above it]
   while IFS=$'\t' read -r id status owner name detail; do
     [[ "$status" == pending ]] || continue
     [[ -n "${1:-}" && "$id" == "$1" ]] && continue
-    advice_for "$id" | sed "s|\(bin/[a-z-]*\)|$(bold '\1')|"
+    advice_for "$id"
   done < "$WS/state.tsv"
 }
 
@@ -250,10 +257,12 @@ pending_tail() {
     echo "  $(bold "Nothing is broken — and no push has been proven yet.")"
   fi
   blocker_banner
-  rest="$(pending_advice "$gate")"
+  # Dim, and unbolded even where the advice bolds a command: bold is the tool saying
+  # "type this", and nothing in this list is due yet. The one that is due is in the box.
+  rest="$(pending_advice "$gate" | plain)"
   if [[ -n "$rest" ]]; then
     echo "  $(dim "Waiting behind it:")"
-    sed 's/^/      /' <<< "$rest"
+    while IFS= read -r l; do printf '      %s\n' "$(dim "$l")"; done <<< "$rest"
     echo
   fi
   # Said rather than asked, and only while it is still the answer to something: the
@@ -262,7 +271,9 @@ pending_tail() {
     echo "  $(dim "Keep $(wsp artifacts/sa-key.json) — the Iterable push integration step uploads it.")"
     echo
   fi
-  echo "  Then run $(bold "bin/onboard") again. Nothing already green gets redone."
+  echo "  When that is done, run this again — nothing already green gets redone:"
+  echo
+  run_line onboard
   echo
 }
 
@@ -401,7 +412,8 @@ firebase_consent_banner() {
            "$(bold "  No")   change nothing and walk away. Nothing has happened yet."
   fi
   box 31 "" "$(dim "  The JSON key it creates is a long-lived credential until you delete it.")" \
-         "$(dim "  bin/teardown removes everything it added.")"
+         "$(dim "  Undo everything it adds, whenever you like:")" \
+         "  $(bold "$BIN/teardown")"
   box_end 31
 }
 
@@ -863,7 +875,7 @@ device_serial() {
   fi
   if [[ -n "$TARGET_DEVICE" ]]; then
     s="$(target_serial "$TARGET_DEVICE")" && { printf '%s' "$s"; return 0; }
-    echo "$TARGET_DEVICE is not running — start it, or run bin/wizard to pick another"
+    echo "$TARGET_DEVICE is not running — start it, or choose another device"
     return 1
   fi
   n="$(printf '%s' "$list" | grep -c '[^[:space:]]')"
@@ -874,7 +886,7 @@ device_serial() {
        for s in $list; do labels="${labels:+$labels, }$(device_label "$s")"; done
        # Remedy first, list second: brief() truncates at 100 characters, and two
        # AVD names are enough to push the only actionable part of this off the end.
-       echo "$n devices attached — pick one: bin/agent set TARGET_DEVICE=<name|serial> ($labels)"
+       echo "$n devices attached — pick one: $BIN/agent set TARGET_DEVICE=<name|serial> ($labels)"
        return 1 ;;
   esac
 }

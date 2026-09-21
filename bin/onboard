@@ -64,7 +64,7 @@ case $LADDER in
     ;;
   10)
     blocker_banner
-    echo "  $(dim "Also written to $(wsp ASK.md). Re-run bin/onboard after — nothing green gets redone.")"
+    echo "  $(dim "Also written to $(wsp ASK.md). Re-run this after — nothing green gets redone.")"
     echo
     exit 10
     ;;
@@ -75,7 +75,9 @@ esac
 # shared with bin/provision's own refusal, so the dry run and the thing that enforces
 # it cannot describe different work.
 if [[ -z "$PID" ]]; then
-  echo "  $(bold "NEXT — pick a project first:")  $(bold "bin/discover")"
+  echo "  $(bold "NEXT — pick a project first:")"
+  echo
+  run_line discover
   echo
   exit 20
 fi
@@ -102,6 +104,8 @@ if ((APPLY)); then
   exec "$BIN/provision"
 fi
 
-echo "  This was a dry run. To go ahead:  $(bold "bin/onboard --apply")"
+echo "  This was a dry run. To go ahead:"
+echo
+run_line onboard --apply
 echo
 exit 20

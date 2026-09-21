@@ -115,7 +115,7 @@ g1() {
 g2() {
   # rc 2, not 1: nobody has named a project yet. That is a choice nobody has made,
   # not a defect in their account, and reporting it red blames them for pending work.
-  [[ -n "$PID" ]] || { echo "no project selected yet — run bin/discover"; return 2; }
+  [[ -n "$PID" ]] || { echo "no project selected yet — nothing has named the project this is about"; return 2; }
   gcloud projects describe "$PID" --format='value(projectId,lifecycleState)' 2>&1 | tr '\t' ' '
 }
 
@@ -335,7 +335,9 @@ Waiting on you at **$(gate_name "$FIRST_RED")**, which only you can clear.
 
     $HUMAN_FIX
 
-Do that, then re-run \`bin/gates\`. Nothing already green will be redone.
+Do that, then run this again — nothing already green will be redone:
+
+    $BIN/onboard
 
 _Written $(date '+%Y-%m-%d %H:%M'). The tool overwrites this file each time it blocks._
 EOF

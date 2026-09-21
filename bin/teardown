@@ -40,5 +40,5 @@ fi
 rm -rf "$ART" && echo "  removed local artifacts"
 rm -f "$WS/state.tsv"
 echo
-echo "  Done. bin/gates will now show the Google side back at its original state."
+echo "  Done. The gate ladder will now show the Google side back at its original state."
 echo

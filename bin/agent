@@ -53,7 +53,7 @@ case "${1:-status}" in
         # decision the default exists to leave with them.
         DRIVER)
           [[ "$v" == developer || "$v" == agent ]] || {
-            printf '{"error":%s}\n' "$(jstr "DRIVER is 'developer' (they run bin/onboard) or 'agent' (you drive the scripts); got: $v")"
+            printf '{"error":%s}\n' "$(jstr "DRIVER is 'developer' (they run the setup in their terminal) or 'agent' (you drive the scripts); got: $v")"
             exit 30; } ;;
         *) printf '{"error":%s}\n' "$(jstr "$k is not settable here; export it instead")"; exit 30 ;;
       esac

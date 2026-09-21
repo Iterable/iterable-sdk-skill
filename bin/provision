@@ -10,10 +10,6 @@ skip() { printf '  already done: %s\n' "$1"; }
 ws_init; mkdir -p "$ART"
 require_pid || exit 10
 
-# The consent check, before the first call that changes anything. Deliberately here
-# and not only in the skills: prose asks an agent to ask, and an agent that skips it
-# would be the only thing standing between a client's cloud project and a script.
-# Exit 10 — blocked on a human — because that is exactly what this is.
 # Who runs this comes before whether it is allowed, because the terminal path asks
 # for consent in person: an agent that gets past the driver gate by collecting the
 # approval first has collected permission for work that was never its to do.
@@ -22,6 +18,10 @@ if ! may_drive_setup; then
   exit 10
 fi
 
+# The consent check, before the first call that changes anything. Deliberately here
+# and not only in the skills: prose asks an agent to ask, and an agent that skips it
+# would be the only thing standing between a client's cloud project and a script.
+# Exit 10 — blocked on a human — because that is exactly what this is.
 if ! approved; then
   firebase_consent_banner
   exit 10
@@ -66,7 +66,10 @@ fi
 
 step "Android app for $PACKAGE"
 if [[ -z "$PACKAGE" ]]; then
-  echo "  No PACKAGE set. Run bin/discover and record one with: bin/agent set PACKAGE=<package>."
+  echo "  No PACKAGE set. List the apps, then record the one you mean:"
+  echo
+  run_line discover
+  run_line agent set PACKAGE='<package>'
   exit 10
 fi
 APP_ID="$(app_id_for_package "$PACKAGE")"
@@ -88,7 +91,9 @@ elif [[ "$CREATE_APP" == 1 ]]; then
   printf '  app id %s\n' "$APP_ID"
 else
   echo "  No Android app for $PACKAGE in $PID, and registering one is opt-in."
-  echo "  Either pick an existing package via bin/discover, or re-run with CREATE_APP=1."
+  echo "  Either re-run with CREATE_APP=1, or pick a package that exists:"
+  echo
+  run_line discover
   exit 20
 fi
 save_resolved APP_ID "$APP_ID"

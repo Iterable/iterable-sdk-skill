@@ -36,7 +36,10 @@ source bin/config.sh
 state() { : > "$WS/state.tsv"; while (($#)); do printf '%s\n' "$1" >> "$WS/state.tsv"; shift; done; }
 row()   { printf '%s\t%s\t%s\t%s\t%s' "$1" "$2" "$3" "$4" "${5:-}"; }
 
-# want: owner/kind, and optionally a substring the summary must contain.
+# want: owner/kind, and optionally a substring the summary must contain — or, with a
+# `cmd:` prefix, one the command must contain. Which field carries a command is the
+# thing being pinned: `command` does, and summaries that also spelled one out were
+# printing a bare `bin/…` that does not resolve from the developer's project.
 #
 # next_action is captured before the split, not substituted inside the `read`: a
 # temporary IFS assignment is in effect while the command's own expansions run, and
@@ -48,7 +51,11 @@ expect() {
   IFS="$NEXT_SEP" read -r owner kind gate cmd summary <<< "$out"
   [[ "$owner" == "$want_owner" && "$kind" == "$want_kind" ]] \
     || { bad "$label" "got $owner/$kind, wanted $want_owner/$want_kind"; return; }
-  if [[ -n "$want_in" && "$summary" != *"$want_in"* ]]; then
+  if [[ "$want_in" == cmd:* ]]; then
+    if [[ "$cmd" != *"${want_in#cmd:}"* ]]; then
+      bad "$label" "command lacks '${want_in#cmd:}': $cmd"; return
+    fi
+  elif [[ -n "$want_in" && "$summary" != *"$want_in"* ]]; then
     bad "$label" "summary lacks '$want_in': $summary"; return
   fi
   ok "$(printf '%-44s %s/%s%s' "$label" "$owner" "$kind" "${gate:+ ($gate)}")"
@@ -162,7 +169,7 @@ expect human run_app "t@example.com" "G15 pending — the join key is named"
 PID=p PACKAGE=com.example
 state "$(row G13 green human "App installed" "v1.0")" \
         "$(row G16 pending tool "Push arrives on device" "no Iterable push on the device")"
-expect agent send_proof "bin/proof-push" "G16 pending — the caller sends the proof"
+expect agent send_proof "cmd:$BIN/proof-push" "G16 pending — the caller sends the proof"
 
 # The first red wins over a later pending: fixing the pending one first would be
 # work against a system that is still broken upstream.

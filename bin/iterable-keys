@@ -190,7 +190,9 @@ if ! interactive || [[ "${1:-}" == "--steps" ]]; then
   if ! ensure_template; then
     echo
     echo "  $TEMPLATE already has values — left untouched."
-    echo "  Rename it to $(basename "$ITBL_ENV") and run bin/gates."
+    echo "  Rename it to $(basename "$ITBL_ENV"), then:"
+    echo
+    run_line gates
     exit 10
   fi
   banner

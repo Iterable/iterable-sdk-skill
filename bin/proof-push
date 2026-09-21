@@ -13,7 +13,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
 
 CLIENT_TEMPLATE_ID="itbl-onboard-g16-proof"
 
-[[ -n "$ITBL_SERVER_KEY" ]] || { echo "no server-side key — run bin/iterable-keys" >&2; exit 1; }
+[[ -n "$ITBL_SERVER_KEY" ]] || { echo "no server-side key. Get one with: $BIN/iterable-keys --step 1" >&2; exit 1; }
 [[ -n "$ITBL_EMAIL" ]] || { echo "no ITBL_EMAIL set — the proof needs a user to send to" >&2; exit 1; }
 
 # The marker is what makes the arrival attributable. Without it G16 can only say
@@ -68,5 +68,5 @@ if [[ -n "$PRIOR_PROOF" ]]; then
   echo "  sees it. To watch it land, clear the shade first and send again."
 fi
 echo "  $(dim "Whether it arrived is not this script's call:")"
-echo "      bin/gates      # G16 reads the device"
+echo "      $BIN/gates      # G16 reads the device"
 echo
