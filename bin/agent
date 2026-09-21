@@ -24,6 +24,10 @@
 
 source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
 
+# So the shortcuts a developer gets handed exist from the first call, not from
+# whichever later one happened to run the verifier.
+ws_init
+
 CONTRACT=3
 
 case "${1:-status}" in

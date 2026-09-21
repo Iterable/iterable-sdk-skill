@@ -7,4 +7,9 @@
 
 source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
 
+# The block names the shim, so the shim has to exist before the block is printed. Same
+# reason the verifier does it: creating the workspace changes nothing in their project
+# that .gitignore does not already cover.
+ws_init
+
 handoff_banner

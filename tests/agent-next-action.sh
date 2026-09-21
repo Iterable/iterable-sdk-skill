@@ -84,7 +84,7 @@ expect human authenticate "gcloud auth login" "G1 red — the human signs in"
 
 PID="" PACKAGE=""
 state "$(row G2 red tool "GCP project exists" "no project selected — run bin/discover")"
-expect agent choose_target "bin/agent set" "G2 red with no project — the agent asks"
+expect agent choose_target "set PID=… PACKAGE=…" "G2 red with no project — the agent asks"
 
 # A project that is named and still unreachable is a different problem from one that
 # was never chosen, and the remedy is not "pick one".
@@ -190,7 +190,7 @@ state "$(row G0 green human "Tooling present" "node v25")" \
       "$(row G2 pending tool "GCP project exists" "no project selected yet")" \
       "$(row G10 pending human "Iterable API keys work" "no server-side key yet")" \
       "$(row G13 pending human "App installed with the SDK" "no package selected yet")"
-expect agent choose_target "bin/agent set" "cold start — pick a target, not a defect"
+expect agent choose_target "set PID=… PACKAGE=…" "cold start — pick a target, not a defect"
 
 PID=p PACKAGE=""
 state "$(row G13 pending human "App installed with the SDK" "no package selected yet")"
@@ -238,9 +238,17 @@ state "$(row G10 pending human "Iterable API keys work" "no server-side key yet"
       "$(row G16 pending tool "Push arrives on device" "nothing on the device yet")"
 tail_out="$(pending_tail 2>&1 | LC_ALL=C sed $'s/\033\\[[0-9;]*m//g')"
 
-grep -qF "$BIN/iterable-keys --step 1" <<< "$tail_out" \
-  && ok "$(printf '%-44s %s' "the next step is runnable from their project" "absolute path")" \
+# Asserted as "the thing it names runs", not as a particular spelling. A bare bin/…, an
+# absolute plugin path and a workspace shim have each been the right answer at some point
+# — and the defect all three times was a command that did not resolve, never the wording.
+keys_cmd="$(cmd_path iterable-keys)"
+grep -qF "$keys_cmd --step 1" <<< "$tail_out" \
+  && ok "$(printf '%-44s %s' "the next step is the one that resolves" "$(basename "$keys_cmd")")" \
   || bad "the rc 40 ending has no runnable command" "$(tr -s '\n ' ' ' <<< "$tail_out" | cut -c1-90)"
+
+[[ -x "$keys_cmd" || -x "$WS/iterable-keys" ]] \
+  && ok "$(printf '%-44s %s' "and what it names is executable" "not just well-formed")" \
+  || bad "the ending names something unrunnable" "$keys_cmd"
 
 n="$(grep -c "four Iterable dashboard steps" <<< "$tail_out")"
 ((n == 1)) \

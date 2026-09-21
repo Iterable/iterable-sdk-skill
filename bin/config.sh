@@ -41,11 +41,76 @@ fi
 ws_init() {
   command mkdir -p "$WS" || return 1
   [[ -f "$WS/.gitignore" ]] || printf '*\n' > "$WS/.gitignore"
+  ws_shims
+}
+
+# The entry points a developer is ever told to run. The rest of bin/ is internal —
+# wizard and provision are dispatched to, never typed.
+SHIM_CMDS="onboard teardown discover gates agent iterable-keys proof-push"
+
+# A host installs a plugin into a version-numbered cache directory, which is both too
+# long to type and not stable: old version directories stay on disk, so a path a
+# developer saved in a runbook keeps working while quietly running last month's code.
+#
+# So each entry point gets a one-line stub in their own workspace, which is short
+# enough to type, resolves from the project they are already standing in, and is
+# rewritten on every run — a stale shim is a contradiction. The workspace .gitignore
+# already covers these, which matters: the path inside is specific to one machine.
+ws_shims() {
+  local c t
+  for c in $SHIM_CMDS; do
+    t="$WS/$c"
+    [[ -x "$BIN/$c" ]] || continue
+    cat > "$t" 2>/dev/null <<EOF || continue
+#!/usr/bin/env bash
+# Written by iterable-onboard, and overwritten every run. Edit bin/$c instead.
+target="$BIN/$c"
+if [[ ! -x "\$target" ]]; then
+  echo "The iterable-sdk plugin has moved or been updated, so this shortcut is stale." >&2
+  echo "Ask your assistant to pick the onboarding back up — that rewrites this file." >&2
+  exit 127
+fi
+exec "\$target" "\$@"
+EOF
+    chmod +x "$t" 2>/dev/null || true
+  done
+}
+
+# Shortest form of a command that still resolves from the developer's project. Falls
+# back to the real path when there is no shim — before the first ws_init, and in tests.
+cmd_path() {
+  [[ -x "$WS/$1" ]] && { wsp "$1"; return; }
+  printf '%s' "$BIN/$1"
+}
+
+# Same, for a command that already carries an absolute path. next_action builds those
+# for a caller with no working directory to speak of; a person reading a box has one,
+# and the short form is the whole point of having written the shim.
+cmd_display() {
+  local c="$1" base
+  case "$c" in
+    "$BIN/"*)
+      base="${c#$BIN/}"; base="${base%% *}"
+      [[ -x "$WS/$base" ]] && { printf '%s%s' "$(wsp "$base")" "${c#$BIN/$base}"; return; } ;;
+  esac
+  printf '%s' "$c"
 }
 
 # Short display form. A path in a message should be copy-pasteable from where the
 # developer actually is, and an absolute one usually isn't.
-wsp() { local p="$WS/${1#/}"; printf '%s' "${p#$PWD/}"; }
+# Both forms of the current directory, because they differ: $PWD is what the shell was
+# told, `pwd -P` has the symlinks resolved, and WS comes from git, which answers
+# physically. On a Mac /tmp is a link to /private/tmp, so stripping only $PWD left every
+# shortcut printed as a full absolute path — and that is also the symlink that once made
+# a broken test pass, so it is worth only getting wrong once.
+PWD_P="$(pwd -P 2>/dev/null)" || PWD_P="$PWD"
+
+wsp() {
+  local p="$WS/${1#/}"
+  p="${p#$PWD/}"
+  p="${p#$PWD_P/}"
+  printf '%s' "$p"
+}
 
 # Anything resolved from live state (the project's existing package name, app id)
 # is cached here so the verifier and the actor agree on what they are talking about.
@@ -229,7 +294,7 @@ advice_for() {
 # you cd'd into, where that was true. Installed as a plugin and run from somebody's
 # own project, it is a command that does not exist — and somebody typed one and got
 # `zsh: no such file or directory`, which is the tool's fault and not theirs.
-run_line() { printf '      %s\n' "$(bold "$BIN/$*")"; }
+run_line() { local c="$1"; shift; printf '      %s\n' "$(bold "$(cmd_path "$c")${*:+ $*}")"; }
 
 pending_advice() { # [gate to leave out — the one already named above it]
   local id status owner name detail
@@ -429,7 +494,11 @@ handoff_banner() {
   local proj; proj="$(git rev-parse --show-toplevel 2>/dev/null)" || proj="$PWD"
   box_top 36
   box 36 "$(bold "RUN THIS IN YOUR TERMINAL — then come back here")" ""
-  box 36 "      cd $proj" "      $BIN/onboard" ""
+  # The command is relative now, so the directory is part of it rather than a footnote.
+  # Not folded: wrapping a path mid-string reads worse than letting one dim line run
+  # past the bar, which is why the bar has no right-hand edge in the first place.
+  box 36 "      $(bold "$(cmd_path onboard)")" \
+         "$(dim "      run from $proj")" ""
   box 36 "$(bold "  What it does")" \
          "    · signs you in to Google, in your own browser" \
          "    · lets you pick the Firebase project and the Android app —" \
@@ -476,7 +545,7 @@ blocker_banner() {
   box "$colour" "$(bold "$label")" ""
   [[ -n "$name" ]] && box "$colour" "  $(bold "$name")"
   box_text "$colour" "$summary"
-  [[ -n "$cmd" ]] && box "$colour" "" "      $cmd"
+  [[ -n "$cmd" ]] && box "$colour" "" "      $(cmd_display "$cmd")"
   box_end "$colour"
 }
 
@@ -538,9 +607,10 @@ next_action() {
       G1)  a_kind=authenticate; a_cmd="gcloud auth login" ;;
       G2)  if [[ -z "$PID" ]]; then
              a_kind=choose_target; a_owner=agent; a_cmd="$BIN/agent discover"
-             # Short form on purpose: the absolute path is already in `command`, and
-             # in a wrapped banner it breaks across lines into something unrunnable.
-             a_summary="pick a Firebase project and an Android package, then: bin/agent set PID=… PACKAGE=…"
+             # This one is quoted inside a box a person reads, so it has to be a command
+             # they could type. It used to be a bare `bin/agent …` for want of anything
+             # short enough to fit — the shim is short enough.
+             a_summary="pick a Firebase project and an Android package, then: $(cmd_path agent) set PID=… PACKAGE=…"
            else a_kind=project_unreachable; fi ;;
       G3)  a_kind=enable_firebase ;;
       G4)  if [[ -z "$PACKAGE" ]]; then

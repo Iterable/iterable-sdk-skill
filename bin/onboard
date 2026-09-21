@@ -9,6 +9,8 @@
 
 source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
 
+ws_init
+
 APPLY=0
 [[ "${1:-}" == "--apply" ]] && APPLY=1
 

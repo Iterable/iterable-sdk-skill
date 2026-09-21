@@ -255,3 +255,18 @@ service-account key — treat it as sensitive and keep it local.
 | `resolved.env` | the tool — choices safe to print: project, package, app id, proof marker. Never a credential |
 | `artifacts/` | the tool — `google-services.json`, key (mode `0600`), apk |
 | `runs/<ts>/` | the tool — report, logs, browser session trace |
+| `onboard`, `agent`, `gates`, … | the tool — one-line stubs so the commands it tells you to run are short enough to type. Rewritten every run |
+
+### Why the stubs exist
+
+A host installs a plugin into a version-numbered cache directory and sets no environment
+variable pointing at it. That path is too long to type — and worse, hosts keep old version
+directories on disk, so a path saved in a runbook keeps working while quietly running the
+version it was written against.
+
+So every entry point a developer is told to run gets a stub in their own workspace, and the
+messages print `.iterable/onboard` rather than the real path. Being rewritten on every run
+is what makes it safe: a stub cannot outlive the install it points at without being
+replaced, and one that somehow does exits `127` saying so rather than failing at `exec`.
+
+Internals get no stub. `wizard` and `provision` are dispatched to, never typed.

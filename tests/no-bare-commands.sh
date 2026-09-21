@@ -46,14 +46,14 @@ done
 # "bin/teardown removes everything it added" — not orders, but a developer types them
 # all the same, and both were on the screen Franco got `no such file or directory` on.
 #
-# `a_summary=` lines are exempt: those go to a model, which is handed the resolved path
-# in `next.command`, and an absolute path inside a wrapped banner breaks across lines
-# into something genuinely unrunnable. That exemption is why the check is scoped rather
-# than global.
+# No exemptions. There was one — a model-facing summary that quoted `bin/agent set …`
+# because no other form was short enough to survive being wrapped inside a banner. Then
+# the shim gave us a form that is, and the summary turned out to be printed in a box a
+# person reads, so the exemption had been protecting a real bug.
 hits="$(grep -n 'bin/' "${SCRIPTS[@]}" \
   | grep -v '^[^:]*:[0-9]*:[[:space:]]*#' \
   | grep -v '\$BIN/' | grep -v 'run_line' | grep -v 'BASH_SOURCE' \
-  | grep -v 'a_summary=' || true)"
+  | grep -v 'cmd_path\|SHIM_CMDS' || true)"
 if [[ -z "$hits" ]]; then
   ok "no bare 'bin/…' in anything a person reads"
 else
@@ -67,6 +67,42 @@ fi
 grep -q 'run_line onboard' bin/config.sh \
   && ok "the rc 40 ending prints a runnable path" \
   || bad "the rc 40 ending has no run_line — check pending_tail"
+
+# ---------------------------------------------------------------- the shim itself
+# What makes the short form possible. Worth pinning offline because the failure mode is
+# silent: a shim that points at a version directory the host has replaced still looks
+# like a working command, and the whole reason it exists is that hosts keep old versions
+# on disk and a stale path runs last month's code without saying so.
+echo
+echo "  The workspace shims — what makes a short command possible"
+echo
+
+ROOT="$PWD"
+SW="$(mktemp -d)/proj"; mkdir -p "$SW"
+( cd "$SW" && WS="$SW/.iterable" bash -c "source '$ROOT/bin/config.sh'; ws_init" ) >/dev/null 2>&1
+
+missing=""
+for c in onboard teardown discover gates agent iterable-keys proof-push; do
+  [[ -x "$SW/.iterable/$c" ]] || missing="$missing $c"
+done
+[[ -z "$missing" ]] && ok "every entry point a developer is told to run gets one" \
+                    || bad "no shim for:$missing"
+
+[[ -f "$SW/.iterable/.gitignore" ]] && grep -q '^\*$' "$SW/.iterable/.gitignore" \
+  && ok "gitignored, so a machine-specific path cannot be committed" \
+  || bad "the workspace does not ignore itself — the shims would show up in git status"
+
+# The one that matters: point a shim at something that no longer exists and it has to
+# say so, not fail with a bare exec error nobody can act on.
+sed 's|^target=.*|target="/nonexistent/bin/onboard"|' "$SW/.iterable/onboard" > "$SW/.iterable/stale"
+chmod +x "$SW/.iterable/stale"
+stale_out="$("$SW/.iterable/stale" 2>&1)"; stale_rc=$?
+if ((stale_rc == 127)) && grep -qi 'updated\|moved' <<< "$stale_out"; then
+  ok "a shim left behind by a plugin update explains itself"
+else
+  bad "stale shim gave rc $stale_rc and no explanation: $(tr -s '\n ' ' ' <<< "$stale_out" | cut -c1-60)"
+fi
+rm -rf "${SW%/proj}"
 
 echo
 ((FAILED)) && { echo "  FAILED"; exit 1; }

@@ -42,6 +42,16 @@ Run it **from the developer's project directory**, by absolute path:
 <root>/bin/agent
 ```
 
+You keep using `<root>/…` for everything you run yourself: it is absolute, so it does
+not care what directory you are in. **The developer does not.** Every entry point they
+are ever told to run also exists as a short stub in their workspace — `.iterable/onboard`
+and friends — because the real path is a version-numbered cache directory that is
+untypeable, and that hosts keep old copies of, so a path they save today silently runs
+old code after the next update. The stubs are rewritten on every run.
+
+So when you relay a block from the tool, **relay it verbatim.** Do not substitute the
+long path you happen to be using: the block already names the form that works for them.
+
 **Never `cd` into `<root>` first.** The workspace is resolved from the working
 directory — it belongs in the developer's repo as `.iterable/`, because the plugin
 cache may be read-only and is erased on the next update. The tool refuses with exit

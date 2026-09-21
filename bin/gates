@@ -337,7 +337,7 @@ Waiting on you at **$(gate_name "$FIRST_RED")**, which only you can clear.
 
 Do that, then run this again — nothing already green will be redone:
 
-    $BIN/onboard
+    $(cmd_path onboard)
 
 _Written $(date '+%Y-%m-%d %H:%M'). The tool overwrites this file each time it blocks._
 EOF
