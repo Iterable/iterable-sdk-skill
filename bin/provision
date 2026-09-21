@@ -105,7 +105,7 @@ api_get "https://firebase.googleapis.com/v1beta1/projects/$PID/androidApps/$APP_
       if(!j.configFileContents){console.error(JSON.stringify(j).slice(0,300));process.exit(1)}
       process.stdout.write(Buffer.from(j.configFileContents,"base64").toString("utf8"))})' \
   > "$GS_JSON" || { echo "  config fetch failed"; exit 1; }
-printf '  wrote %s\n' "$GS_JSON"
+printf '  wrote %s\n' "$(wsd "$GS_JSON")"
 
 step "Service account $SA_ID"
 if gcloud iam service-accounts describe "$SA_EMAIL" >/dev/null 2>&1; then
@@ -135,7 +135,7 @@ if [[ -f "$SA_KEY" ]] && ! node -e '
       const k = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
       process.exit(k.project_id === process.argv[2] ? 0 : 1);
     ' "$SA_KEY" "$PID" 2>/dev/null; then
-  printf '  %s belongs to another project — moving it aside\n' "$SA_KEY"
+  printf '  %s belongs to another project — moving it aside\n' "$(wsd "$SA_KEY")"
   mv "$SA_KEY" "$SA_KEY.$(date +%s).bak"
 fi
 if [[ -f "$SA_KEY" ]]; then
@@ -147,7 +147,7 @@ else
   chmod 600 "$SA_KEY"
   FRESH_KEY=1
 fi
-printf '  %s (mode %s)\n' "$SA_KEY" "$(stat -f '%Lp' "$SA_KEY")"
+printf '  %s (mode %s)\n' "$(wsd "$SA_KEY")" "$(stat -f '%Lp' "$SA_KEY")"
 
 if [[ "${FRESH_KEY:-0}" == 1 || "${FRESH_GRANT:-0}" == 1 ]]; then
   printf '  A new key and a new role binding each take Google up to ~90s to take\n'

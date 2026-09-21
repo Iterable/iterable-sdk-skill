@@ -112,6 +112,10 @@ wsp() {
   printf '%s' "$p"
 }
 
+# Same, for a path already carrying the workspace. The variables are absolute because
+# the scripts open them; a person reading one wants it relative to where they stand.
+wsd() { wsp "${1#$WS/}"; }
+
 # Anything resolved from live state (the project's existing package name, app id)
 # is cached here so the verifier and the actor agree on what they are talking about.
 #

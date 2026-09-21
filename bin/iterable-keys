@@ -97,7 +97,7 @@ where_keys() {
   cat <<EOF
   $(bold "Where the two keys go") — not into a chat window, a log, or an argument list:
 
-      $TEMPLATE      (mode 0600, ignored by git)
+      $(wsd "$TEMPLATE")      (mode 0600, ignored by git)
 
     Put the server-side key on $(bold ITBL_SERVER_KEY) and the mobile one on
     $(bold ITBL_MOBILE_KEY), then rename the file to $(bold "$(basename "$ITBL_ENV")").
@@ -111,7 +111,7 @@ where_identity() {
   cat <<EOF
   Put that address on $(bold ITBL_EMAIL) in the same file:
 
-      $TEMPLATE
+      $(wsd "$TEMPLATE")
 
 EOF
 }
@@ -189,7 +189,7 @@ fi
 if ! interactive || [[ "${1:-}" == "--steps" ]]; then
   if ! ensure_template; then
     echo
-    echo "  $TEMPLATE already has values — left untouched."
+    echo "  $(wsd "$TEMPLATE") already has values — left untouched."
     echo "  Rename it to $(basename "$ITBL_ENV"), then:"
     echo
     run_line gates
