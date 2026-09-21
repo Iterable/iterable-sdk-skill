@@ -307,15 +307,19 @@ if ((FAILED == 0)); then
       # proven" while G16 is green is the same class of error as the false green,
       # just pointing the other way.
       if [[ "$GREEN" == *" G16 "* ]]; then
-        echo "  $(dim "A push did arrive — G16 saw it. Something else above is still pending.")"
+        echo "  $(dim "A push did arrive — the device check saw it. Something else is still pending.")"
       else
         echo "  $(dim "No push has been proven. Do not read this as success.")"
       fi
-      echo
+      blocker_banner
     fi
     exit 40
   fi
   echo "  All gates green — a push reached the device."
+  # The one run where the review reminder belongs in the verifier's own output: the
+  # code is written, the push is proven, and this is the moment somebody is most
+  # likely to mistake a green ladder for a reviewed change.
+  [[ "${QUIET_VERDICT:-0}" == 1 ]] || ai_notice_banner
   echo
   exit 0
 fi
@@ -327,7 +331,7 @@ if [[ -n "$HUMAN_FIX" ]]; then
   cat > "$WS/ASK.md" <<EOF
 # ASK.md
 
-Blocked at **$FIRST_RED**, which only you can clear.
+Waiting on you at **$(gate_name "$FIRST_RED")**, which only you can clear.
 
     $HUMAN_FIX
 
@@ -335,17 +339,16 @@ Do that, then re-run \`bin/gates\`. Nothing already green will be redone.
 
 _Written $(date '+%Y-%m-%d %H:%M'). The tool overwrites this file each time it blocks._
 EOF
-  # bin/onboard prints its own NEXT block; don't say it twice.
+  # bin/onboard prints its own block; don't say it twice.
   if [[ "${QUIET_VERDICT:-0}" != 1 ]]; then
-    echo "  Blocked at $FIRST_RED — needs you. Wrote $(wsp ASK.md):"
-    echo "    $HUMAN_FIX"
+    blocker_banner
+    echo "  $(dim "Also written to $(wsp ASK.md).")"
     echo
   fi
   exit 10
 fi
 
 if [[ "${QUIET_VERDICT:-0}" != 1 ]]; then
-  echo "  First red gate: $FIRST_RED — a real defect, not a missing prerequisite."
-  echo
+  blocker_banner
 fi
 exit 20

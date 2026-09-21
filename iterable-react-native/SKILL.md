@@ -101,6 +101,21 @@ Within the agreed scope, an integration is finished only when:
 Only genuinely developer-supplied inputs (API key, identity model, region,
 JWT, `google-services.json` / APNs key) are legitimate pauses.
 
+### When you hand over the diff, say what it is
+
+You wrote it, so you are the last one who should be vouching for it. Draw the line
+between what has been proved and what has not:
+
+> An AI agent wrote this code and configuration, and it can be wrong in ways that
+> still compile and still pass every check here. What is proved is what a real call or
+> a real push confirmed; everything else is a draft. Read the diff, run your own
+> tests, and treat it like a pull request from somebody new to your codebase.
+
+If `iterable-provision` is installed, its `bin/agent` carries this as a `notice`
+field — relay that verbatim instead, so the tool and the conversation say the same
+thing. Say it once, plainly, and never soften it into "I've double-checked
+everything".
+
 ---
 
 ## Preflight — STOP and gather these before writing any code

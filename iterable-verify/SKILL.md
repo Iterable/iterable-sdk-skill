@@ -96,6 +96,30 @@ went to another; the push integration is set to "Notification messages" instead 
 "Data notifications", so the Firebase SDK swallows it before Iterable's SDK sees it;
 notification permission was denied (the verdict tells "denied" from "never asked").
 
+## Handing back a proven push
+
+A green ladder is the moment somebody is most likely to read "it works" as "it has
+been reviewed". So when `next.kind` is `done`, relay the JSON's `notice` field
+**verbatim**, as a quote, alongside the proof. Do not paraphrase it and do not soften
+it into reassurance: the push proof is evidence, read back out of the operating
+system; the code and configuration around it is a draft, written by an agent, for
+them to review like a pull request from somebody new to their codebase.
+
+Say which half is which if they ask. `gates[].status` is the map: `green` was proved
+by a call that would have failed otherwise, `unverifiable` was never checked by
+anything, and the diff in their repo was checked by nobody.
+
+## Saying what is outstanding
+
+Lead with whose turn it is — `next.owner`, `human` or `tool` — then the step name
+(`next.step`), then `next.summary`, then `next.command` if there is one. Give it a
+heading or a quote block of its own; the one thing that has to happen next does not
+belong as the fourth bullet of a status list.
+
+Keep the strong words for `verdict: defect`. A red step owned by `human` is their turn
+— "no device attached" is not a broken integration, and a tool that shouts *broken* at
+somebody who has not plugged a phone in teaches them to stop believing the word.
+
 ## Never do these
 
 - Never send again to turn a failing check into a passing one. If no push has

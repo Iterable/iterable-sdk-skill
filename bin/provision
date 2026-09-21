@@ -10,7 +10,16 @@ skip() { printf '  already done: %s\n' "$1"; }
 ws_init; mkdir -p "$ART"
 require_pid || exit 10
 
-step "G2 — GCP project $PID"
+# The consent check, before the first call that changes anything. Deliberately here
+# and not only in the skills: prose asks an agent to ask, and an agent that skips it
+# would be the only thing standing between a client's cloud project and a script.
+# Exit 10 — blocked on a human — because that is exactly what this is.
+if ! approved; then
+  firebase_consent_banner
+  exit 10
+fi
+
+step "Project $PID"
 if gcloud projects describe "$PID" >/dev/null 2>&1; then
   skip "project exists"
 elif [[ "$CREATE_PROJECT" == 1 ]]; then
@@ -37,7 +46,7 @@ for api in serviceusage.googleapis.com cloudresourcemanager.googleapis.com \
   fi
 done
 
-step "G3 — add Firebase to $PID"
+step "Add Firebase to $PID"
 if api_get "https://firebase.googleapis.com/v1beta1/projects/$PID" >/dev/null 2>&1; then
   skip "firebase already enabled"
 else
@@ -47,7 +56,7 @@ else
   fi
 fi
 
-step "G4 — Android app for $PACKAGE"
+step "Android app for $PACKAGE"
 if [[ -z "$PACKAGE" ]]; then
   echo "  No PACKAGE set. Run bin/discover and record one with: bin/agent set PACKAGE=<package>."
   exit 10
@@ -76,7 +85,7 @@ else
 fi
 save_resolved APP_ID "$APP_ID"
 
-step "G5 — download google-services.json"
+step "Download google-services.json"
 api_get "https://firebase.googleapis.com/v1beta1/projects/$PID/androidApps/$APP_ID/config" \
   | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{
       const j=JSON.parse(d);
@@ -85,7 +94,7 @@ api_get "https://firebase.googleapis.com/v1beta1/projects/$PID/androidApps/$APP_
   > "$GS_JSON" || { echo "  config fetch failed"; exit 1; }
 printf '  wrote %s\n' "$GS_JSON"
 
-step "G6 — service account $SA_ID"
+step "Service account $SA_ID"
 if gcloud iam service-accounts describe "$SA_EMAIL" >/dev/null 2>&1; then
   skip "$SA_EMAIL"
 else
@@ -93,7 +102,7 @@ else
     --project="$PID" --display-name="FCM Sender (Iterable)" || exit 1
 fi
 
-step "G7 — bind $FCM_ROLE"
+step "Bind $FCM_ROLE"
 # add-iam-policy-binding is idempotent, so ask first only to know whether the
 # binding is new — a new one is not effective for ~75s and G9 has to wait for it.
 EXISTING_BINDING="$(gcloud projects get-iam-policy "$PID" --flatten='bindings[].members' \
@@ -105,7 +114,7 @@ gcloud projects add-iam-policy-binding "$PID" \
   --condition=None --quiet >/dev/null || exit 1
 printf '  bound (least privilege: this role grants cloudmessaging.messages.create, nothing more)\n'
 
-step "G8 — create the JSON key"
+step "Create the JSON key"
 # A key file left over from a different project must not satisfy this step: the
 # gate checks the key against the current project, so skipping on mere existence
 # would leave the right key uncreated and blame the wrong thing.
@@ -129,7 +138,8 @@ printf '  %s (mode %s)\n' "$SA_KEY" "$(stat -f '%Lp' "$SA_KEY")"
 
 if [[ "${FRESH_KEY:-0}" == 1 || "${FRESH_GRANT:-0}" == 1 ]]; then
   printf '  A new key and a new role binding each take Google up to ~90s to take\n'
-  printf '  effect, so G9 may pause before it can prove anything.\n'
+  printf '  effect, so the check that spends the key may pause before it can prove\n'
+  printf '  anything.\n'
 fi
 
 printf '\nProvisioning done. Verifying independently:\n'

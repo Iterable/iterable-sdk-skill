@@ -33,18 +33,22 @@ cat <<EOF
 
   $(bold "What it will never do")
     · ask for, store, or type your passwords — you sign in yourself
+    · change anything in your Google project before you have seen the list and said yes
     · create a Firebase project or register an app unless you ask outright
     · modify an app, integration, or credential you already have
     · tell you something worked when it has not been verified
 EOF
 
+ai_notice_banner
+
 QUIET_VERDICT=1 "$BIN/gates"
 LADDER=$?
 
 cat <<'EOF'
-  G11 and G12 are marked ~ because Iterable's public API has no endpoint that can
-  read them back, so nothing here can honestly claim to have checked them. They
-  are proved indirectly: if G16 lands a push, both were right.
+  Two steps are marked ~ — the mobile app in Iterable, and the push integration.
+  Iterable's public API has no endpoint that reads either one back, so nothing here
+  can honestly claim to have checked them. They are proved indirectly: if the push
+  lands on the device, both were right.
 
 EOF
 
@@ -60,7 +64,10 @@ case $LADDER in
     else
       echo "  $(bold "Nothing is broken — and no push has been proven.")"
     fi
-    echo
+    # The one next thing in a box, and the rest of the outstanding work under it. A
+    # list of five equal-looking lines is a list nobody starts.
+    blocker_banner
+    echo "  $(dim "Also waiting on:")"
     pending_advice | sed 's/^/      /'
     echo
     echo "  Then run $(bold "bin/onboard") again. Nothing already green gets redone."
@@ -68,48 +75,32 @@ case $LADDER in
     exit 40
     ;;
   10)
-    echo "  $(bold "NEXT — this one is yours") (also written to $(wsp ASK.md)):"
-    echo
-    sed -n '5p' "$WS/ASK.md" 2>/dev/null | sed 's/^ */      /'
-    echo
-    echo "  Then run $(bold "bin/onboard") again. Nothing already green gets redone."
+    blocker_banner
+    echo "  $(dim "Also written to $(wsp ASK.md). Re-run bin/onboard after — nothing green gets redone.")"
     echo
     exit 10
     ;;
 esac
 
-# A gate failed that the tool itself can clear. Say what would change before
-# changing it: this runs against someone's real cloud project.
-echo "  $(bold "NEXT — the tool can do this part.") It would:"
-echo
+# A gate failed that the tool itself can clear — and this runs against somebody's
+# real cloud project, so the list of changes comes before the changes. The banner is
+# shared with bin/provision's own refusal, so the dry run and the thing that enforces
+# it cannot describe different work.
 if [[ -z "$PID" ]]; then
-  echo "      nothing yet — first pick a project:  $(bold "bin/discover")"
+  echo "  $(bold "NEXT — pick a project first:")  $(bold "bin/discover")"
   echo
   exit 20
 fi
-printf '      project        %s\n' "$PID"
-printf '      package        %s\n' "${PACKAGE:-<not chosen — run bin/discover>}"
+
+if ! approved; then
+  firebase_consent_banner
+  exit 10
+fi
+
+echo "  $(bold "Approved for $PID.") What is left to do:"
 echo
-
-# Derived from the workspace state.tsv, not hardcoded: the listed actions must match
-# the gates that are actually red, or the dry run is lying about what it will do.
-while IFS=$'\t' read -r id status owner name detail; do
-  [[ "$status" == green ]] && continue
-  case "$id" in
-    G5) echo "      download       google-services.json for $PACKAGE" ;;
-    G6) echo "      create         service account '$SA_ID'" ;;
-    G7) echo "      grant          $FCM_ROLE  (send push, nothing else)" ;;
-    G8) echo "      create         a JSON key at $(wsp artifacts/sa-key.json) (mode 0600)" ;;
-    G9) echo "      verify         the key by asking FCM to validate a send (nothing is delivered)" ;;
-  esac
-done < "$WS/state.tsv"
-
-cat <<'EOF'
-
-  It will not create a project or register an app. Those need CREATE_PROJECT=1
-  or CREATE_APP=1, on purpose.
-
-EOF
+firebase_plan | plan_bulleted | sed 's/^/      /'
+echo
 
 if ((APPLY)); then
   exec "$BIN/provision"

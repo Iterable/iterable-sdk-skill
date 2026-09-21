@@ -85,14 +85,41 @@ PID=some-project
 state "$(row G2 red tool "GCP project exists" "PERMISSION_DENIED on some-project")"
 expect human project_unreachable "PERMISSION_DENIED" "G2 red with a project named"
 
+# ------------------------------------------------------- nothing until they say yes
+# Every route below changes somebody's Google project, so the ask outranks the work.
+# Pinned because the enforcement lives in bin/provision and the *routing* is what
+# stops an agent walking a developer up to a wall it cannot see.
 PID=p PACKAGE=com.example
+state "$(row G3 red tool "Firebase enabled" "firebase not enabled on p")"
+expect human approve_firebase "approve the changes to p" "G3 red — approval comes first"
+
 state "$(row G4 red tool "Android app registered" "no app with packageName com.example")"
-expect human register_app "CREATE_APP=1" "G4 red — creating an app stays opt-in"
+expect human approve_firebase "CREATE_APP=1" "G4 red — approval first, and the app ask survives it"
 
 for g in G5 G6 G7 G8 G9; do
-  PID=p PACKAGE=com.example; state "$(row "$g" red tool "$g" "not created yet")"
-  expect tool provision "" "$g red — the tool can do this part"
+  state "$(row "$g" red tool "$g" "not created yet")"
+  expect human approve_firebase "nothing has happened yet" "$g red — unapproved, so nobody provisions"
 done
+
+# With the yes recorded, the same states route to the work itself. APPROVED=1 is the
+# CI form of the answer; the agent path records it per project in the workspace.
+export APPROVED=1
+state "$(row G4 red tool "Android app registered" "no app with packageName com.example")"
+expect human register_app "CREATE_APP=1" "approved — creating an app is still its own opt-in"
+for g in G5 G6 G7 G8 G9; do
+  state "$(row "$g" red tool "$g" "not created yet")"
+  expect tool provision "" "$g red, approved — the tool can do this part"
+done
+unset APPROVED
+
+# A yes belongs to the project it was given for. Approving work in one project must
+# not carry over to the next one an agent happens to pick.
+PID=p; approve
+state "$(row G6 red tool "Service account exists" "not created yet")"
+expect tool provision "" "the recorded yes counts for the project it named"
+PID=other-project
+expect human approve_firebase "approve the changes to other-project" "...and not for a different one"
+PID=p PACKAGE=com.example
 
 # ------------------------------------------------------------- the Iterable half
 PID=p PACKAGE=com.example
@@ -114,7 +141,7 @@ expect human run_app "t@example.com" "G15 pending — the join key is named"
 PID=p PACKAGE=com.example
 state "$(row G13 green human "App installed" "v1.0")" \
         "$(row G16 pending tool "Push arrives on device" "no Iterable push on the device")"
-expect human send_proof "bin/proof-push" "G16 pending — send the proof"
+expect agent send_proof "bin/proof-push" "G16 pending — the caller sends the proof"
 
 # The first red wins over a later pending: fixing the pending one first would be
 # work against a system that is still broken upstream.
@@ -144,6 +171,35 @@ expect agent choose_target "" "G13 pending, no package — a choice, not an inst
 PID=p PACKAGE=com.example
 state "$(row G10 pending human "Iterable API keys work" "no server-side key yet")"
 expect human iterable_keys "" "G10 pending — same route as G10 red"
+
+# ------------------------------------------------ what the blocker box calls it
+# The banner is derived from this same routing, and which word it picks is the part a
+# developer remembers. The input is the kind, never the gate's status: "service
+# account: not created yet" is red and is also the tool's own next job, and a tool
+# that calls its own to-do list BROKEN teaches somebody to stop believing the word.
+banner_says() {
+  local want="$1" label="$2" out
+  out="$(blocker_banner 2>&1 | LC_ALL=C sed $'s/\033\\[[0-9;]*m//g')"
+  grep -qF -- "$want" <<< "$out" && ok "$(printf '%-44s %s' "$label" "$want")" \
+    || bad "$label" "no '$want' in: $(tr -s '\n ' ' ' <<< "$out" | cut -c1-90)"
+}
+
+PID=p PACKAGE=com.example APPROVED=1
+state "$(row G6 red tool "Service account exists" "not created yet")"
+banner_says "THE TOOL CAN DO THIS" "a red the tool itself clears"
+
+state "$(row G13 green human "App installed" "v1.0")" \
+      "$(row G16 red tool "Push arrives on device" "no Iterable push on the device")"
+banner_says "SOMETHING IS ACTUALLY WRONG" "a push that was sent and never arrived"
+
+state "$(row G13 red human "App installed with the SDK" "no device attached")"
+banner_says "YOUR TURN" "no device is theirs to fix, not a defect"
+
+# A project with no recorded yes — the earlier cases recorded one for p.
+APPROVED=0 PID=q
+state "$(row G6 red tool "Service account exists" "not created yet")"
+banner_says "APPROVAL NEEDED" "unapproved — the ask replaces the blocker"
+APPROVED=1 PID=p
 
 # -------------------------------------------------------------------------- done
 state "$(row G16 green tool "Push arrives on device" "arrived 2s after send")"

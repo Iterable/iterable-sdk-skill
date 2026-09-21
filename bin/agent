@@ -3,9 +3,10 @@
 # only the conversation differs. This one prints one JSON object on stdout and
 # nothing else, so a model can branch on it instead of reading a table.
 #
-#   bin/agent                 run the ladder, report where things stand
-#   bin/agent discover        the Firebase projects and apps, as JSON
-#   bin/agent set K=V [K=V]   record a choice (project, package, device)
+#   bin/agent                    run the ladder, report where things stand
+#   bin/agent discover           the Firebase projects and apps, as JSON
+#   bin/agent set K=V [K=V]      record a choice (project, package, device)
+#   bin/agent approve firebase   record the developer's yes to changing their project
 #
 # The human-facing ladder still goes to stderr: when a run surprises somebody, the
 # table is what explains it, and dropping it to keep stdout clean would mean the
@@ -17,10 +18,22 @@
 
 source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
 
-CONTRACT=1
+CONTRACT=2
 
 case "${1:-status}" in
   discover) exec "$BIN/discover" --json ;;
+  # Recorded, not remembered. The developer's yes has to outlive this turn of the
+  # conversation and be checkable by the script that spends it — and it is scoped to
+  # one project, so it cannot be carried over to the next one by accident.
+  approve)
+    shift
+    [[ "${1:-}" == firebase ]] || { printf '{"error":%s}\n' "$(jstr "usage: agent approve firebase")"; exit 30; }
+    [[ -n "$PID" ]] || { printf '{"error":%s}\n' "$(jstr "no project chosen yet — agent set PID=… first, so the approval says what it covers")"; exit 30; }
+    approve || { printf '{"error":%s}\n' "$(jstr "could not record the approval in $WS")"; exit 30; }
+    printf '{"approved":true,"scope":%s,"recorded_in":%s}\n' \
+      "$(jstr "$(approval_scope)")" "$(jstr "$APPROVALS")"
+    exit 0
+    ;;
   set)
     shift
     [[ $# -gt 0 ]] || { echo '{"error":"set needs at least one KEY=VALUE"}'; exit 30; }
@@ -88,7 +101,7 @@ IFS="$NEXT_SEP" read -r NEXT_OWNER NEXT_KIND NEXT_GATE NEXT_CMD NEXT_SUMMARY <<<
 # The same step, in words a developer who has never read this repo can use. `gate`
 # stays because the state file and our own vocabulary are keyed on it, but an agent
 # that has only an id to quote says "G13" to somebody it means nothing to.
-NEXT_STEP="$(awk -F'\t' -v i="$NEXT_GATE" '$1==i{print $4; exit}' "$WS/state.tsv" 2>/dev/null)"
+NEXT_STEP="$(gate_name "$NEXT_GATE")"
 
 f_present() { [[ -f "$1" ]] && echo true || echo false; }
 
@@ -112,6 +125,17 @@ printf '"iterable_env":{"path":%s,"present":%s,"keys_set":%s}' "$(jstr "$ITBL_EN
   "$(f_present "$ITBL_ENV")" \
   "$([[ -n "$ITBL_SERVER_KEY" && -n "$ITBL_MOBILE_KEY" ]] && echo true || echo false)"
 printf '},'
+# Whether the developer has said yes to changing their project, and what that yes
+# covers. In the report rather than only in `next` so an agent can see the ask is
+# still outstanding at any point in the run, not just on the turn it comes up.
+printf '"approval":{"scope":%s,"granted":%s,"plan":[' \
+  "$(jstr "$(approval_scope)")" "$(approved && echo true || echo false)"
+sep=""; while IFS= read -r l; do [[ -n "$l" ]] || continue; printf '%s%s' "$sep" "$(jstr "$l")"; sep=","; done <<< "$(firebase_plan)"
+printf '],"command":%s},' "$(jstr "$BIN/agent approve firebase")"
+# Relayed verbatim, once, by whoever is talking to the developer. An agent
+# paraphrasing this into "I've double-checked everything" is the failure it exists
+# to prevent, which is why the wording is the tool's and not the agent's.
+printf '"notice":%s,' "$(jstr "$(ai_notice)")"
 printf '"counts":{"green":%d,"red":%d,"pending":%d,"blocked":%d,"unverifiable":%d,"total":%d},' \
   "$NGREEN" "$NRED" "$NPENDING" "$NBLOCKED" "$NUNVERIFIABLE" "${#ROWS[@]}"
 printf '"gates":['

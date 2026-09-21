@@ -94,6 +94,23 @@ Write the code for each of these. Only genuinely developer-supplied inputs
 legitimate things to pause and ask for — wiring is not. Don't substitute
 `INTEGRATION_STATUS.md`-style essays for doing the work.
 
+### When you hand over the diff, say what it is
+
+You wrote it, so you are the last one who should be vouching for it. When the
+integration is done, say so in the developer's own terms and draw the line between
+what has been proved and what has not:
+
+> An AI agent wrote this code and configuration, and it can be wrong in ways that
+> still compile and still pass every check here. What is proved is what a real call or
+> a real push confirmed; everything else is a draft. Read the diff, run your own
+> tests, and treat it like a pull request from somebody new to your codebase.
+
+If `iterable-provision` is installed, its `bin/agent` carries this as a `notice`
+field — relay that verbatim instead, so the tool and the conversation say the same
+thing. Either way say it once, plainly, and do not soften it into "I've double-checked
+everything". Proof is the next section, and the strongest form of it is a real push
+landing on a real device — `iterable-verify` does that.
+
 ### Proving it works when you don't have the dashboard
 
 `setting-up-android-push-notifications` ends with **Test Push** from the

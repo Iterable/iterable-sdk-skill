@@ -58,6 +58,7 @@ cat <<EOF
   You can stop at any point with Ctrl-C and pick up where you left off.
 
 EOF
+ai_notice_banner
 pause "Press enter to begin."
 
 # ---------------------------------------------------------------- G1: identity
@@ -252,32 +253,20 @@ if ((LADDER == 40)); then
 fi
 
 # -------------------------------------------------------------------- the plan
-echo "  $(bold "What I would change in $PID")"
-echo
-while IFS=$'\t' read -r id status owner name detail; do
-  [[ "$status" == green ]] && continue
-  case "$id" in
-    G4) echo "    · register $PACKAGE as an Android app in $PID"
-        # Consent for this is the one prompt below, not a remembered flag: a
-        # kept selection must not silently carry last run's permission to create.
-        NEEDS_APP=1 ;;
-    G5) echo "    · download google-services.json for $PACKAGE (local file, not a secret)" ;;
-    G6) echo "    · create service account '$SA_ID'" ;;
-    G7) echo "    · grant it $FCM_ROLE — send push, nothing else" ;;
-    G8) echo "    · create a JSON key at $(wsp artifacts/sa-key.json), mode 0600" ;;
-    G9) echo "    · ask FCM to validate a send, proving the key works (nothing is delivered)" ;;
-  esac
-done < "$WS/state.tsv"
-cat <<EOF
-
-    The JSON key is a long-lived credential until you delete it. It is the thing
-    Iterable's Firebase integration needs. I'll offer to remove it at the end.
-
-EOF
+# The list, the ask, and then the work — in that order, every time, because this is
+# somebody else's cloud project. Same banner the agent path shows and the same one
+# bin/provision refuses with, so no front end can describe different work.
+firebase_consent_banner prompt
 
 ask_yn "Go ahead?" || { echo; echo "  Nothing changed. Re-run bin/onboard any time."; echo; exit 0; }
 
-[[ "${NEEDS_APP:-0}" == 1 ]] && export CREATE_APP=1
+# Recorded, so the script that does the work can check the answer rather than trust
+# its caller — and so a re-run does not ask again for the same project.
+approve
+
+# Consent to register an app is this prompt and not a remembered flag: a kept
+# selection must not silently carry last run's permission to create.
+[[ "$(gate_status G4)" == green ]] || export CREATE_APP=1
 
 echo
 "$BIN/provision"

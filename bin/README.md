@@ -75,13 +75,23 @@ Neither invents a gate, and neither decides anything the other wouldn't.
 bin/agent                 run the ladder, report where things stand
 bin/agent discover        your Firebase projects and Android apps, as JSON
 bin/agent set PID=… PACKAGE=…   record a choice
+bin/agent approve firebase      record the developer's yes to changing their project
 ```
 
-`next` is the whole protocol: `{owner, kind, gate, command, summary}`. `owner` is `human`, `tool`,
-`agent` or `none`; `kind` is the branch to take (`authenticate`, `choose_target`, `provision`,
-`iterable_keys`, `install_app`, `run_app`, `send_proof`, `done`, …); `command` is what to run when
-there is something to run. It is derived from `state.tsv`, never from the exit code — rc `40` says
-something is pending and never which thing, and rc `10` says a human is needed and never which step.
+`next` is the whole protocol: `{owner, kind, gate, step, command, summary}`. `owner` is `human`,
+`tool`, `agent` or `none`; `kind` is the branch to take (`authenticate`, `choose_target`,
+`approve_firebase`, `provision`, `iterable_keys`, `install_app`, `run_app`, `send_proof`, `done`, …);
+`step` is the same step in the developer's words, because `G13` is our vocabulary and not theirs;
+`command` is what to run when there is something to run. It is derived from `state.tsv`, never from
+the exit code — rc `40` says something is pending and never which thing, and rc `10` says a human is
+needed and never which step.
+
+Consent is a mechanism here, not a paragraph. Nothing reaches somebody's Google project until a yes
+is recorded against *that project*: `next` routes to `approve_firebase` ahead of any mutation, and
+`bin/provision` exits `10` without making a single call if the record is missing — so an agent that
+skips the question is stopped by the program rather than by prose. `approval.plan` is generated from
+the ladder, so the banner, the dry run and the JSON cannot describe different work. `APPROVED=1` is
+the same answer for a job with no human in it.
 
 Two rules the JSON keeps: **paths, never values** — a credential in a report is a credential in a
 log, so `artifacts` carries `path` and `present` and nothing else — and **the reporter never acts**,

@@ -62,14 +62,66 @@ Read `next.kind` and act. That is the whole protocol.
 | `authenticate` | Ask the developer to run `gcloud auth login` **themselves**, in their own terminal. You never handle their Google credentials. |
 | `choose_target` | Run `<root>/bin/agent discover` for the JSON list of their Firebase projects and Android apps, then ask **one** `AskUserQuestion` listing real projects (a project that already has their package is the zero-mutation path — say so). Record it with `<root>/bin/agent set PID=… PACKAGE=…`. |
 | `project_unreachable` | Relay `next.summary` verbatim; it is a permissions answer from Google, not something to work around. |
+| `approve_firebase` | Nothing has touched their project yet, and nothing will until they say yes. See *Asking before you change their project*. |
 | `register_app` | Registering an Android app in their Firebase project is a real mutation. Ask outright, and only then re-run with `CREATE_APP=1`. |
-| `provision` | Show `next.summary`, get one confirmation, then run `<root>/bin/onboard --apply`. It creates the service account, binds the send-push role and nothing more, downloads `google-services.json`, and ends by re-running the ladder. |
+| `provision` | Show `next.summary`, then run `<root>/bin/onboard --apply`. It creates the service account, binds the send-push role and nothing more, downloads `google-services.json`, and ends by re-running the ladder. Their yes is already recorded by this point — do not ask twice. |
 | `iterable_keys` | Four steps in their Iterable account that only they can do. Walk them **one at a time** — see *The four Iterable steps* below. |
 | `install_app` / `run_app` / `send_proof` | The device half — hand off to `iterable-verify`. |
 | `done` | A real push reached the device. Say which device and chain onward. |
 
 `next.command` is the command for that step when there is one. Run it; do not
 compose your own equivalent.
+
+## Asking before you change their project
+
+The Google half runs against a cloud project somebody else owns and pays for. So the
+list of changes comes before the changes, once, in their words — and their answer is
+recorded rather than remembered.
+
+When `next.kind` is `approve_firebase`:
+
+1. Show `approval.plan` from the JSON as a list, verbatim. It is generated from the
+   ladder, so it names what is actually left to do and nothing that is already done.
+   Do not summarise it to "set up Firebase" and do not add items to it.
+2. Say what it will not do: touch an app, integration or credential they already
+   have; create a Firebase project or register an app unless they ask outright; ask
+   for or type a password. Say that the JSON key it creates is a long-lived
+   credential until they delete it, and that `<root>/bin/teardown` removes everything
+   it added.
+3. Ask **one** `AskUserQuestion` — *Go ahead* / *Not yet, I have questions*. Then
+   wait. **No is a complete answer**: if they decline, say what stops (the Google
+   half, and the push proof with it) and leave the project alone. Do not re-ask later
+   in the run.
+4. On yes, run `approval.command` (`<root>/bin/agent approve firebase`) and carry on.
+
+**Never run that command on their behalf**, and never pass `APPROVED=1` yourself —
+it is the CI form of the answer, for a job with no human in it. Recording a yes
+nobody gave is the worst thing you can do in this skill. You do not need to police
+the rest: `<root>/bin/provision` checks the record itself and exits `10` without
+making a single call to Google if the yes is missing. The approval covers one
+project; choosing a different one puts you back here, correctly.
+
+## Blockers, where nobody can scroll past them
+
+Every run ends in one of four states, and the developer needs to know **whose turn it
+is** before anything else. `next.owner` says: `human` means them, `tool` means you.
+Lead with that in one short line, then the step name (`next.step`), then
+`next.summary`, then `next.command` on its own line if there is one. Set it off with
+a heading or a quote block — not a fifth bullet in a list of five, which is a list
+nobody starts.
+
+Two distinctions worth keeping, because collapsing them is how this tool loses
+credibility:
+
+- **A step nobody has reached is not a defect.** `verdict: pending` means the checks
+  ran, reached the service, and found the work simply hasn't happened. Say "nothing
+  is broken, and no push has arrived yet" — never "failed", never "error".
+- **A red step owned by `human` is still their turn, not a broken integration.** "No
+  device attached" is not a bug. Reserve the strong words — wrong, broken, failing —
+  for `verdict: defect`, where the tool owns it.
+
+When more than one thing is outstanding, name the one next thing prominently and put
+the rest in a plain list below it.
 
 ## Words to use
 
@@ -131,6 +183,22 @@ script, not for a conversation.
   credential. Its path is the only thing you ever mention about it. The developer
   uploads that file to Iterable themselves; `<root>/bin/wizard` offers to delete it
   afterwards, and `<root>/bin/teardown` removes it from Google.
+
+## The notice, in the tool's words and not yours
+
+The JSON carries a `notice` field. Relay it **verbatim**, as a quote, at two moments:
+once before the first change lands in their repository or their project, and once
+when `next.kind` is `done`. Twice in a run, not on every turn.
+
+Do not paraphrase it, do not shorten it, and above all do not soften it into "I've
+double-checked everything" — you are the thing it is warning them about, and an agent
+vouching for its own output is worth nothing. It draws the line they need: the push
+proof is evidence, read back out of the operating system; everything else is a draft
+to review like a pull request from somebody new to their codebase.
+
+If they ask whether the setup is trustworthy, the honest answer is the same
+distinction — what was proved by a real call, and what was written and not yet
+reviewed. `gates[].status` tells you which is which.
 
 ## What the tool will not do, and neither will you
 

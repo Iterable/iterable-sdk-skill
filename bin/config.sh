@@ -90,6 +90,30 @@ red()   { printf '\033[31m%s\033[0m' "$1"; }
 dim()   { printf '\033[2m%s\033[0m' "$1"; }
 bold()  { printf '\033[1m%s\033[0m' "$1"; }
 
+# Three things have to be impossible to scroll past: what the tool is about to
+# change in somebody's cloud project, what is blocking the run, and that an agent
+# wrote the code. Hence a bar rather than a full box — the text inside is coloured,
+# and a right-hand edge would mean measuring the printable width of a string full
+# of escape sequences, which is arithmetic that goes wrong silently.
+#
+# 31 red is "this changes something, or something is wrong", 33 yellow is "yours to
+# do", 36 cyan is "read this", 2 dim is context.
+BOX_RULE='━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+box_top() { printf '\n  \033[%sm┏%s\033[0m\n' "${1:-2}" "$BOX_RULE"; }
+box_end() { printf '  \033[%sm┗%s\033[0m\n\n' "${1:-2}" "$BOX_RULE"; }
+box() {
+  local c="${1:-2}" l; shift
+  for l in "$@"; do printf '  \033[%sm┃\033[0m %s\n' "$c" "$l"; done
+}
+
+# Prose inside a box, wrapped to the rule. A line that runs past the bar takes the
+# next one with it and the block stops reading as a block — and the longest strings
+# here are the ones that come from a gate's verdict, which nobody wrote to fit.
+box_text() {
+  local c="$1"; shift
+  printf '%s\n' "$*" | fold -s -w 66 | while IFS= read -r l; do box "$c" "  $l"; done
+}
+
 interactive() { [[ -t 0 && -t 1 && "${NON_INTERACTIVE:-0}" != 1 ]]; }
 
 plain() { sed $'s/\033\\[[0-9;]*m//g'; }
@@ -175,6 +199,174 @@ pending_advice() {
   done < "$WS/state.tsv"
 }
 
+# One row of the ladder, by column. The front ends need a gate's name and status
+# far more often than they need to parse the whole file, and every one of them was
+# writing its own awk for it.
+gate_field()  { awk -F'\t' -v i="$1" -v c="$2" '$1==i{print $c; exit}' "$WS/state.tsv" 2>/dev/null; }
+gate_status() { gate_field "$1" 2; }
+gate_name()   { gate_field "$1" 4; }
+
+# Said in the tool's own voice, because on the path we ship there is nobody else to
+# say it: the developer is talking to an agent, and an agent assuring you that its
+# own output is trustworthy is not worth much. Not written as a legal disclaimer —
+# the useful version tells them which half of what they are looking at is evidence
+# and which half is a draft.
+# One line per paragraph, unwrapped: the banner wraps it to whatever width it has,
+# and an agent relaying it into a chat window reflows it anyway. Pre-wrapped text
+# came out ragged in both.
+ai_notice() {
+  cat <<'EOF'
+An AI agent wrote the code and configuration this puts in your repository, and it can be wrong in ways that still compile and still pass every check here.
+
+Evidence: the push proof. A real notification, on a real device, read back out of the operating system — not an agent's report that it worked.
+
+A draft: everything else. Read the diff, run your own tests, and treat it like a pull request from somebody new to your codebase. It is your code now.
+EOF
+}
+
+ai_notice_banner() {
+  box_top 36
+  box 36 "$(bold "READ THIS BEFORE YOU SHIP IT")" ""
+  # Paragraph by paragraph, so the blank lines survive the wrap.
+  ai_notice | while IFS= read -r l; do
+    [[ -n "$l" ]] && box_text 36 "$l" || box 36 ""
+  done
+  box_end 36
+}
+
+# ------------------------------------------------------------------- approval
+#
+# Provisioning changes somebody else's cloud project, so the yes has to be one the
+# tool can check rather than one the agent remembers giving. An agent that skips the
+# question is stopped here instead of in prose.
+#
+# Recorded against the project, because approving work in one project says nothing
+# about the next: a remembered yes that outlives its target is how the wrong project
+# gets modified. APPROVED=1 is the CI form of the same answer.
+APPROVALS="$WS/approved"
+
+approval_scope() { printf 'firebase %s' "${PID:-<no project chosen>}"; }
+
+approved() {
+  [[ "${APPROVED:-0}" == 1 ]] && return 0
+  [[ -n "$PID" ]] || return 1
+  awk -F'\t' -v s="$(approval_scope)" '$1==s{found=1} END{exit !found}' "$APPROVALS" 2>/dev/null
+}
+
+approve() {
+  [[ -n "$PID" ]] || return 1
+  ws_init || return 1
+  approved || printf '%s\t%s\n' "$(approval_scope)" "$(date '+%Y-%m-%d %H:%M')" >> "$APPROVALS"
+}
+
+# What provisioning would change, read out of the ladder rather than written out by
+# hand in each front end. A consent banner that lists something the run will not do,
+# or leaves out something it will, is worse than no banner at all — and there were
+# three hand-maintained copies of this list before it lived here.
+firebase_plan() {
+  local id status owner name detail todo=""
+  # Nothing is planned against a project nobody has chosen, and a list that names no
+  # project reads as a list of things about to happen to an unknown one.
+  [[ -n "$PID" ]] || return 0
+  # Unconditional, because provision enables these every run and a banner that only
+  # mentions gate-shaped work would understate what it touches.
+  echo "enable   the Firebase, IAM and FCM APIs, if they are not on already"
+  if [[ -f "$WS/state.tsv" ]]; then
+    while IFS=$'\t' read -r id status owner name detail; do
+      [[ "$status" == green ]] && continue
+      todo="$todo $id"
+    done < "$WS/state.tsv"
+  else
+    # No ladder has run, so nothing is known to be done already — and a consent
+    # banner that understates the work because it has no state to read is worse than
+    # one that overstates it. Assume all of it.
+    todo="G3 G4 G5 G6 G7 G8 G9"
+  fi
+  for id in $todo; do
+    case "$id" in
+      G3) echo "add      Firebase to the project" ;;
+      G4) echo "register $PACKAGE as an Android app — needs CREATE_APP=1" ;;
+      G5) echo "download google-services.json — a config file, not a secret" ;;
+      G6) echo "create   a service account, '$SA_ID'" ;;
+      # Two lines, because the role name is the evidence for the claim and neither
+      # half fits on one line of a banner with the other.
+      G7) echo "grant    it one role: $FCM_ROLE"
+          echo "         which can send push and do nothing else" ;;
+      G8) echo "create   a JSON key for it, mode 0600, at" 
+          echo "         $(wsp artifacts/sa-key.json)" ;;
+      G9) echo "verify   the key by asking FCM to validate a send (nothing sent)" ;;
+    esac
+  done
+}
+
+# A plan line that starts with spaces continues the one above it. Bulleting it makes
+# one change look like two, the second with no verb — so the marker goes on the first
+# line only and the continuation keeps its alignment.
+plan_bulleted() {
+  local l
+  while IFS= read -r l; do
+    case "$l" in ' '*) printf '  %s\n' "$l" ;; *) printf '· %s\n' "$l" ;; esac
+  done
+}
+
+# firebase_consent_banner [prompt]
+#
+# The same list of changes either way; only the way to say yes differs, because a
+# wizard asks on the next line and an agent has to record an answer. Hard-coding one
+# of them meant whichever front end lost the coin toss told the developer to run a
+# command that does not apply to them.
+firebase_consent_banner() {
+  local how="${1:-command}"
+  box_top 31
+  box 31 "$(bold "APPROVAL NEEDED — this changes your Google Cloud project")" ""
+  box 31 "  project   ${PID:-<none chosen yet>}" "  package   ${PACKAGE:-<none chosen yet>}" ""
+  box 31 "$(bold "  What it would do")"
+  firebase_plan | plan_bulleted | while IFS= read -r l; do box 31 "    $l"; done
+  box 31 "" "$(bold "  What it will not do")" \
+    "    · touch an app, integration or credential you already have" \
+    "    · create a Firebase project, or register an app, unless you ask outright" \
+    "    · ask for, store or type a password — you sign in yourself" ""
+  if [[ "$how" == prompt ]]; then
+    box 31 "$(bold "  Answer below.") Nothing has happened yet, and no is a complete answer."
+  else
+    box 31 "$(bold "  Yes")  $BIN/agent approve firebase" \
+           "$(dim "        or APPROVED=1 in the environment, for CI")" \
+           "$(bold "  No")   change nothing and walk away. Nothing has happened yet."
+  fi
+  box 31 "" "$(dim "  The JSON key it creates is a long-lived credential until you delete it.")" \
+         "$(dim "  bin/teardown removes everything it added.")"
+  box_end 31
+}
+
+# The one thing stopping the run, printed where nobody can scroll past it. Which
+# gate that is has already been decided by next_action — this is only how it looks,
+# so the styling can never disagree with the routing.
+blocker_banner() {
+  local owner kind gate cmd summary name colour label
+  IFS="$NEXT_SEP" read -r owner kind gate cmd summary <<< "$(next_action)"
+  [[ "$kind" == done ]] && return 0
+  [[ "$kind" == approve_firebase ]] && { firebase_consent_banner; return 0; }
+  name="$(gate_name "$gate")"
+  # The kind says whether anything is wrong; the owner says whose turn it is. Not the
+  # gate's status: a red "service account: not created yet" is the tool's ordinary
+  # next job, and labelling it BROKEN — or shouting it at somebody who has simply not
+  # plugged a phone in — teaches a developer to stop believing the word.
+  case "$kind" in
+    investigate|project_unreachable)
+      colour=31; label="SOMETHING IS ACTUALLY WRONG — a defect, not pending work" ;;
+    *)
+      colour=33
+      if [[ "$owner" == human ]]; then label="YOUR TURN — the tool cannot do this part"
+      else label="THE TOOL CAN DO THIS — one command away"; fi ;;
+  esac
+  box_top "$colour"
+  box "$colour" "$(bold "$label")" ""
+  [[ -n "$name" ]] && box "$colour" "  $(bold "$name")"
+  box_text "$colour" "$summary"
+  [[ -n "$cmd" ]] && box "$colour" "" "      $cmd"
+  box_end "$colour"
+}
+
 # Separator for next_action's five fields. Not a tab: tab is IFS whitespace, so
 # `read` collapses a run of them and silently shifts every later field up — an
 # action with no command was arriving with its summary parsed as the command.
@@ -252,10 +444,29 @@ next_action() {
              a_kind=choose_target; a_owner=agent; a_cmd="$BIN/agent discover"
            else a_kind=install_app; fi ;;
       G14|G15) [[ "$open_status" == pending ]] && a_kind=run_app || a_kind=investigate ;;
-      G16) [[ "$open_status" == pending ]] && { a_kind=send_proof; a_cmd="$BIN/proof-push"; } || a_kind=investigate ;;
+      # Sending is the caller's to run, not the developer's: there is a command for
+      # it, and an owner of `human` on a step that ships its own command tells
+      # somebody the tool cannot do the very thing it is offering to do.
+      G16) [[ "$open_status" == pending ]] && { a_kind=send_proof; a_owner=agent; a_cmd="$BIN/proof-push"; } || a_kind=investigate ;;
       G17) a_kind=campaign_send ;;
       *)   [[ "$open_status" == pending ]] && a_kind=run_app || a_kind=investigate ;;
     esac
+    # Approval outranks the action it would authorise. Every kind here changes
+    # somebody's Google project, and the developer is entitled to see the list and
+    # say yes before any of it happens — not to be told afterwards which of their
+    # things an agent decided to create.
+    if ! approved; then
+      case "$a_kind" in
+        provision|enable_firebase|register_app)
+          # The remedy first: brief() truncates at 100 characters, and the CREATE_APP
+          # half of the sentence is the part that survives losing.
+          a_summary="approve the changes to ${PID:-the project} first — nothing has happened yet"
+          [[ "$a_kind" == register_app ]] &&
+            a_summary="$a_summary; registering $PACKAGE also needs CREATE_APP=1, on purpose"
+          a_owner=human; a_kind=approve_firebase; a_cmd="$BIN/agent approve firebase"
+          ;;
+      esac
+    fi
   elif [[ -f "$WS/state.tsv" ]]; then
     a_owner=none; a_kind=done
     a_summary="a push reached the device — nothing left to do"
