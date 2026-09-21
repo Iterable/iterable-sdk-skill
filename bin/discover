@@ -78,6 +78,16 @@ if ((FOUND)); then
   Then:  $BIN/onboard
 EOF
 else
-  echo "  No project has an Android app yet. Registering one needs CREATE_APP=1."
+  # The state that broke a demo, so it names the way through rather than a flag. No
+  # app means no google-services.json to download, and every remedy that isn't
+  # "register one" ends in a faked file.
+  cat <<EOF
+  None of your projects has an Android app registered yet, so there is no
+  google-services.json to download for any of them. One has to be registered first.
+
+      $BIN/onboard      offers to register it, and asks before it does
+
+  Driving the scripts yourself instead: CREATE_APP=1 is the explicit opt-in.
+EOF
 fi
 echo

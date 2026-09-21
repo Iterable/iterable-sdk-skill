@@ -7,6 +7,12 @@
 #   bin/agent discover           the Firebase projects and apps, as JSON
 #   bin/agent set K=V [K=V]      record a choice (project, package, device)
 #   bin/agent approve firebase   record the developer's yes to changing their project
+#   bin/agent set DRIVER=agent   they asked you to run the setup instead of the wizard
+#
+# By default the Google setup is not yours to run: `next.kind` comes back as
+# run_in_terminal with the command to hand over, because the wizard can sign them in,
+# register an Android app the project is missing, and take the Iterable keys with the
+# echo off. DRIVER=agent is the developer choosing otherwise, in as many words.
 #
 # The human-facing ladder still goes to stderr: when a run surprises somebody, the
 # table is what explains it, and dropping it to keep stdout clean would mean the
@@ -18,7 +24,7 @@
 
 source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
 
-CONTRACT=2
+CONTRACT=3
 
 case "${1:-status}" in
   discover) exec "$BIN/discover" --json ;;
@@ -42,6 +48,13 @@ case "${1:-status}" in
       k="${kv%%=*}"; v="${kv#*=}"
       case "$k" in
         PID|PACKAGE|TARGET_DEVICE|SA_ID|ITBL_CAMPAIGN_ID|ITBL_PUSH_INTEGRATION) ;;
+        # Only the developer moves this off `developer`, and only by saying so. An
+        # agent that sets it because the handoff looked inconvenient has taken the
+        # decision the default exists to leave with them.
+        DRIVER)
+          [[ "$v" == developer || "$v" == agent ]] || {
+            printf '{"error":%s}\n' "$(jstr "DRIVER is 'developer' (they run bin/onboard) or 'agent' (you drive the scripts); got: $v")"
+            exit 30; } ;;
         *) printf '{"error":%s}\n' "$(jstr "$k is not settable here; export it instead")"; exit 30 ;;
       esac
       save_resolved "$k" "$v"
@@ -136,6 +149,11 @@ printf '],"command":%s},' "$(jstr "$BIN/agent approve firebase")"
 # paraphrasing this into "I've double-checked everything" is the failure it exists
 # to prevent, which is why the wording is the tool's and not the agent's.
 printf '"notice":%s,' "$(jstr "$(ai_notice)")"
+# Who runs the Google setup, and the command that hands it over. `recommended` is the
+# tool's answer and not the caller's: the wizard can sign them in, register a missing
+# Android app and hide the keys as they are typed, and a chat cannot do any of it.
+printf '"setup":{"driver":%s,"recommended":"developer","handoff_command":%s,"drive_it_yourself":%s},' \
+  "$(jstr "$DRIVER")" "$(jstr "$BIN/handoff")" "$(jstr "$BIN/agent set DRIVER=agent")"
 printf '"counts":{"green":%d,"red":%d,"pending":%d,"blocked":%d,"unverifiable":%d,"total":%d},' \
   "$NGREEN" "$NRED" "$NPENDING" "$NBLOCKED" "$NUNVERIFIABLE" "${#ROWS[@]}"
 printf '"gates":['

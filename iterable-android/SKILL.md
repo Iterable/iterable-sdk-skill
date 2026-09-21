@@ -183,6 +183,25 @@ Specifically, do **not**:
 When blocked on any of these, **surface it to the developer and pause that
 part of the work** — don't silently degrade the integration to keep compiling.
 
+**A green build is not the deliverable, and this is the way it actually fails.**
+Observed in a live demo: the Firebase project had no Android app registered, so there
+was no real `google-services.json`. The push work should have stopped there. Instead
+it kept going, made the build pass, knew the Firebase half was unfinished, and then
+ended the turn without naming a way forward. Two rules from that, and they are not
+negotiable:
+
+- **A missing prerequisite stops the push work, immediately** — before the Gradle
+  edit, not after. Do the parts of the agreed scope that genuinely don't depend on it
+  (event tracking, identity) and say which parts you did not do and why. Never
+  placeholder the file, never comment out the `google-services` plugin, never "make it
+  compile for now" — a build that passes with the input faked is worse than a build
+  that fails honestly, because it looks finished.
+- **Say what they should do next, and ask them to come back.** The remedy for this
+  exact case is one command in their terminal: route into `iterable-provision`, which
+  prints it via `bin/handoff` — its wizard *offers to register the missing app*.
+  Relay that block, say you'll wait, and stop. Ending on "you'll need to sort out
+  Firebase" leaves the developer holding your problem.
+
 ### If they don't have an input yet
 
 Include **"I don't have one yet"** among the options you offer for a missing

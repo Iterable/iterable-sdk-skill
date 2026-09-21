@@ -75,6 +75,18 @@ fi
 : "${CREATE_PROJECT:=0}"
 : "${CREATE_APP:=0}"
 
+# Who runs the Google setup: `developer` at a terminal, or `agent` in a chat. The
+# default is the developer, and not out of caution — the wizard is simply better at
+# this part. It hosts the Google sign-in, it offers to register an Android app when
+# the project has none, and it takes the Iterable keys with the echo off.
+#
+# That first case is why the default changed. A demo hit a project with no Android
+# app, so there was no google-services.json to download; the agent driving the
+# scripts needed CREATE_APP=1, improvised around the missing file to keep the build
+# green, and then stopped without naming a way forward. The wizard asks.
+: "${DRIVER:=developer}"
+agent_driven() { [[ "$DRIVER" == agent ]]; }
+
 ART="$WS/artifacts"
 GS_JSON="$ART/google-services.json"
 SA_KEY="$ART/sa-key.json"
@@ -338,6 +350,35 @@ firebase_consent_banner() {
   box_end 31
 }
 
+# The block that sends a developer to their own terminal, and the reason the default
+# points there: the wizard hosts the Google sign-in, it offers to register an Android
+# app when the project has none, and it takes the Iterable keys with the echo off.
+# None of those three are things a chat can do.
+#
+# Printed by the tool rather than composed by whoever relays it, because the part that
+# goes missing in a paraphrase is the last line — and a developer holding a finished
+# terminal and no next step is exactly what this is for.
+handoff_banner() {
+  local proj; proj="$(git rev-parse --show-toplevel 2>/dev/null)" || proj="$PWD"
+  box_top 36
+  box 36 "$(bold "RUN THIS IN YOUR TERMINAL — then come back here")" ""
+  box 36 "      cd $proj" "      $BIN/onboard" ""
+  box 36 "$(bold "  What it does")" \
+         "    · signs you in to Google, in your own browser" \
+         "    · lets you pick the Firebase project and the Android app —" \
+         "      and offers to register the app if the project has none" \
+         "    · shows you every change it would make before making any," \
+         "      and stops if you say no" \
+         "    · walks the Iterable dashboard steps one at a time, and takes" \
+         "      the two API keys with the terminal echo off" \
+         "    · picks the device by name, and proves it with a real push" ""
+  box 36 "$(bold "  When it finishes") — or if it stops and you are not sure why —" \
+         "  come back here and say so, and I will carry on from there." ""
+  box 36 "$(dim "  Nothing to copy. The result is in $(wsp "" | sed 's:/$::'), and I read it")" \
+         "$(dim "  from there rather than asking you to retype it.")"
+  box_end 36
+}
+
 # The one thing stopping the run, printed where nobody can scroll past it. Which
 # gate that is has already been decided by next_action — this is only how it looks,
 # so the styling can never disagree with the routing.
@@ -346,6 +387,7 @@ blocker_banner() {
   IFS="$NEXT_SEP" read -r owner kind gate cmd summary <<< "$(next_action)"
   [[ "$kind" == done ]] && return 0
   [[ "$kind" == approve_firebase ]] && { firebase_consent_banner; return 0; }
+  [[ "$kind" == run_in_terminal ]] && { handoff_banner; return 0; }
   name="$(gate_name "$gate")"
   # The kind says whether anything is wrong; the owner says whose turn it is. Not the
   # gate's status: a red "service account: not created yet" is the tool's ordinary
@@ -453,6 +495,19 @@ next_action() {
       G17) a_kind=campaign_send ;;
       *)   [[ "$open_status" == pending ]] && a_kind=run_app || a_kind=investigate ;;
     esac
+    # Who does it outranks whether it is allowed, because the terminal path asks for
+    # consent in person — the wizard shows the same banner and records the same yes.
+    # Routing to the approval first would ask an agent to collect permission for work
+    # it is not the one doing.
+    if ! agent_driven; then
+      case "$a_kind" in
+        provision|enable_firebase|register_app)
+          a_owner=human; a_kind=run_in_terminal; a_cmd="$BIN/handoff"
+          a_summary="run the setup in your own terminal — it signs you in, registers the app if the project has none, and asks before it changes anything; then come back"
+          ;;
+      esac
+    fi
+
     # Approval outranks the action it would authorise. Every kind here changes
     # somebody's Google project, and the developer is entitled to see the list and
     # say yes before any of it happens — not to be told afterwards which of their

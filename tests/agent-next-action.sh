@@ -85,11 +85,32 @@ PID=some-project
 state "$(row G2 red tool "GCP project exists" "PERMISSION_DENIED on some-project")"
 expect human project_unreachable "PERMISSION_DENIED" "G2 red with a project named"
 
+# --------------------------------------------------- not the agent's to run at all
+# The default: every Google mutation hands over to the developer's own terminal. This
+# is the routing half of a demo failure — the project had no Android app, the agent
+# driving the scripts needed CREATE_APP=1, and instead of handing over it worked
+# around the missing google-services.json and then stopped with nowhere to go. The
+# wizard asks about the app, so the route that reaches the wizard cannot hit that.
+PID=p PACKAGE=com.example
+for g in G3 G4 G5 G6 G7 G8 G9; do
+  state "$(row "$g" red tool "$g" "not created yet")"
+  expect human run_in_terminal "your own terminal" "$g red — handed over, not driven here"
+done
+# And the command is the one that prints the block, not the one that does the work:
+# an agent handed bin/provision here would run it and call that a handover.
+IFS="$NEXT_SEP" read -r _o _k _g HANDCMD _s <<< "$(next_action)"
+[[ "$HANDCMD" == *"bin/handoff" ]] && ok "the command is the handover block itself" \
+  || bad "handover command" "got $HANDCMD"
+
 # ------------------------------------------------------- nothing until they say yes
 # Every route below changes somebody's Google project, so the ask outranks the work.
 # Pinned because the enforcement lives in bin/provision and the *routing* is what
 # stops an agent walking a developer up to a wall it cannot see.
-PID=p PACKAGE=com.example
+#
+# DRIVER=agent throughout: this is the path a developer gets only by asking for it,
+# and consent is the agent's to collect precisely because the wizard is not there to
+# ask in person.
+export DRIVER=agent
 state "$(row G3 red tool "Firebase enabled" "firebase not enabled on p")"
 expect human approve_firebase "approve the changes to p" "G3 red — approval comes first"
 
@@ -200,6 +221,13 @@ APPROVED=0 PID=q
 state "$(row G6 red tool "Service account exists" "not created yet")"
 banner_says "APPROVAL NEEDED" "unapproved — the ask replaces the blocker"
 APPROVED=1 PID=p
+
+# And by default it is neither of those: it is the command they run themselves.
+DRIVER=developer
+state "$(row G6 red tool "Service account exists" "not created yet")"
+banner_says "RUN THIS IN YOUR TERMINAL" "the default hands over instead of asking"
+banner_says "come back here and say so" "the handover says how to return"
+DRIVER=agent
 
 # -------------------------------------------------------------------------- done
 state "$(row G16 green tool "Push arrives on device" "arrived 2s after send")"

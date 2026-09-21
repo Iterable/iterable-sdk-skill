@@ -56,14 +56,47 @@ broken and nothing proven yet.
 
 Read `next.kind` and act. That is the whole protocol.
 
+## Who runs the Google setup — by default, not you
+
+**The default is that the developer runs it in their own terminal, and you wait.**
+This is not caution about permissions; the wizard is simply better at this part. It
+hosts `gcloud auth login` in the same session, it *offers to register an Android app
+when the Firebase project has none*, it takes the two Iterable API keys with the
+terminal echo off, and it picks the device by name.
+
+That middle one is why this is the default. A project with no Android app has no
+`google-services.json` to download, the script path needs `CREATE_APP=1` to create
+one, and an agent that misses that is one improvisation away from faking the file to
+keep a build green — which is the single worst thing this skill can do.
+
+So when `next.kind` is `run_in_terminal`:
+
+1. Run `next.command` (`<root>/bin/handoff`) and relay its block **verbatim**. It
+   contains the two lines they type, what the wizard will ask them, and how to come
+   back. Do not retype the command and do not drop the last part.
+2. Say plainly that you will wait, and **stop**. Do not run provisioning commands
+   while they are in the terminal, and do not start writing integration code that
+   depends on what the wizard is about to produce.
+3. When they come back — whether it worked or not — run `<root>/bin/agent` again and
+   read the result off disk. **Never ask them to paste or retype anything**; the
+   workspace is in their repo and it is the authority on what happened.
+
+Offer the alternative once, in the same message, as a real choice: one
+`AskUserQuestion` with *I'll run it in my terminal* (recommended — say why in a
+clause) and *You run it for me here*. If they pick the second, record it with
+`<root>/bin/agent set DRIVER=agent` and the routing switches to the table below.
+**Only they can make that choice.** Setting `DRIVER=agent` because handing over felt
+slow is taking the decision the default exists to leave with them.
+
 | `next.kind` | What you do |
 |---|---|
+| `run_in_terminal` | The default. Relay the handoff block, say you'll wait, stop. |
 | `install_tools` | Report exactly which binaries are missing (`missing_tools`) and what each unlocks: `gcloud` the Google half, `adb` the device half, `node` the JSON parsing, `java` the keystore reads. Do not install them. |
 | `authenticate` | Ask the developer to run `gcloud auth login` **themselves**, in their own terminal. You never handle their Google credentials. |
 | `choose_target` | Run `<root>/bin/agent discover` for the JSON list of their Firebase projects and Android apps, then ask **one** `AskUserQuestion` listing real projects (a project that already has their package is the zero-mutation path — say so). Record it with `<root>/bin/agent set PID=… PACKAGE=…`. |
 | `project_unreachable` | Relay `next.summary` verbatim; it is a permissions answer from Google, not something to work around. |
-| `approve_firebase` | Nothing has touched their project yet, and nothing will until they say yes. See *Asking before you change their project*. |
-| `register_app` | Registering an Android app in their Firebase project is a real mutation. Ask outright, and only then re-run with `CREATE_APP=1`. |
+| `approve_firebase` | Only reachable once they asked you to drive it. Nothing has touched their project yet, and nothing will until they say yes. See *Asking before you change their project*. |
+| `register_app` | Their Firebase project has no Android app, so there is no `google-services.json` to download and nothing downstream can work. Registering one is a real mutation: ask outright, then re-run with `CREATE_APP=1`. **This is the state that must never turn into a workaround** — if you cannot register the app, hand over to the terminal instead of writing code around the missing file. |
 | `provision` | Show `next.summary`, then run `<root>/bin/onboard --apply`. It creates the service account, binds the send-push role and nothing more, downloads `google-services.json`, and ends by re-running the ladder. Their yes is already recorded by this point — do not ask twice. |
 | `iterable_keys` | Four steps in their Iterable account that only they can do. Walk them **one at a time** — see *The four Iterable steps* below. |
 | `install_app` / `run_app` / `send_proof` | The device half — hand off to `iterable-verify`. |
@@ -122,6 +155,19 @@ credibility:
 
 When more than one thing is outstanding, name the one next thing prominently and put
 the rest in a plain list below it.
+
+**Never end a turn without a next step.** Whenever you stop — blocked, handing over,
+or out of things you can do — the last thing you say has three parts, in this order:
+
+1. **Where it stands.** What is proved, and what is not. One or two lines.
+2. **The one thing to do**, as something they can act on without deciding anything:
+   the command to run, or the dashboard step, or the question you need answered.
+3. **"Then come back and tell me"** — say it outright, and say you will pick up from
+   the workspace rather than asking them to report details.
+
+"Provisioning is incomplete" on its own is not a next step. Neither is a list of five
+things with no order. A developer who reaches the end of your message and has to work
+out what to do next has been handed the problem, not the answer.
 
 ## Words to use
 

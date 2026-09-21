@@ -137,6 +137,14 @@ everything".
 **Never fabricate a prerequisite to make the build pass.** Do not invent an
 API key, a placeholder `google-services.json`, or a JWT signed in the client.
 
+**A green build is not the deliverable.** Seen live on the Android side: the Firebase
+project had no app registered, so there was no real `google-services.json`; the work
+carried on anyway, made it compile, and ended the turn without naming a way forward.
+So — a missing prerequisite stops the push work *before* the native edit, you say
+which parts of the agreed scope you did not do and why, and you end with the one thing
+to do next plus "then come back and tell me". `iterable-provision` prints that command
+via `bin/handoff`, and its wizard offers to register the missing app.
+
 ### If they don't have an input yet
 
 Include **"I don't have one yet"** among the options you offer for a missing

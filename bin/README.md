@@ -86,6 +86,14 @@ bin/agent approve firebase      record the developer's yes to changing their pro
 the exit code — rc `40` says something is pending and never which thing, and rc `10` says a human is
 needed and never which step.
 
+**The Google setup is not the agent's to run by default.** `next.kind` comes back as
+`run_in_terminal` with `bin/handoff`, the block that sends the developer to the wizard, because the
+wizard does three things a chat cannot: host the Google sign-in, offer to register an Android app
+when the project has none, and take the Iterable keys with the echo off. That middle one is why the
+default exists — a project with no app has no `google-services.json` to download, and an agent that
+misses `CREATE_APP=1` is one improvisation away from faking the file to keep a build green. `bin/agent
+set DRIVER=agent` is the developer choosing otherwise; nothing else may set it.
+
 Consent is a mechanism here, not a paragraph. Nothing reaches somebody's Google project until a yes
 is recorded against *that project*: `next` routes to `approve_firebase` ahead of any mutation, and
 `bin/provision` exits `10` without making a single call if the record is missing — so an agent that
@@ -111,6 +119,7 @@ Underneath, both use the same pieces, and the split is structural rather than co
 | `bin/discover` | Read-only list of your Firebase projects and their Android apps |
 | `bin/iterable-keys` | Walks the four Iterable dashboard steps that have no API, captures the keys, then hands off to `bin/gates`. Offers the identity the app already registered, read from the device |
 | `bin/proof-push` | **Actor.** Sends the one push the ladder exists to prove, and records the marker it sent. Never checks whether it arrived |
+| `bin/handoff` | Prints the block that sends a developer to their own terminal, for an agent to relay verbatim. Changes nothing |
 | `bin/teardown` | Removes only what the tool added |
 | `tests/wizard-decline.exp` | Drives the wizard through a pty and asserts that declining changes nothing |
 | `tests/agent-next-action.sh` | Every ladder state → one owner and one action, against fixture state files. The agent path has no human to notice a mis-route |

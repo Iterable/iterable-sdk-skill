@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Prints the block a developer follows in their own terminal, for an agent to relay
+# verbatim. The block itself lives in config.sh, next to the banner that enforces it,
+# so `next.kind == run_in_terminal` and this command cannot say different things.
+#
+#   bin/handoff        the block to relay
+
+source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
+
+handoff_banner

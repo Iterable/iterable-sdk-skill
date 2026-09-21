@@ -11,6 +11,12 @@ source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
 
 trap 'echo; echo "  Stopped. Nothing in progress was left half-done — run bin/onboard again."; echo; exit 130' INT
 
+# Half the people who reach this wizard were sent here by an agent in another window,
+# and the loop has two ends: bin/handoff sends them, this brings them back. Printed on
+# every exit, including the early ones, because "it stopped and I do not know why" is
+# the moment somebody most needs telling where to go with it.
+trap 'printf "  \033[2m%s\033[0m\n\n" "Sent here by an assistant? Go back and tell it you are done — it reads the result from $(wsp "" | sed "s:/$::")."' EXIT
+
 pause() { read -r -p "  $1 " _; }
 
 ask_yn() {
