@@ -190,8 +190,49 @@ refresh_derived
 
 green() { printf '\033[32m%s\033[0m' "$1"; }
 red()   { printf '\033[31m%s\033[0m' "$1"; }
+cyan()  { printf '\033[36m%s\033[0m' "$1"; }
 dim()   { printf '\033[2m%s\033[0m' "$1"; }
 bold()  { printf '\033[1m%s\033[0m' "$1"; }
+
+# Several gates are slow by nature — a cold emulator's first dumpsys, a service-account
+# key that has not propagated yet, a logcat read that polls to a deadline. Printing
+# nothing until the verdict makes slow indistinguishable from hung, and a live G13 got
+# read as a frozen wizard twice before this existed.
+#
+# An elapsed count, not just a spinner: "it is working" is the smaller half of the
+# question. Somebody watching 64s tick past on a gate knows to wait; somebody watching
+# 400s knows not to.
+#
+# Frames in an array rather than one string, because bash 3.2 indexes substrings by byte
+# and these glyphs are three bytes each.
+SPIN_FRAMES=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
+
+# run_spinner <out-file> <label> <command...>
+#
+# Runs the command with its output collected in <out-file>, marks time on one line while
+# it works, erases that line, and returns the command's status. Only draws when stdout is
+# a terminal: a pipe gets byte-for-byte what it always did, which is what bin/agent and
+# every test suite read.
+run_spinner() {
+  local f="$1" label="$2"; shift 2
+  if [[ ! -t 1 ]]; then "$@" > "$f" 2>&1; return $?; fi
+  "$@" > "$f" 2>&1 &
+  local pid=$! i=0 start=$SECONDS el drawn=0
+  while kill -0 "$pid" 2>/dev/null; do
+    el=$((SECONDS - start))
+    # Silent for the first couple of seconds, and the cursor is only hidden once there is
+    # something to hide it for. Most gates answer inside one second, and hiding and
+    # restoring the cursor on every row of a ladder is a visible flicker for no reason.
+    if ((el >= 2)); then
+      ((drawn)) || { printf '\033[?25l'; drawn=1; }
+      printf '\r  %s  %s %s\033[K' "$(cyan "${SPIN_FRAMES[i % 10]}")" "$label" "${el}s"
+    fi
+    ((i++))
+    sleep 0.1
+  done
+  ((drawn)) && printf '\r\033[K\033[?25h'
+  wait "$pid"
+}
 
 # Three things have to be impossible to scroll past: what the tool is about to
 # change in somebody's cloud project, what is blocking the run, and that an agent
@@ -368,7 +409,7 @@ missing_tools() {
 # containing a tab would split into a column that nothing reads.
 brief() {
   tr '\n\t' '  ' | sed 's/ERROR: ([^)]*) //; s/  */ /g' \
-    | awk '{ if (length($0) > 100) { s = substr($0, 1, 99); sub(/ [^ ]*$/, "", s); print s "…" } else print }'
+    | awk '{ sub(/[ \t]+$/, ""); if (length($0) > 100) { s = substr($0, 1, 99); sub(/ [^ ]*$/, "", s); print s "…" } else print }'
 }
 
 # Did a push actually arrive? The one question the whole tool answers, and the

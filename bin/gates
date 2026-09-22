@@ -13,6 +13,13 @@ FAILED=0
 STATE="$WS/state.tsv"
 ws_init; : > "$STATE"
 
+# The spinner hides the cursor, and a hidden cursor outlives the process — Ctrl-C out of
+# a slow gate would otherwise leave the developer's own shell without one. INT is named
+# separately because a trap on EXIT alone does not reliably run when a signal kills the
+# shell, and Ctrl-C during a device read is the likeliest way out of this script.
+trap 'printf "\033[?25h"; rm -f "$STATE.running"' EXIT
+trap 'printf "\033[?25h"; echo; exit 130' INT
+
 # brief() lives in config.sh so it can be tested without running the ladder.
 
 # Three states, not two. A gate downstream of a red prerequisite is *blocked*,
@@ -66,9 +73,14 @@ gate() {
       return
     fi
   fi
-  local out rc
-  out="$("$@" 2>&1)"; rc=$?
-  out="$(printf '%s' "$out" | brief)"
+  local out rc running="$STATE.running"
+  # Not a command substitution any more: the body runs in the background so its row can
+  # mark time while it works. A gate body was always in a subshell, so nothing it sets
+  # was ever visible here — that part is unchanged.
+  run_spinner "$running" "$(printf '%-4s %-34s checking' "$id" "$name")" "$@"
+  rc=$?
+  out="$(brief < "$running")"
+  rm -f "$running"
   # Only a green row's detail is dim. The status glyph carries the answer there, and the
   # text behind it is corroboration nobody has to act on — whereas on every other row it
   # is the one thing worth reading, and grey is how you make text nobody reads.
