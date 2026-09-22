@@ -86,18 +86,25 @@ g14() {
     ((SECONDS < deadline)) || break
     sleep 3
   done
+  # "Ran and never registered", with nothing in the log to say why. Two things cause
+  # it, and both are work outstanding in the developer's own app rather than a fault in
+  # anything this tool built: no mobile key yet, or no user identified. So it is pending
+  # either way, and only the reason changes.
+  #
+  # It used to go red at the deadline, and that is how a developer whose app simply
+  # never calls setEmail got SOMETHING IS ACTUALLY WRONG about an integration that was
+  # fine. Nothing here can tell that apart from setAutoPushRegistration(false), so it
+  # does not get to call either one a defect — rc 4 is the case that is.
   if ((rc == 3)); then
-    # "Ran and never registered" is a defect only once the app has what it needs.
-    # With no mobile key captured, the likeliest reason is that nobody has given the
-    # app one yet — work outstanding, not a broken integration. Calling this red sent
-    # a developer who had simply not reached the Iterable steps a verdict of "defect".
     if [[ -z "$ITBL_MOBILE_KEY" ]]; then
       echo "$out — and no Iterable mobile key yet, so there is probably nothing to register with"
-      return 2
+    else
+      echo "$out — after $((SECONDS - started))s"
     fi
-    echo "$out — still not after $((SECONDS - started))s"
-    return 1
+    return 2
   fi
+  # Firebase logged an error and the SDK never asked. That error is the answer.
+  ((rc == 4)) && { echo "$out"; return 1; }
   echo "$out"
   return $rc
 }

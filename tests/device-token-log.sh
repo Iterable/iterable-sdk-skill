@@ -3,16 +3,17 @@
 #
 # The judgement worth pinning is not "did the word Success appear" — it is which
 # absences mean something. A log buffer that rotates cannot prove a token was
-# never registered, so the gate has exactly one way to go red (Iterable rejected
-# the call) and two ways to stay quiet. Getting that wrong means a working
-# integration gets reported as broken, which is the failure mode this tool exists
-# to avoid.
+# never registered, so the gate goes red in exactly two situations — Iterable
+# rejected the call, or Firebase failed before the SDK could ask — and stays quiet
+# for every other absence. Getting that wrong means a working integration gets
+# reported as broken, which is the failure mode this tool exists to avoid.
 #
 # Every fixture is real output from a live emulator (Pixel 9 Pro, API 36,
 # com.dogshelter, SDK 3.10.1), trimmed to the registration window. The device's
-# FCM token is redacted in place. Two are derived by hand from the same recording:
+# FCM token is redacted in place. Three are derived by hand from the same recording:
 #   logcat-register-rejected     — "code": "Success" swapped for a rejection
 #   logcat-no-registration       — every registerDeviceToken line removed
+#   logcat-fcm-token-failed      — the same, plus a real FIS_AUTH_ERROR trace
 
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -42,13 +43,25 @@ echo
 # registered as GCM registers fine and fails to receive later.
 case_is logcat-register-success.txt   0 "tokenRegistrationType FCM"
 
-# The one red. Iterable answered, and the answer was no.
+# The reds. Iterable answered and the answer was no; or Firebase failed first, which
+# is the one shape of "never registered" that really is something broken.
 case_is logcat-register-rejected.txt  1 "BadApiKey"
+case_is logcat-fcm-token-failed.txt   4 "FIS_AUTH_ERROR"
 
 # Everything else is a state, not a fault.
 case_is logcat-register-inflight.txt  2 "no response"
 case_is logcat-no-iterable.txt        2 "launch"
 case_is logcat-no-registration.txt    3 "never called registerDeviceToken"
+
+# A multi-line exception is logged under one tag, so the last Firebase error line is a
+# frame from inside the library. Naming that as the cause points a developer at a Google
+# source file; the line above it says what actually went wrong.
+out="$(node bin/token-log.js com.dogshelter < tests/fixtures/logcat-fcm-token-failed.txt)"
+if grep -q 'FirebaseInstallations.java' <<< "$out"; then
+  bad "rc 4 blamed a stack frame instead of the error: $out"
+else
+  ok "rc 4 names the error, not a frame from inside Firebase"
+fi
 
 # A token is a credential. The gate prints its verdict into terminals, reports and
 # CI logs, so the fixture's own redaction has to hold for the parser's output too.
@@ -90,14 +103,20 @@ gate_is() {
   ok "$label -> rc=$rc ${out:0:64}"
 }
 
-# The parser says the same thing either way; only the gate knows whether it is a
-# fault. A developer who has not reached the Iterable steps yet has given the app no
-# key to register with, and a live run reported that as a defect.
+# The parser says the same thing either way; only the gate knows whether it is a fault.
+# Neither of these is one. A developer who has not reached the Iterable steps has given
+# the app no key to register with; one who has, and whose app never says who the user is,
+# has an integration that is fine and a setEmail call still to write. Both used to go red
+# at the deadline, and a live run shouted SOMETHING IS ACTUALLY WRONG at the second.
 gate_is "no key yet — not a defect, work outstanding" logcat-no-registration.txt "" 2 "nothing to register with"
-gate_is "key in hand and still nothing — red"         logcat-no-registration.txt itbl-mobile-key 1 "still not after"
+gate_is "key in hand, nobody identified — still not a defect" \
+                                                     logcat-no-registration.txt itbl-mobile-key 2 "never called registerDeviceToken"
+# The one absence that is red: Firebase failed, so the SDK never got to ask. No retrying
+# either — the answer is already in the log and waiting cannot change it.
+gate_is "Firebase errored first — red"               logcat-fcm-token-failed.txt itbl-mobile-key 1 "FIS_AUTH_ERROR"
 # And the green must not depend on any of it.
 gate_is "a registered token is green regardless"      logcat-register-success.txt "" 0 "tokenRegistrationType FCM"
 
 echo
 ((FAILED)) && { echo "  FAILED"; exit 1; }
-echo "  All good — one way to go red, and a rotated buffer never becomes one."
+echo "  All good — two ways to go red, and a rotated buffer is neither of them."

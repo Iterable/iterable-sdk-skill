@@ -49,8 +49,11 @@ cat <<EOF
   You can stop at any point with Ctrl-C and pick up where you left off.
 
 EOF
+part_map
 ai_notice_banner
 pause "Press enter to begin."
+
+part 1 "Google"
 
 # ---------------------------------------------------------------- G1: identity
 if [[ -z "$(tok)" ]]; then
@@ -71,10 +74,7 @@ fi
 echo
 echo "  $(green ✓) Signed in as $(gcloud config get-value account 2>/dev/null)"
 
-# ------------------------------------------------------------- Firebase phase
-echo
-echo "  ── $(bold "Firebase") ─────────────────────────────────────────────────────"
-
+# --------------------------------------------------------- the project and app
 # Always offer the choice. If a previous run remembered one, it is a default to
 # confirm, not a decision already made on your behalf.
 if [[ -n "$PID" && -n "$PACKAGE" ]]; then
@@ -135,7 +135,10 @@ fi
 # asked about a string they have no way to recognise — so every line here names
 # the AVD, and the remembered choice is stored as that name too.
 echo
-echo "  ── $(bold "Device") ─────────────────────────────────────────────────────────"
+echo "  $(bold "Which device")"
+echo
+echo "  Part 3 proves the push on a real device. Choosing it now means every check"
+echo "  from here on reads the same one you will be watching."
 
 # boot_avd lives in config.sh, so tests/device-pick.sh can drive its timeout.
 
@@ -215,6 +218,81 @@ else
   echo "  No device chosen — every device check stays blocked, and says so."
 fi
 
+# ------------------------------------------------------------------ the endings
+# Three ways out, and each is reachable from two places — before provisioning, when the
+# Google part was already done, and after it. Written once, so a developer cannot tell
+# which branch printed it and the two can never drift into saying different things.
+
+finish_green() {
+  # Only provable here. The key is needed until Iterable's step 3 has uploaded it, no
+  # endpoint can read that step back, and a push cannot arrive unless it happened. Asked
+  # at rc 40 it landed three steps early, under a banner sending them off to do step 1.
+  if [[ -f "$SA_KEY" ]]; then
+    cat <<EOF
+
+  Your service-account key:  $(wsp artifacts/sa-key.json)
+  The push that just arrived proves this was uploaded, so the local copy is done.
+
+EOF
+    if ask_yn "Delete the local key now?"; then
+      rm -f "$SA_KEY" && echo "  Removed. The key still exists in Google; teardown removes it there too."
+    fi
+    echo
+  fi
+  echo "  $(bold "Done — a push reached the device.") Verified, not assumed."
+  echo
+  echo "  To undo everything this added:"
+  echo
+  run_line teardown
+  echo
+  exit 0
+}
+
+# The verifier is quiet on this path, so this is the only place the box gets drawn on the
+# way out. "The ladder above shows the first red gate" was asking a developer to scan
+# eighteen rows for the one that matters, which is the job the box does.
+finish_red() {
+  blocker_banner
+  echo "  To retry once it is dealt with (nothing already green is redone):"
+  echo
+  run_line onboard
+  echo
+  exit "$1"
+}
+
+# rc 40: nothing is broken, and no push has been proven. Which part is the one to offer
+# depends on whether Iterable has been done, so ask that instead of printing the same
+# tail either way — the tail sends them to re-run the ladder, and re-running it is
+# useless while the thing it is waiting for has never been started.
+finish_pending() {
+  local fork
+  ITBL_WALK_RC=0
+  iterable_part; fork=$?
+  case "$fork" in
+    # iterable-keys ends by exec'ing the verifier, so this is the whole ladder's verdict
+    # after part 2 — not a report on the walk.
+    0) case "$ITBL_WALK_RC" in
+         0)  finish_green ;;
+         40) ;;                    # part 2 is done; the device part is what is left
+         *)  finish_red "$ITBL_WALK_RC" ;;
+       esac ;;
+    # Said out loud, because the block below is a box headed YOUR TURN and they have
+    # just chosen not to take their turn yet. Without this it reads as the tool not
+    # having heard the answer.
+    2) echo "  Stopped before part 2. What it takes is written out below — for you"
+       echo "  when you come back to it, or for whatever is helping you."
+       echo
+       pending_tail
+       exit 40 ;;
+  esac
+  if [[ "$(gate_status G10)" == green ]]; then
+    part 3 "Device"
+    echo
+  fi
+  pending_tail
+  exit 40
+}
+
 # ------------------------------------------------------------------- the ladder
 echo
 echo "  $(bold "Checking what already works")"
@@ -222,18 +300,15 @@ QUIET_VERDICT=1 "$BIN/gates"
 LADDER=$?
 
 if ((LADDER == 0)); then
-  echo "  $(bold "Done — a push reached the device.") Nothing to change."
-  echo
-  exit 0
+  finish_green
 fi
 
-# Everything the tool can do is already done, and what's left is someone running
-# the app or sending the proof. Saying "what I would change in your project" here,
-# then reporting "done" after provisioning nothing, was a lie in the front door:
-# rc 40 means no push has been proven.
+# Everything the tool can do is already done, and what's left is the Iterable part or
+# somebody running the app. Saying "what I would change in your project" here, then
+# reporting "done" after provisioning nothing, was a lie in the front door: rc 40 means
+# no push has been proven.
 if ((LADDER == 40)); then
-  pending_tail
-  exit 40
+  finish_pending
 fi
 
 # -------------------------------------------------------------------- the plan
@@ -262,44 +337,10 @@ echo
 
 # provision ends by exec'ing the verifier, so RC is the whole ladder's verdict and
 # not a report on provisioning. 0 really does mean a push arrived; 40 means the
-# provisioning worked and nobody has run the app or sent the proof yet.
-# Only asked where the answer isn't already no. The key is needed until step 3 has
-# uploaded it, and no endpoint can read that step back — so the one state where
-# "finished with this file" is provable is RC 0: a push arrived, which cannot happen
-# unless the integration exists. Asked at 40 it landed three steps early, under a
-# banner sending them off to do step 1, and it was the last thing on the screen.
-if ((RC == 0)) && [[ -f "$SA_KEY" ]]; then
-  cat <<EOF
-  Your service-account key:  $(wsp artifacts/sa-key.json)
-  The push that just arrived proves this was uploaded, so the local copy is done.
-
-EOF
-  if ask_yn "Delete the local key now?"; then
-    rm -f "$SA_KEY" && echo "  Removed. The key still exists in Google; teardown removes it there too."
-  fi
-  echo
-fi
-
+# provisioning worked and part 2 or part 3 has not happened yet.
 case "$RC" in
-  0)
-    echo "  $(bold "Done — a push reached the device.") Verified, not assumed."
-    echo
-    echo "  To undo everything this added:"
-    echo
-    run_line teardown
-    echo
-    exit 0 ;;
-  40)
-    pending_tail
-    exit 40 ;;
+  0)  finish_green ;;
+  40) finish_pending ;;
 esac
 
-# The verifier is quiet now, so this is the only place the box gets drawn on the way
-# out. "The ladder above shows the first red gate" was asking a developer to scan
-# eighteen rows for the one that matters, which is the job the box does.
-blocker_banner
-echo "  To retry once it is dealt with (nothing already green is redone):"
-echo
-run_line onboard
-echo
-exit "$RC"
+finish_red "$RC"

@@ -5,13 +5,22 @@
 //
 // Usage: token-log.js <package>
 //
-// Four exit codes, because the situations really are four:
+// Five exit codes, because the situations really are five:
 //   0  the SDK registered a token and Iterable answered Success
 //   1  a real failure: Iterable rejected the registration
 //   2  no evidence the app has run since the buffer was last written. Unknowable,
 //      not broken — the ring buffer rotates, so absence here proves nothing
-//   3  the SDK ran and never attempted registration. Ask again shortly; if it is
-//      still 3 at the caller's deadline, that is a defect worth reporting
+//   3  the SDK ran and never attempted registration, with nothing in the log to say
+//      why. Ask again shortly; past the caller's deadline this is outstanding work in
+//      the app — nobody has identified a user — and not a defect in the integration
+//   4  the SDK ran, never attempted registration, and Firebase logged an error. That
+//      error is the answer, and it is the one shape of "never registered" that really
+//      is something broken
+//
+// 3 and 4 were one code, and the caller reported both red. A developer whose app had
+// simply never called setEmail got told SOMETHING IS ACTUALLY WRONG about an
+// integration that was fine — which is the exact false alarm this tool exists not to
+// raise. They are separate now because only one of them is a defect.
 //
 // The logged request body contains the device's FCM token. Nothing here reads or
 // prints it: a gate message ends up in reports and terminals.
@@ -84,13 +93,29 @@ process.stdin.on("data", (c) => (input += c)).on("end", () => {
     // Errors only, not warnings: Firebase logs benign warnings on every start
     // (an uncreated default channel, for one), and treating those as the cause
     // would turn a gate that was merely early into a gate that was wrong.
-    const fcmErr = [...lines].reverse().find((l) => /Firebase/.test(l.tag) && l.level === "E");
+    //
+    // Stack frames are skipped, not merely trimmed: Firebase logs an exception across
+    // several lines under the same tag, so the *last* of them is a frame from somewhere
+    // inside the library. Reported as the cause it reads as an internal Google file
+    // nobody can act on, where the line two above it says FIS_AUTH_ERROR.
+    const fcmErr = [...lines]
+      .reverse()
+      .find(
+        (l) =>
+          /Firebase/.test(l.tag) &&
+          l.level === "E" &&
+          !/^\s*(at |\.\.\. )/.test(l.msg)
+      );
+    if (fcmErr) {
+      verdict(
+        4,
+        `no registerDeviceToken; Firebase errored first — ${fcmErr.tag}: ${fcmErr.msg.trim().slice(0, 70)}`
+      );
+    }
     verdict(
       3,
-      fcmErr
-        ? `no registerDeviceToken; last Firebase error was ${fcmErr.tag}: ${fcmErr.msg.slice(0, 70)}`
-        : "SDK ran but never called registerDeviceToken — no user identified, " +
-            "or setAutoPushRegistration(false)"
+      "SDK ran but never called registerDeviceToken — no user identified, " +
+        "or setAutoPushRegistration(false)"
     );
   }
 

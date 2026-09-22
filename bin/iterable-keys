@@ -16,7 +16,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
 step_keys() {
   cat <<EOF
 
-  $(bold "Step 1 — create two API keys")
+  $(bold "Step 1 of 4 — create two API keys")
 
     Open  $(bold "https://app.iterable.com/settings/apiKeys")
     Click $(bold "New API Key") twice:
@@ -37,7 +37,7 @@ EOF
 step_mobile_app() {
   cat <<EOF
 
-  $(bold "Step 2 — create the mobile app")
+  $(bold "Step 2 of 4 — create the mobile app")
 
     Open  $(bold "https://app.iterable.com/integrations/mobileApps/create")
 
@@ -57,7 +57,7 @@ EOF
 step_push_integration() {
   cat <<EOF
 
-  $(bold "Step 3 — configure the Firebase push integration")
+  $(bold "Step 3 of 4 — configure the Firebase push integration")
 
     Same page: open the app you just made, find the $(bold "Push") section, and click
     $(bold "Configure") on the Firebase row.
@@ -76,7 +76,7 @@ EOF
 step_identity() {
   cat <<EOF
 
-  $(bold "Step 4 — the test identity")
+  $(bold "Step 4 of 4 — the test identity")
 
     Not any address: this has to be the one your app signs in with — the value
     it passes to $(bold "IterableApi.getInstance().setEmail()"). It is the join key
@@ -152,9 +152,12 @@ EOF
 
 TEMPLATE="$WS/.env.template"
 
+# ITBL_INTRO_SHOWN is set by a caller that has already said all this and asked whether to
+# go on — the wizard has to explain part 2 *before* offering the choice, and hearing it
+# again immediately afterwards reads as two different pieces of work.
 banner() {
-  echo
-  echo "  ── $(bold "Iterable") ─────────────────────────────────────────────────────"
+  [[ "${ITBL_INTRO_SHOWN:-0}" == 1 ]] && return 0
+  part 2 "Iterable"
   echo
   echo "  Four things here have to be done by hand — Iterable has no API for any of"
   echo "  them, so there is nothing to automate. Everything they produce gets proved"
@@ -173,9 +176,9 @@ if [[ "${1:-}" == "--step" ]]; then
     2|3|4) ;;
     *) echo "usage: $(cmd_path iterable-keys) --step 1|2|3|4" >&2; exit 30 ;;
   esac
-  # Every step says where it is, not just the first. Somebody who arrives at step 3 by
-  # following the one before it has no other way of knowing how much is left.
-  echo "  $(bold "Step $STEP_N of 4.")"
+  # Every step says where it is, not just the first: somebody who arrives at step 3 by
+  # following the one before it has no other way of knowing how much is left. In the
+  # heading rather than on a line of its own, so the inline walk gets it too.
   case "$STEP_N" in
     1) step_keys; where_keys ;;
     2) step_mobile_app ;;
@@ -236,13 +239,7 @@ ask_secret() {
 }
 pause_enter() { read -r -p "  Press enter when that's done. " _ < /dev/tty; }
 
-echo
-echo "  ── $(bold "Iterable") ─────────────────────────────────────────────────────"
-echo
-echo "  Four things here have to be done by hand. Iterable has no API for any of"
-echo "  them, so there is nothing to automate — but everything they produce gets"
-echo "  proved by a real API call afterwards."
-echo
+banner
 
 # ------------------------------------------------------------------ data centre
 if ask_yn "Is this an EU (EDC-based) Iterable project?"; then

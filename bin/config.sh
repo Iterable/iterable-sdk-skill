@@ -428,11 +428,17 @@ advice_for() {
     # instructions is read as a document instead of followed as steps.
     G10) echo "do the four Iterable dashboard steps, one at a time, starting with step 1" ;;
     G13) echo "run the app on the device, and accept the notification prompt" ;;
-    # Launching the app again achieves nothing while it has no key to register with,
-    # so the advice follows the reason rather than the gate.
-    G14) [[ -n "$ITBL_MOBILE_KEY" ]] \
-           && echo "launch the app, so the SDK registers a token" \
-           || echo "finish the Iterable steps first — the app needs a mobile key before it can register anything" ;;
+    # Three reasons the token never registered, three different things to do. Launching
+    # the app again achieves nothing while it has no key to register with, and it
+    # achieves nothing either when the app has run and never said who the user is —
+    # which is the one the verdict can actually see, so read it rather than guess.
+    G14) if [[ -z "$ITBL_MOBILE_KEY" ]]; then
+           echo "finish the Iterable steps first — the app needs a mobile key before it can register anything"
+         elif [[ "$(gate_detail G14)" == *"never called registerDeviceToken"* ]]; then
+           echo "identify a user in the app — IterableApi.getInstance().setEmail(\"${ITBL_EMAIL:-your test user}\") — then relaunch it; the SDK registers no token until it knows who it is for"
+         else
+           echo "launch the app, so the SDK registers a token"
+         fi ;;
     # Naming the address is the point. This is the join key between the app and
     # Iterable, and a test user who signs in as anyone else looks exactly like a
     # broken integration from here.
@@ -448,6 +454,38 @@ advice_for() {
 # own project, it is a command that does not exist — and somebody typed one and got
 # `zsh: no such file or directory`, which is the tool's fault and not theirs.
 run_line() { local c="$1"; shift; printf '      %s\n' "$(bold "$(cmd_path "$c")${*:+ $*}")"; }
+
+# The whole job is three parts, and each one says which it is as it starts.
+#
+# Eighteen gate rows is a lot of screen, and somebody who cannot see which third of the
+# job they are in reads every unfinished row as a problem. Which is what happened: the
+# Google part finished, the ladder printed the Iterable and device rows as not-done, and
+# that read as something having gone wrong — when in fact nothing had gone wrong and the
+# next part simply had not started.
+#
+# Parts, not steps, because parts 2 and 3 contain numbered steps of their own. Two
+# depths of "step 3" on one screen is worse than no numbering at all.
+part_map() {
+  cat <<EOF
+
+  $(bold "Three parts, in this order:")
+
+    1  Google      the project, a push-only service account, its key
+    2  Iterable    four steps in the dashboard, in your browser
+    3  Device      run your app until a real push lands on it
+
+  Part 1 is mine. Parts 2 and 3 are yours — I walk you through every step and
+  check what it produced, so nothing here is taken on trust.
+
+EOF
+}
+
+part() {
+  local label="Part $1 of 3 · $2" pad
+  pad=$(( 64 - ${#label} )); ((pad < 3)) && pad=3
+  echo
+  printf '  ── %s %s\n' "$(bold "$label")" "$(printf '─%.0s' $(seq 1 $pad))"
+}
 
 pending_advice() { # [gate to leave out — the one already named above it]
   local id status owner name detail
@@ -494,6 +532,49 @@ pending_tail() {
   echo
   run_line onboard
   echo
+}
+
+# Part 2, offered rather than assumed — and this is the fix for the worst ending this
+# tool had. The Google part finished, the device gates had no mobile key to look for, and
+# the run ended by sending the developer off to re-run the whole thing. Nothing about
+# that could clear anything: nobody had been walked through Iterable yet, and the four
+# steps are in a browser — Iterable has no endpoint that creates an API key, a mobile
+# app, or a push integration. So it gets asked here, in the one place where the person
+# who has to do the clicking is already holding the terminal.
+#
+# Lives here rather than in bin/wizard so tests/iterable-part.exp can drive all three
+# answers against a fixture state.tsv, with no Google project and no device.
+#
+# 0 = the walk ran, and the ladder's verdict is in ITBL_WALK_RC. 1 = nothing to offer.
+# 2 = they chose to hand back instead.
+iterable_part() {
+  [[ "$(gate_status G10)" == green ]] && return 1
+  interactive || return 1
+  part 2 "Iterable"
+  cat <<EOF
+
+  Part 1 is done and verified: the service-account key exists, and FCM
+  accepted it.
+
+  Part 2 is four steps in the Iterable dashboard. Nothing out here can do
+  them for you — Iterable has no API for creating an API key, a mobile app,
+  or a push integration. Until they are done your app has no mobile key, so
+  the device checks have nothing to find. That is all the rows above are
+  saying, and none of it is a fault in your app or in what you just did.
+
+  About five minutes. Every step gets checked by spending what it produced.
+
+EOF
+  local pick
+  pick="$(printf '%s\n' \
+    "Walk me through the four Iterable steps now" \
+    "Stop here — leave my assistant the state so far" | menu)" || pick=""
+  case "$pick" in
+    # Quiet for the same reason provision is: it ends by exec'ing the verifier, and the
+    # endings below print the verdict themselves. Without it the developer gets two.
+    Walk*) ITBL_INTRO_SHOWN=1 QUIET_VERDICT=1 "$BIN/iterable-keys"; ITBL_WALK_RC=$?; return 0 ;;
+    *) return 2 ;;
+  esac
 }
 
 # Two audiences, and they want different sentences. Everything above this is written to
@@ -842,6 +923,10 @@ next_action() {
       # and not a missing install — telling them to build would name no target.
       G13) if [[ -z "$PACKAGE" ]]; then
              a_kind=choose_target; a_owner=agent; a_cmd="$BIN/agent discover"
+             # The advice has to be replaced, not kept: "run the app and accept the
+             # prompt" above a command that lists Firebase projects describes two
+             # different jobs, and neither of them the one the command does.
+             a_summary="name the app this is about first — nothing has chosen a package yet"
            else a_kind=install_app; fi ;;
       G14|G15) [[ "$open_status" == pending ]] && a_kind=run_app || a_kind=investigate ;;
       # Sending is the caller's to run, not the developer's: there is a command for
