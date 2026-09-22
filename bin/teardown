@@ -26,19 +26,43 @@ elif [[ "${1:-}" != --yes ]]; then
 fi
 
 echo
-if gcloud iam service-accounts describe "$SA_EMAIL" >/dev/null 2>&1; then
+
+# Signed out looks identical to already-torn-down from in here, and reading it the
+# second way let this script report "already gone" about an account it never managed
+# to ask about — then delete the local key, leaving a live credential nothing can see.
+if [[ -z "$(tok)" ]]; then
+  echo "  Not signed in to Google, so nothing here can be checked, let alone removed."
+  echo
+  echo "      $(bold "gcloud auth login")"
+  echo
+  echo "  Then run this again. Nothing was removed."
+  echo
+  exit 10
+fi
+
+if out="$(gcloud iam service-accounts describe "$SA_EMAIL" 2>&1)"; then
   gcloud projects remove-iam-policy-binding "$PID" \
     --member="serviceAccount:$SA_EMAIL" --role="$FCM_ROLE" --quiet >/dev/null 2>&1 \
     && echo "  removed role binding"
   # Deleting the account revokes its keys, so no separate key deletion is needed.
   gcloud iam service-accounts delete "$SA_EMAIL" --quiet \
     && echo "  deleted $SA_EMAIL"
-else
+elif grep -qiE 'not_?found|does not exist|was not found' <<< "$out"; then
   echo "  service account already gone"
+else
+  echo "  could not check $SA_EMAIL:"
+  printf '    %s\n' "$(tr -s '\n' ' ' <<< "$out" | cut -c1-160)"
+  echo
+  echo "  Nothing was removed — the local key stays, because deleting it while the"
+  echo "  account may still exist would orphan a live credential."
+  echo
+  exit 1
 fi
 
 rm -rf "$ART" && echo "  removed local artifacts"
 rm -f "$WS/state.tsv"
 echo
-echo "  Done. The gate ladder will now show the Google side back at its original state."
+echo "  Done. Nothing here checked the result — run the ladder for that:"
+echo
+run_line gates
 echo
