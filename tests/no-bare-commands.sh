@@ -104,6 +104,39 @@ else
 fi
 rm -rf "${SW%/proj}"
 
+# ------------------------------------------------------- the walk names its own next
+# The Iterable steps are handed over one at a time, and the pending ending points at
+# step 1. So if a step does not name the one after it, the developer does that step and
+# stops — with nothing on screen saying three more exist. Only step 4 knew it had a
+# successor, and a walk that dead-ends reads exactly like a walk that silently failed.
+echo
+echo "  The Iterable walk — each step names the next"
+echo
+
+KW="$(mktemp -d)/proj"; mkdir -p "$KW"
+keys_out() { ( cd "$KW" && WS="$KW/.iterable" NON_INTERACTIVE=1 "$ROOT/bin/iterable-keys" --step "$1" 2>&1 ) | plain_out; }
+plain_out() { LC_ALL=C sed $'s/\033\[[0-9;]*m//g'; }
+
+for n in 1 2 3; do
+  if grep -qF -- "--step $((n + 1))" <<< "$(keys_out "$n")"; then
+    ok "step $n hands over to step $((n + 1))"
+  else
+    bad "step $n is a dead end — nothing on screen says step $((n + 1)) exists"
+  fi
+done
+
+if grep -qE '(onboard|re-run the ladder)' <<< "$(keys_out 4)"; then
+  ok "step 4 sends them back to the ladder"
+else
+  bad "step 4 does not say what proves any of it"
+fi
+
+# A step number nobody offers has to be refused, not silently treated as step 1.
+( cd "$KW" && WS="$KW/.iterable" NON_INTERACTIVE=1 "$ROOT/bin/iterable-keys" --step 9 ) >/dev/null 2>&1
+(( $? == 30 )) && ok "an out-of-range step is refused, not guessed at" \
+              || bad "--step 9 did not exit 30"
+rm -rf "${KW%/proj}"
+
 echo
 ((FAILED)) && { echo "  FAILED"; exit 1; }
 echo "  All good — nothing on screen is untypeable."

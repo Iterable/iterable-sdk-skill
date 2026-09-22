@@ -52,6 +52,8 @@ step_mobile_app() {
 EOF
 }
 
+# The one path here that stays absolute: it goes into a browser file-upload dialog,
+# where a workspace-relative path is no use — the Finder sheet wants the whole thing.
 step_push_integration() {
   cat <<EOF
 
@@ -165,19 +167,39 @@ banner() {
 # a developer who is on step 2 wants step 2.
 if [[ "${1:-}" == "--step" ]]; then
   ensure_template || true
-  case "${2:-}" in
-    1) banner; echo "  $(dim "Step 1 of 4.")"; step_keys; where_keys ;;
+  STEP_N="${2:-}"
+  case "$STEP_N" in
+    1) banner ;;
+    2|3|4) ;;
+    *) echo "usage: $(cmd_path iterable-keys) --step 1|2|3|4" >&2; exit 30 ;;
+  esac
+  # Every step says where it is, not just the first. Somebody who arrives at step 3 by
+  # following the one before it has no other way of knowing how much is left.
+  echo "  $(dim "Step $STEP_N of 4.")"
+  case "$STEP_N" in
+    1) step_keys; where_keys ;;
     2) step_mobile_app ;;
     3) step_push_integration ;;
-    4) step_identity; offer_identity; where_identity
-       cat <<EOF
+    4) step_identity; offer_identity; where_identity ;;
+  esac
+  # A walk has to name its own next step. Only the fourth knew it had a successor, so a
+  # developer handed step 1 — which is exactly what the pending ending hands them — did
+  # that one step and hit a dead end, with nothing on screen saying three more existed.
+  # It reads as a one-step job that silently failed.
+  if ((STEP_N < 4)); then
+    echo "  When that is done:"
+    echo
+    run_line iterable-keys --step $((STEP_N + 1))
+    echo
+  else
+    cat <<EOF
     Then re-run the ladder: both keys get spent on a real call, and the test user
     is looked up by name, so nothing here is taken on trust.
 
 EOF
-       ;;
-    *) echo "usage: $(basename "$0") --step 1|2|3|4" >&2; exit 30 ;;
-  esac
+    run_line onboard
+    echo
+  fi
   exit 0
 fi
 
