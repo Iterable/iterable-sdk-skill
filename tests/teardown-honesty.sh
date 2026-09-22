@@ -32,13 +32,17 @@ case "$1 $2" in
   "config get-value") echo "stub@example.com" ;;
   "iam service-accounts")
     case "$3" in
-      describe)
+      # Absence is an empty success, never an error: a deleted account answers
+      # `describe` with PERMISSION_DENIED rather than NOT_FOUND, so the old code read
+      # "GCP won't say" as "it's gone". Measured against real GCP on 2026-09-22.
+      list)
         case "$MODE" in
-          gone)   echo "NOT_FOUND: Unknown service account" >&2; exit 1 ;;
-          denied) echo "PERMISSION_DENIED: caller lacks iam.serviceAccounts.get" >&2; exit 1 ;;
-          *)      echo "email: stub" ;;
+          gone)   exit 0 ;;
+          denied) echo "PERMISSION_DENIED: caller lacks iam.serviceAccounts.list" >&2; exit 1 ;;
+          *)      echo "itbl-onboard-fcm@stub-project.iam.gserviceaccount.com" ;;
         esac ;;
-      delete) echo "deleted" ;;
+      describe) echo "PERMISSION_DENIED: nothing should be asking this" >&2; exit 1 ;;
+      delete)   echo "deleted" ;;
     esac ;;
   *) exit 0 ;;
 esac
@@ -96,8 +100,8 @@ grep -qi 'PERMISSION_DENIED' <<< "$out" \
 fresh_ws
 out="$(run_teardown gone)"
 grep -qi 'already gone' <<< "$out" \
-  && ok "a real NOT_FOUND is the one case that says already gone" \
-  || bad "NOT_FOUND was not recognised" "$(tr -s '\n ' ' ' <<< "$out" | cut -c1-90)"
+  && ok "an empty successful list is the one thing that means gone" \
+  || bad "an absent account was not recognised" "$(tr -s '\n ' ' ' <<< "$out" | cut -c1-90)"
 [[ ! -f "$TMP/ws/artifacts/sa-key.json" ]] \
   && ok "and then the local artifacts do go" \
   || bad "artifacts kept when the account is confirmed gone" "nothing left to protect"

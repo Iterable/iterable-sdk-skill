@@ -154,12 +154,14 @@ g5() {
 # gcloud's NOT_FOUND for a service account is three sentences long and mentions
 # the authenticated identity, which reads like a permissions failure. It isn't.
 g6() {
-  local out
-  out="$(gcloud iam service-accounts describe "$SA_EMAIL" --format='value(email)' 2>&1)" && {
-    printf '%s' "$out"; return 0; }
-  grep -qi 'NOT_FOUND\|Unknown service account' <<< "$out" \
-    && { echo "not created yet"; return 1; }
-  printf '%s' "$out"; return 1
+  local out rc
+  out="$(sa_exists)"; rc=$?
+  case "$rc" in
+    0) printf '%s' "$out" ;;
+    1) echo "not created yet" ;;
+    *) printf '%s' "$out" ;;
+  esac
+  ((rc == 0))
 }
 
 g7() {

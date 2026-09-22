@@ -1095,6 +1095,23 @@ app_id_for_package() {
     process.stdout.write(a?a.appId:"")' "$1"
 }
 
+# Three answers, not two: 0 present (echoes the email), 1 absent, 2 could not tell
+# (echoes the error).
+#
+# `describe` cannot give the middle answer. A service account that has been deleted
+# answers PERMISSION_DENIED on iam.serviceAccounts.get, not NOT_FOUND — GCP declines
+# to say whether it ever existed, and measured on 2026-09-22 it does that even to the
+# caller who just deleted it. A filtered list either works or fails as a whole, so an
+# empty result means absent and nothing else.
+sa_exists() {
+  local out
+  out="$(gcloud iam service-accounts list --project="$PID" \
+          --filter="email=$SA_EMAIL" --format='value(email)' 2>&1)" \
+    || { printf '%s' "$(tr -s '\n' ' ' <<< "$out")"; return 2; }
+  [[ -n "$out" ]] || return 1
+  printf '%s' "$out"
+}
+
 require_pid() {
   [[ -n "$PID" ]] && return 0
   cat >&2 <<EOF
