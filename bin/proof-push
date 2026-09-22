@@ -67,6 +67,6 @@ if [[ -n "$PRIOR_PROOF" ]]; then
   echo "  it and mark it SILENT: no banner, no sound. It still arrives and G16 still"
   echo "  sees it. To watch it land, clear the shade first and send again."
 fi
-echo "  $(dim "Whether it arrived is not this script's call:")"
+echo "  Whether it arrived is not this script's call:"
 echo "      $BIN/gates      # G16 reads the device"
 echo

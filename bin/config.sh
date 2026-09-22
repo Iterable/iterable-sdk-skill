@@ -174,8 +174,8 @@ may_drive_setup() {
 # appeared in the middle of something that looked like it was about to run.
 handoff_refusal() {
   handoff_banner
-  printf '  %s\n' "$(dim "Not run: this changes a Google project and nobody recorded a request for it to be")"
-  printf '  %s\n\n' "$(dim "driven from a chat. That record is: $BIN/agent set DRIVER=agent")"
+  printf '  %s\n' "Not run: this changes a Google project and nobody recorded a request for it to be"
+  printf '  %s\n\n' "driven from a chat. That record is: $(bold "$BIN/agent set DRIVER=agent")"
 }
 
 ART="$WS/artifacts"
@@ -200,7 +200,12 @@ bold()  { printf '\033[1m%s\033[0m' "$1"; }
 # of escape sequences, which is arithmetic that goes wrong silently.
 #
 # 31 red is "this changes something, or something is wrong", 33 yellow is "yours to
-# do", 36 cyan is "read this", 2 dim is context.
+# do", 36 cyan is "read this".
+#
+# 2 dim is for asides only — a footnote, a CI alternative, the detail column of a gate
+# that is already green. Never for an instruction, a path somebody has to open, or a
+# reason something stopped: dim is grey-on-grey in most terminal themes, and putting
+# the thing they need in it is a way of not telling them.
 BOX_RULE='━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
 box_top() { printf '\n  \033[%sm┏%s\033[0m\n' "${1:-2}" "$BOX_RULE"; }
 box_end() { printf '  \033[%sm┗%s\033[0m\n\n' "${1:-2}" "$BOX_RULE"; }
@@ -429,23 +434,53 @@ pending_tail() {
     echo "  $(bold "Nothing is broken — and no push has been proven yet.")"
   fi
   blocker_banner
-  # Dim, and unbolded even where the advice bolds a command: bold is the tool saying
-  # "type this", and nothing in this list is due yet. The one that is due is in the box.
+  # Unbolded, but not dim: bold is the tool saying "type this" and nothing in this list
+  # is due yet, so it has to read as quieter than the box — and grey is how you make
+  # text nobody reads, which is no way to print the rest of somebody's work.
   rest="$(pending_advice "$gate" | plain)"
   if [[ -n "$rest" ]]; then
-    echo "  $(dim "Waiting behind it:")"
-    while IFS= read -r l; do printf '      %s\n' "$(dim "$l")"; done <<< "$rest"
+    echo "  Waiting behind it:"
+    while IFS= read -r l; do printf '      %s\n' "$l"; done <<< "$rest"
     echo
   fi
   # Said rather than asked, and only while it is still the answer to something: the
   # file is unexplained otherwise, and "what is sa-key.json for" arrives at step 3.
   if [[ -f "$SA_KEY" && "$(gate_status G10)" != green ]]; then
-    echo "  $(dim "Keep $(wsp artifacts/sa-key.json) — the Iterable push integration step uploads it.")"
+    echo "  Keep $(bold "$(wsp artifacts/sa-key.json)") — the Iterable push integration step uploads it."
     echo
   fi
   echo "  When that is done, run this again — nothing already green gets redone:"
   echo
   run_line onboard
+  echo
+}
+
+# Two audiences, and they want different sentences. Everything above this is written to
+# the developer holding the terminal; this is written to whatever sent them here, and it
+# is last on purpose — the instruction comes first, the handback after it.
+#
+# It used to ask the developer to relay the outcome ("go back and tell it you are
+# done"), which made a person the transport for a fact already on disk. It isn't one:
+# the run either finished or it didn't, and state.tsv says what came of it. So this
+# states it instead, in the second person, because an agent reading the terminal is
+# the reader being addressed.
+agent_handback() {
+  local owner kind gate cmd summary name
+  printf '\n  %s\n' "$(dim "── for the assistant that sent me here ──")"
+  # Stopped before anything was checked — at the project picker, or on a Ctrl-C out of
+  # the sign-in. Pointing at state.tsv here would hand over either nothing or, worse,
+  # whatever a previous run left in it.
+  if [[ ! -f "$WS/state.tsv" ]]; then
+    printf '  %s\n\n' "This terminal run ended before any gate was checked. Nothing changed."
+    return 0
+  fi
+  # Through next_action like every other ending, so the gate it names can never be a
+  # different one from the gate the box above it named.
+  IFS="$NEXT_SEP" read -r owner kind gate cmd summary <<< "$(next_action)"
+  name="$(gate_name "$gate")"
+  printf '  %s\n' "This terminal run is over. Read $(bold "$(wsp state.tsv)") for the result —"
+  printf '  %s\n' "nothing above needs relaying, and nothing needs retyping."
+  [[ -n "$name" ]] && printf '  %s\n' "First gate still open: $(bold "$name")${gate:+ ($gate)}."
   echo
 }
 
@@ -472,23 +507,24 @@ setup_started() { [[ -f "$SA_KEY" || -f "$GS_JSON" ]]; }
 # One line per paragraph, unwrapped: the banner wraps it to whatever width it has,
 # and an agent relaying it into a chat window reflows it anyway. Pre-wrapped text
 # came out ragged in both.
+#
+# Short on purpose. It was three paragraphs, printed at the top of every run and again
+# at the end — long enough that it became the thing you scroll past to reach the part
+# you needed, which is the opposite of what a warning is for. Two sentences survive
+# being read every time; an essay only survives the first.
 ai_notice() {
   cat <<'EOF'
-An AI agent wrote the code and configuration this puts in your repository, and it can be wrong in ways that still compile and still pass every check here.
-
-Evidence: the push proof. A real notification, on a real device, read back out of the operating system — not an agent's report that it worked.
-
-A draft: everything else. Read the diff, run your own tests, and treat it like a pull request from somebody new to your codebase. It is your code now.
+An AI agent wrote the code this puts in your repository, and it can be wrong in ways that still compile. Only the push proof is evidence; the rest is a draft — review it like a pull request from somebody new.
 EOF
 }
 
 ai_notice_banner() {
   box_top 36
-  box 36 "$(bold "READ THIS BEFORE YOU SHIP IT")" ""
-  # Paragraph by paragraph, so the blank lines survive the wrap.
-  ai_notice | while IFS= read -r l; do
-    [[ -n "$l" ]] && box_text 36 "$l" || box 36 ""
-  done
+  # Generic heading on purpose: ai_notice() also goes out as bin/agent's `notice` field,
+  # where it stands alone, so the sentence has to name its own subject — and then a
+  # heading that named it too was the same words twice in a five-line box.
+  box 36 "$(bold "READ THIS BEFORE YOU SHIP IT")"
+  ai_notice | while IFS= read -r l; do box_text 36 "$l"; done
   box_end 36
 }
 
@@ -591,8 +627,8 @@ firebase_consent_banner() {
            "$(dim "        or APPROVED=1 in the environment, for CI")" \
            "$(bold "  No")   change nothing and walk away. Nothing has happened yet."
   fi
-  box 31 "" "$(dim "  The JSON key it creates is a long-lived credential until you delete it.")" \
-         "$(dim "  Undo everything it adds, whenever you like:")" \
+  box 31 "" "  The JSON key it creates is a long-lived credential until you delete it." \
+         "  Undo everything it adds, whenever you like:" \
          "  $(bold "$BIN/teardown")"
   box_end 31
 }
@@ -628,7 +664,7 @@ handoff_banner() {
   # Not folded: wrapping a path mid-string reads worse than letting one dim line run
   # past the bar, which is why the bar has no right-hand edge in the first place.
   box "$colour" "      $(bold "$(cmd_path onboard)")" \
-                "$(dim "      run from $proj")" ""
+                "      run from $proj" ""
   # One list for both cases, not two that can drift apart. The last line is what makes it
   # true of a repair as well: the same command, and it leaves alone whatever still works.
   box "$colour" "$(bold "  What it does")" \
@@ -642,9 +678,8 @@ handoff_banner() {
                 "    · picks the device by name, and proves it with a real push" \
                 "    · skips whatever already works — only what is not done gets touched" ""
   box "$colour" "$(bold "  When it finishes") — or if it stops and you are not sure why —" \
-                "  come back here and say so, and I will carry on from there." ""
-  box "$colour" "$(dim "  Nothing to copy. The result is in $(wsp "" | sed 's:/$::'), and I read it")" \
-                "$(dim "  from there rather than asking you to retype it.")"
+                "  come back here and say so, and I will carry on from there." \
+                "  Nothing to copy: the result is in $(wsp "" | sed 's:/$::') and I read it from there."
   box_end "$colour"
 }
 
@@ -682,7 +717,9 @@ blocker_banner() {
   box "$colour" "$(bold "$label")" ""
   [[ -n "$name" ]] && box "$colour" "  $(bold "$name")"
   box_text "$colour" "$summary"
-  [[ -n "$cmd" ]] && box "$colour" "" "      $(cmd_display "$cmd")"
+  # Bold, like every other command this tool prints: the box exists to carry one thing
+  # to type, and it was the only line on the screen not marked as one.
+  [[ -n "$cmd" ]] && box "$colour" "" "      $(bold "$(cmd_display "$cmd")")"
   box_end "$colour"
 }
 

@@ -17,7 +17,7 @@ trap 'printf "\033[?25h"; echo; echo "  Stopped. Nothing in progress was left ha
 # and the loop has two ends: bin/handoff sends them, this brings them back. Printed on
 # every exit, including the early ones, because "it stopped and I do not know why" is
 # the moment somebody most needs telling where to go with it.
-trap 'printf "\033[?25h"; printf "  \033[2m%s\033[0m\n\n" "Sent here by an assistant? Go back and tell it you are done — it reads the result from $(wsp "" | sed "s:/$::")."' EXIT
+trap 'printf "\033[?25h"; agent_handback' EXIT
 
 pause() { read -r -p "  $1 " _; }
 
@@ -253,7 +253,10 @@ approve
 [[ "$(gate_status G4)" == green ]] || export CREATE_APP=1
 
 echo
-"$BIN/provision"
+# Quiet, because provision ends by exec'ing the verifier and this function goes on to
+# print the same ending itself. Without it the developer got the whole rc-40 block
+# twice — two identical YOUR TURN boxes reading as two separate things to do.
+QUIET_VERDICT=1 "$BIN/provision"
 RC=$?
 echo
 
@@ -291,7 +294,10 @@ case "$RC" in
     exit 40 ;;
 esac
 
-echo "  Stopped short. The ladder above shows the first red gate — that is the real problem."
+# The verifier is quiet now, so this is the only place the box gets drawn on the way
+# out. "The ladder above shows the first red gate" was asking a developer to scan
+# eighteen rows for the one that matters, which is the job the box does.
+blocker_banner
 echo "  To retry once it is dealt with (nothing already green is redone):"
 echo
 run_line onboard

@@ -175,7 +175,7 @@ if [[ "${1:-}" == "--step" ]]; then
   esac
   # Every step says where it is, not just the first. Somebody who arrives at step 3 by
   # following the one before it has no other way of knowing how much is left.
-  echo "  $(dim "Step $STEP_N of 4.")"
+  echo "  $(bold "Step $STEP_N of 4.")"
   case "$STEP_N" in
     1) step_keys; where_keys ;;
     2) step_mobile_app ;;

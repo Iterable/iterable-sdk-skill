@@ -30,7 +30,7 @@ TOTAL=0
 # is exactly the false pass this tool exists to avoid. Printed so the ladder shows
 # the whole flow, counted in nothing.
 note() {
-  printf '  %s  %-4s %-34s %s\n' "$(dim '~')" "$1" "$2" "$(dim "$3")"
+  printf '  %s  %-4s %-34s %s\n' "$(dim '~')" "$1" "$2" "$3"
   row "$1" unverifiable human "$2" "$3"
 }
 
@@ -61,7 +61,7 @@ gate() {
       # already in state.tsv — prerequisites always run first — so there is no
       # second copy of the names to keep in step.
       local mname; mname="$(awk -F'\t' -v i="$missing" '$1==i{print $4; exit}' "$STATE")"
-      printf '  %s  %-4s %-34s %s\n' "$(dim ·)" "$id" "$name" "$(dim "waiting on ${mname:-$missing}")"
+      printf '  %s  %-4s %-34s %s\n' "$(dim ·)" "$id" "$name" "waiting on ${mname:-$missing}"
       row "$id" blocked "$owner" "$name" "waiting on ${mname:-$missing}"
       return
     fi
@@ -69,6 +69,9 @@ gate() {
   local out rc
   out="$("$@" 2>&1)"; rc=$?
   out="$(printf '%s' "$out" | brief)"
+  # Only a green row's detail is dim. The status glyph carries the answer there, and the
+  # text behind it is corroboration nobody has to act on — whereas on every other row it
+  # is the one thing worth reading, and grey is how you make text nobody reads.
   if ((rc == 0)); then
     printf '  %s  %-4s %-34s %s\n' "$(green ✓)" "$id" "$name" "$(dim "${out:-ok}")"
     GREEN+="$id "
@@ -78,7 +81,7 @@ gate() {
     # rc 2 = the answer is "not yet". The gate ran, reached the service, and found
     # the state simply hasn't happened — nobody has registered a token, nothing has
     # been sent. Reporting that as red blames the customer for pending work.
-    printf '  %s  %-4s %-34s %s\n' "$(dim '·')" "$id" "$name" "$(dim "${out:-not yet}")"
+    printf '  %s  %-4s %-34s %s\n' "$(dim '·')" "$id" "$name" "${out:-not yet}"
     PENDING+="$id "
     row "$id" pending "$owner" "$name" "${out:-not yet}"
   else
@@ -309,9 +312,9 @@ if ((FAILED == 0)); then
       # proven" while G16 is green is the same class of error as the false green,
       # just pointing the other way.
       if [[ "$GREEN" == *" G16 "* ]]; then
-        echo "  $(dim "A push did arrive — the device check saw it. Something else is still pending.")"
+        echo "  A push did arrive — the device check saw it. Something else is still pending."
       else
-        echo "  $(dim "No push has been proven. Do not read this as success.")"
+        echo "  $(bold "No push has been proven. Do not read this as success.")"
       fi
       blocker_banner
     fi

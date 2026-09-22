@@ -66,7 +66,8 @@ case $LADDER in
     ;;
   10)
     blocker_banner
-    echo "  $(dim "Also written to $(wsp ASK.md). Re-run this after — nothing green gets redone.")"
+    echo "  Re-run this once it is dealt with — nothing already green gets redone."
+    echo "  $(dim "Also written to $(wsp ASK.md).")"
     echo
     exit 10
     ;;

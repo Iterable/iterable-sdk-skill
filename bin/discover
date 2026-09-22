@@ -62,7 +62,7 @@ while IFS=$'\t' read -r p name; do
     printf '  %-30s %-22s %s\n' "$p" "${name:0:22}" "$apps"
     FOUND=1
   else
-    printf '  %-30s %-22s %s\n' "$p" "${name:0:22}" "$(dim 'no Android app')"
+    printf '  %-30s %-22s %s\n' "$p" "${name:0:22}" 'no Android app'
   fi
 done <<< "$PROJECTS"
 
