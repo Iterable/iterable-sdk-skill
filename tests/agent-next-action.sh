@@ -18,7 +18,7 @@ ok()  { printf '  \033[32mPASS\033[0m %s\n' "$1"; }
 bad() { printf '  \033[31mFAIL\033[0m %-44s %s\n' "$1" "$2"; FAILED=1; }
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
-export WS="$TMP/ws"; mkdir -p "$WS"
+export WS="$TMP/ws"; mkdir -p "$WS/artifacts"
 
 # The four binaries G0 requires, present but never called: next_action asks only
 # whether they exist, and a missing one has to outrank every other answer.
@@ -212,6 +212,15 @@ banner_says() {
     || bad "$label" "no '$want' in: $(tr -s '\n ' ' ' <<< "$out" | cut -c1-90)"
 }
 
+# Some of this is about what a box must not say. An alarm raised over pending work costs
+# more than a missing one: it is spent the first time, and scrolled past from then on.
+banner_says_not() {
+  local unwanted="$1" label="$2" out
+  out="$(blocker_banner 2>&1 | LC_ALL=C sed $'s/\033\\[[0-9;]*m//g')"
+  grep -qF -- "$unwanted" <<< "$out" && bad "$label" "said '$unwanted' about pending work" \
+    || ok "$(printf '%-44s %s' "$label" "no '$unwanted'")"
+}
+
 PID=p PACKAGE=com.example APPROVED=1
 state "$(row G6 red tool "Service account exists" "not created yet")"
 banner_says "THE TOOL CAN DO THIS" "a red the tool itself clears"
@@ -270,6 +279,35 @@ DRIVER=developer
 state "$(row G6 red tool "Service account exists" "not created yet")"
 banner_says "RUN THIS IN YOUR TERMINAL" "the default hands over instead of asking"
 banner_says "come back here and say so" "the handover says how to return"
+
+# A first run has produced nothing, so "not created yet" is the ordinary next job. The
+# alarm belongs to a repair; spent on pending work it is how a developer learns to
+# scroll past the word.
+banner_says_not "SOMETHING NEEDS FIXING" "a first run is not an alarm"
+
+# ------------------------------------------------------------ handing over a failure
+# The remedy without the diagnosis is the one shape a caller cannot recover from: it
+# reads as routine. `key rejected (HTTP 401)` used to reach next.summary as "run the
+# setup in your own terminal", because the handover replaced the verdict outright.
+state "$(row G9 red tool "Key actually works" "key rejected by FCM (HTTP 401)")"
+: > "$WS/artifacts/sa-key.json"
+
+out="$(next_action)"
+IFS="$NEXT_SEP" read -r _o _k _g _c hsum <<< "$out"
+[[ "$hsum" == *"HTTP 401"* ]] \
+  && ok "$(printf '%-44s %s' "the handover keeps the diagnosis" "401 survives")" \
+  || bad "the handover deleted the diagnosis" "$hsum"
+[[ "$hsum" == *"your own terminal"* ]] \
+  && ok "$(printf '%-44s %s' "...and still says whose turn it is" "both, not either")" \
+  || bad "the handover lost the remedy" "$hsum"
+
+# Once the tool has made artifacts, a red gate downstream of them is something that
+# broke — and the box has to say so before it says how to fix it.
+banner_says "SOMETHING NEEDS FIXING" "a broken credential is not routine setup"
+banner_says "HTTP 401" "the box states the verdict, not just the remedy"
+banner_says "Key actually works" "and which gate it came from"
+banner_says "only what is not done gets touched" "re-running is safe, and says so"
+rm -f "$WS/artifacts/sa-key.json"
 DRIVER=agent
 
 # -------------------------------------------------------------------------- done

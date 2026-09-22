@@ -352,6 +352,14 @@ pending_tail() {
 gate_field()  { awk -F'\t' -v i="$1" -v c="$2" '$1==i{print $c; exit}' "$WS/state.tsv" 2>/dev/null; }
 gate_status() { gate_field "$1" 2; }
 gate_name()   { gate_field "$1" 4; }
+gate_detail() { gate_field "$1" 5; }
+
+# Tells a repair from a first run without asking anybody's cloud project: once the tool
+# has produced these, a red gate downstream of them is something that broke rather than
+# something nobody has done yet. On a first run the same gate says "not created yet",
+# and shouting SOMETHING IS WRONG at that is how a tool teaches a developer to stop
+# believing the word.
+setup_started() { [[ -f "$SA_KEY" || -f "$GS_JSON" ]]; }
 
 # Said in the tool's own voice, because on the path we ship there is nobody else to
 # say it: the developer is talking to an agent, and an agent assuring you that its
@@ -494,29 +502,47 @@ firebase_consent_banner() {
 # Printed by the tool rather than composed by whoever relays it, because the part that
 # goes missing in a paraphrase is the last line — and a developer holding a finished
 # terminal and no next step is exactly what this is for.
+# handoff_banner [failing gate] [its verdict]
+#
+# With a verdict it is a repair: the problem goes first, because a box that opens with
+# "signs you in to Google" above a rejected credential describes the wrong job, and a
+# developer who reads the remedy before the diagnosis has no way to tell whether the tool
+# understood what went wrong. Without one it is a first run, and there is nothing to state.
 handoff_banner() {
-  local proj; proj="$(git rev-parse --show-toplevel 2>/dev/null)" || proj="$PWD"
-  box_top 36
-  box 36 "$(bold "RUN THIS IN YOUR TERMINAL — then come back here")" ""
+  local proj gate="${1:-}" why="${2:-}" colour=36
+  proj="$(git rev-parse --show-toplevel 2>/dev/null)" || proj="$PWD"
+  [[ -n "$why" ]] && colour=31
+  box_top "$colour"
+  if [[ -n "$why" ]]; then
+    box "$colour" "$(bold "SOMETHING NEEDS FIXING — and it is in your terminal, not here")" ""
+    [[ -n "$gate" ]] && box "$colour" "  $(bold "$gate")"
+    box_text "$colour" "$why"
+    box "$colour" ""
+  else
+    box "$colour" "$(bold "RUN THIS IN YOUR TERMINAL — then come back here")" ""
+  fi
   # The command is relative now, so the directory is part of it rather than a footnote.
   # Not folded: wrapping a path mid-string reads worse than letting one dim line run
   # past the bar, which is why the bar has no right-hand edge in the first place.
-  box 36 "      $(bold "$(cmd_path onboard)")" \
-         "$(dim "      run from $proj")" ""
-  box 36 "$(bold "  What it does")" \
-         "    · signs you in to Google, in your own browser" \
-         "    · lets you pick the Firebase project and the Android app —" \
-         "      and offers to register the app if the project has none" \
-         "    · shows you every change it would make before making any," \
-         "      and stops if you say no" \
-         "    · walks the Iterable dashboard steps one at a time, and takes" \
-         "      the two API keys with the terminal echo off" \
-         "    · picks the device by name, and proves it with a real push" ""
-  box 36 "$(bold "  When it finishes") — or if it stops and you are not sure why —" \
-         "  come back here and say so, and I will carry on from there." ""
-  box 36 "$(dim "  Nothing to copy. The result is in $(wsp "" | sed 's:/$::'), and I read it")" \
-         "$(dim "  from there rather than asking you to retype it.")"
-  box_end 36
+  box "$colour" "      $(bold "$(cmd_path onboard)")" \
+                "$(dim "      run from $proj")" ""
+  # One list for both cases, not two that can drift apart. The last line is what makes it
+  # true of a repair as well: the same command, and it leaves alone whatever still works.
+  box "$colour" "$(bold "  What it does")" \
+                "    · signs you in to Google, in your own browser" \
+                "    · lets you pick the Firebase project and the Android app —" \
+                "      and offers to register the app if the project has none" \
+                "    · shows you every change it would make before making any," \
+                "      and stops if you say no" \
+                "    · walks the Iterable dashboard steps one at a time, and takes" \
+                "      the two API keys with the terminal echo off" \
+                "    · picks the device by name, and proves it with a real push" \
+                "    · skips whatever already works — only what is not done gets touched" ""
+  box "$colour" "$(bold "  When it finishes") — or if it stops and you are not sure why —" \
+                "  come back here and say so, and I will carry on from there." ""
+  box "$colour" "$(dim "  Nothing to copy. The result is in $(wsp "" | sed 's:/$::'), and I read it")" \
+                "$(dim "  from there rather than asking you to retype it.")"
+  box_end "$colour"
 }
 
 # The one thing stopping the run, printed where nobody can scroll past it. Which
@@ -527,7 +553,11 @@ blocker_banner() {
   IFS="$NEXT_SEP" read -r owner kind gate cmd summary <<< "$(next_action)"
   [[ "$kind" == done ]] && return 0
   [[ "$kind" == approve_firebase ]] && { firebase_consent_banner; return 0; }
-  [[ "$kind" == run_in_terminal ]] && { handoff_banner; return 0; }
+  if [[ "$kind" == run_in_terminal ]]; then
+    if setup_started; then handoff_banner "$(gate_name "$gate")" "$(gate_detail "$gate")"
+    else handoff_banner; fi
+    return 0
+  fi
   name="$(gate_name "$gate")"
   # The kind says whether anything is wrong; the owner says whose turn it is. Not the
   # gate's status: a red "service account: not created yet" is the tool's ordinary
@@ -648,7 +678,11 @@ next_action() {
       case "$a_kind" in
         provision|enable_firebase|register_app)
           a_owner=human; a_kind=run_in_terminal; a_cmd="$BIN/handoff"
-          a_summary="run the setup in your own terminal — it signs you in, registers the app if the project has none, and asks before it changes anything; then come back"
+          # The gate's verdict has to survive being handed over. It used to be replaced
+          # outright, so `key rejected by FCM (HTTP 401)` reached the caller as "run the
+          # setup in your own terminal" — the remedy with the diagnosis deleted, which
+          # is the one shape a caller cannot recover from, since it reads as routine.
+          a_summary="${a_summary:+$a_summary — }run the setup in your own terminal; nothing already working gets redone"
           ;;
       esac
     fi
