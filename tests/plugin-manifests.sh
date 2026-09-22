@@ -91,6 +91,23 @@ done
 [[ -z "$unlisted" ]] && ok "no skill is written but unshipped" \
                      || bad "has a SKILL.md and is not listed:$unlisted" "it would ship nothing"
 
+# --------------------------------------------------------------------- the agents
+# A host discovers agents/ by convention, so every file in it is loaded into every
+# client session — a build role put there costs a client tokens for something they
+# could never invoke. Pinned as an exact list on purpose: adding to a client's
+# always-on cost should take a deliberate edit here, not just a new file.
+SHIPPED="gate-auditor gcp-provisioner iterable-api-client web-operator"
+have=""
+for a in agents/*.md; do
+  [[ -f "$a" ]] || continue
+  have="$have $(basename "$a" .md)"
+done
+have="$(tr ' ' '\n' <<< "${have# }" | sort | tr '\n' ' ')"
+want="$(tr ' ' '\n' <<< "$SHIPPED" | sort | tr '\n' ' ')"
+[[ "$have" == "$want" ]] \
+  && ok "$(printf '%-48s %s' "only client-facing agents are shipped" "$(wc -w <<< "$want" | tr -d ' ') of them")" \
+  || bad "agents/ has changed" "shipped='${have% }' expected='${want% }' — build roles belong in tools/agents/"
+
 # ------------------------------------------------------------------- the MCP files
 # Two names for one file because the hosts look in different places. They drifted
 # once; a client on one host would then get doc fetching the other host's client does not.

@@ -239,6 +239,10 @@ Agent definitions live in [`agents/`](agents/) and are linked into `~/.claude/ag
 and no agent audits its own gate; `web-operator` is the only agent with browser access, and it
 is origin-confined to the three consoles.
 
+Build roles live in `tools/agents/` instead, because a host discovers `agents/` by convention:
+anything in there is loaded into every client session whether or not a client could ever use it.
+`make link-agents` links both, so a build machine still gets the whole team.
+
 ## Workspace
 
 `workspace/` is yours and is gitignored. It holds live Google session cookies and a downloaded
