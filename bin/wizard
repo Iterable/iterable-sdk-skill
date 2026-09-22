@@ -9,13 +9,15 @@
 
 source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
 
-trap 'echo; echo "  Stopped. Nothing in progress was left half-done. To pick it up again:"; echo; run_line onboard; echo; exit 130' INT
+# The cursor is restored first in both traps: the picker hides it, and a Ctrl-C out of
+# a picker would otherwise leave the developer's shell with no cursor afterwards.
+trap 'printf "\033[?25h"; echo; echo "  Stopped. Nothing in progress was left half-done. To pick it up again:"; echo; run_line onboard; echo; exit 130' INT
 
 # Half the people who reach this wizard were sent here by an agent in another window,
 # and the loop has two ends: bin/handoff sends them, this brings them back. Printed on
 # every exit, including the early ones, because "it stopped and I do not know why" is
 # the moment somebody most needs telling where to go with it.
-trap 'printf "  \033[2m%s\033[0m\n\n" "Sent here by an assistant? Go back and tell it you are done — it reads the result from $(wsp "" | sed "s:/$::")."' EXIT
+trap 'printf "\033[?25h"; printf "  \033[2m%s\033[0m\n\n" "Sent here by an assistant? Go back and tell it you are done — it reads the result from $(wsp "" | sed "s:/$::")."' EXIT
 
 pause() { read -r -p "  $1 " _; }
 
@@ -25,25 +27,8 @@ ask_yn() {
   [[ "$ans" == [yY]* ]]
 }
 
-# Numbered menu over stdin lines. Echoes the chosen line.
-# The answer is read from /dev/tty, not stdin: stdin is the option list and the
-# loop above has already drained it to EOF, so reading the choice from it would
-# spin forever on an empty line.
-menu() {
-  local -a opts=(); local line i choice
-  while IFS= read -r line; do opts+=("$line"); done
-  ((${#opts[@]})) || return 1
-  for i in "${!opts[@]}"; do printf '    %2d) %s\n' $((i+1)) "${opts[$i]}" >&2; done
-  echo >&2
-  while :; do
-    printf '  Choose 1-%d (or q to quit): ' "${#opts[@]}" >&2
-    read -r choice < /dev/tty || return 1
-    [[ "$choice" == q ]] && return 1
-    [[ "$choice" =~ ^[0-9]+$ ]] && ((choice >= 1 && choice <= ${#opts[@]})) \
-      && { printf '%s' "${opts[$((choice-1))]}"; return 0; }
-    echo "  Not a valid choice." >&2
-  done
-}
+# The pickers (menu / menu_keys / menu_plain) live in config.sh, so
+# tests/menu-pick.exp can drive them through a pty without running the wizard.
 
 save() { save_resolved "$1" "$2"; }
 

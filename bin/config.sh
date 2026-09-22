@@ -221,6 +221,109 @@ interactive() { [[ -t 0 && -t 1 && "${NON_INTERACTIVE:-0}" != 1 ]]; }
 
 plain() { sed $'s/\033\\[[0-9;]*m//g'; }
 
+# Menu over stdin lines. Echoes the chosen line to stdout; everything a person sees
+# goes to stderr, because stdout is the answer.
+#
+# The answer is read from /dev/tty, not stdin: stdin is the option list and the loop
+# below has already drained it to EOF, so reading the choice from it would spin
+# forever on an empty line.
+#
+# Two forms, and digits work in both, so what you can type never depends on which
+# one you got. With a terminal you get a highlight and arrow keys — reading a number
+# off one line to type it on another is a transcription job in the middle of a
+# decision, and the number is not the thing you are choosing. Without one, or when a
+# list is taller than the window, the numbered form is still there.
+menu() {
+  local -a opts=(); local line
+  while IFS= read -r line; do opts+=("$line"); done
+  ((${#opts[@]})) || return 1
+  if [[ -t 2 && -r /dev/tty && "${MENU_PLAIN:-0}" != 1 ]]; then
+    menu_keys "${opts[@]}"
+  else
+    menu_plain "${opts[@]}"
+  fi
+}
+
+menu_plain() {
+  local -a opts=("$@"); local i choice
+  for i in "${!opts[@]}"; do printf '    %2d) %s\n' $((i+1)) "${opts[$i]}" >&2; done
+  echo >&2
+  while :; do
+    printf '  Choose 1-%d (or q to quit): ' "${#opts[@]}" >&2
+    read -r choice < /dev/tty || return 1
+    [[ "$choice" == q ]] && return 1
+    [[ "$choice" =~ ^[0-9]+$ ]] && ((choice >= 1 && choice <= ${#opts[@]})) \
+      && { printf '%s' "${opts[$((choice-1))]}"; return 0; }
+    echo "  Not a valid choice." >&2
+  done
+}
+
+MENU_HINT="↑↓ move · enter choose · q cancel"
+
+# Globals rather than parameters: _menu_draw is called from the key loop, and the
+# alternative in bash 3.2 is re-defining a closure on every keystroke.
+_menu_draw() {
+  local i
+  for ((i = _MTOP; i < _MTOP + _MVIS; i++)); do
+    if ((i == _MCUR)); then
+      printf '  \033[1;36m❯ %s\033[0m\033[K\n' "${_MOPTS[$i]}" >&2
+    else
+      printf '    %s\033[K\n' "${_MOPTS[$i]}" >&2
+    fi
+  done
+  local where=""
+  ((_MVIS < _MN)) && where="  ·  $((_MTOP + 1))-$((_MTOP + _MVIS)) of $_MN"
+  printf '  \033[2m%s\033[0m\033[K\n' "$MENU_HINT${_MBUF:+ · $_MBUF}$where" >&2
+}
+
+menu_keys() {
+  _MOPTS=("$@"); _MN=$#; _MCUR=0; _MTOP=0; _MBUF=""
+  local key rest rows
+
+  # A list taller than the window cannot be redrawn in place — the top has scrolled
+  # off and the cursor-up lands somewhere else entirely. So the view is a window that
+  # follows the highlight, which also keeps the redraw height constant.
+  rows="$(tput lines 2>/dev/null)"
+  [[ "$rows" =~ ^[0-9]+$ ]] || rows=24
+  _MVIS=$((rows - 4)); ((_MVIS < 3)) && _MVIS=3
+  ((_MVIS > _MN)) && _MVIS=$_MN
+
+  printf '\033[?25l' >&2
+  _menu_draw
+  while :; do
+    IFS= read -rsn1 key < /dev/tty || { printf '\033[?25h' >&2; return 1; }
+    case "$key" in
+      # Empty is Enter: read -n1 returns nothing for its delimiter. A bare CR is
+      # accepted too, for a terminal that does not translate it.
+      ''|$'\r') printf '\033[?25h\033[1A\033[K' >&2; printf '%s' "${_MOPTS[$_MCUR]}"; return 0 ;;
+      $'\033')
+        # Esc is also the first byte of every arrow key, and bash 3.2 has no
+        # sub-second read timeout — one second is the shortest wait available. Which
+        # is why q is the cancel key this advertises; Esc works, it just costs a beat.
+        read -rsn2 -t 1 rest < /dev/tty
+        case "$rest" in
+          '[A') _MBUF=""; ((_MCUR = (_MCUR + _MN - 1) % _MN)) ;;
+          '[B') _MBUF=""; ((_MCUR = (_MCUR + 1) % _MN)) ;;
+          '')   printf '\033[?25h' >&2; return 1 ;;
+        esac ;;
+      k) _MBUF=""; ((_MCUR = (_MCUR + _MN - 1) % _MN)) ;;
+      j) _MBUF=""; ((_MCUR = (_MCUR + 1) % _MN)) ;;
+      q) printf '\033[?25h' >&2; return 1 ;;
+      [0-9])
+        # A typed number moves the highlight instead of selecting outright, so a list
+        # with ten or more entries is not a race against the first keystroke: 1 then 2
+        # reaches 12, and on a shorter list falls back to meaning 2.
+        _MBUF="$_MBUF$key"
+        ((10#$_MBUF >= 1 && 10#$_MBUF <= _MN)) || _MBUF="$key"
+        ((10#$_MBUF >= 1 && 10#$_MBUF <= _MN)) && _MCUR=$((10#$_MBUF - 1)) || _MBUF="" ;;
+    esac
+    ((_MCUR < _MTOP)) && _MTOP=$_MCUR
+    ((_MCUR >= _MTOP + _MVIS)) && _MTOP=$((_MCUR - _MVIS + 1))
+    printf '\033[%dA' $((_MVIS + 1)) >&2
+    _menu_draw
+  done
+}
+
 # One JSON string, escaped. Written in awk rather than node because bin/agent has
 # to be able to report that node is missing, and it cannot do that in JSON if
 # serialising needs node.

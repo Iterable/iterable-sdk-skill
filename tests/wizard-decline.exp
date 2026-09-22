@@ -79,9 +79,13 @@ expect {
 
 # Either the remembered-choice prompt or the picker itself is acceptable; both
 # must end up at a project menu.
+#
+# Two menu shapes to match, and typing the number works in both: the arrow-key form
+# treats digits as a jump and enter as the choice, so this stays index-driven rather
+# than counting keystrokes down a list whose length changes with the account.
 expect {
   "Use that again?" { send "n\r"; exp_continue }
-  -re "Choose 1-\[0-9\]+" { send "$proj\r" }
+  -re "Choose 1-\[0-9\]+|enter choose" { send "$proj\r" }
   "Run 'gcloud auth login' now?" { bad "not signed in — run gcloud auth login first" }
   "Could not list Firebase projects" { bad "project listing failed (quota project?)" }
   timeout { bad "no project menu" }
@@ -93,7 +97,7 @@ expect {
 }
 
 expect {
-  -re "Choose 1-\[0-9\]+" { send "$app\r" }
+  -re "Choose 1-\[0-9\]+|enter choose" { send "$app\r" }
   "has no Android app registered yet" { bad "chosen project has no Android app" }
   timeout { bad "no app menu" }
 }
@@ -105,10 +109,12 @@ expect {
 
 # The device step sits between the app choice and consent. Any of its three shapes
 # is fine here; what must not happen is this test booting an emulator, so the
-# picker gets `q` rather than a choice that might mean "start it".
+# picker gets `q` rather than a choice that might mean "start it". No trailing
+# newline: in the arrow form q cancels on its own, and the stray \r would go on to
+# answer the consent prompt below by accident.
 expect {
   "Use it?" { send "y\r" }
-  -re "Choose 1-\[0-9\]+" { send "q\r" }
+  -re "Choose 1-\[0-9\]+|enter choose" { send "q" }
   "No devices and no AVDs" { }
   timeout { bad "no device step before consent" }
 }
