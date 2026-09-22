@@ -3,7 +3,7 @@
   "owner": { "name": "Iterable" },
   "metadata": {
     "description": "Iterable's official skills for AI coding assistants — mobile SDK integration guidance.",
-    "version": "26.9.4-beta"
+    "version": "26.9.5-beta"
   },
   "plugins": [
     {
