@@ -4,6 +4,11 @@
 # here ships, and nothing here is for a client to run.
 #
 #   tools/install-local ~/Desktop/SomeApp [--ref <branch>] [--force]
+#   tools/install-local --user            [--ref <branch>] [--force]
+#
+# One project or every project. --user is the scope the published plugin gets installed
+# at, so it is the honest rehearsal of a client's setup; a target project is the safer
+# one for a build under test, because it cannot follow you into unrelated work.
 #
 # Hand-doing this lost the marketplace-name patch once and shipped a test against a
 # build that was missing an uncommitted file. Both are checks below.
@@ -29,9 +34,11 @@ usage() {
   cat <<EOF
 
   usage: tools/install-local <target-project> [--ref <git-ref>] [--force]
+         tools/install-local --user         [--ref <git-ref>] [--force]
 
     <target-project>  the app the next test runs against; the plugin is enabled
                       for that project only, in .claude/settings.local.json
+    --user            enable it everywhere instead, in ~/.claude/settings.json
     --ref             what to export (default HEAD)
     --force           install over a version already installed from another
                       commit, or export a dirty tree
@@ -39,20 +46,27 @@ usage() {
 EOF
 }
 
-REF=HEAD; FORCE=0; TARGET=""
+REF=HEAD; FORCE=0; TARGET=""; SCOPE=project
 while (($#)); do
   case "$1" in
     --ref)     REF="${2:-}"; [[ -n "$REF" ]] || die "--ref needs a value"; shift 2 ;;
     --force)   FORCE=1; shift ;;
+    --user)    SCOPE=user; shift ;;
     -h|--help) usage; exit 0 ;;
     -*)        usage; die "unknown option $1" ;;
     *)         TARGET="$1"; shift ;;
   esac
 done
 
-[[ -n "$TARGET" ]] || { usage; die "no target project — which app is the next test on?"; }
-TARGET="$(cd "$TARGET" 2>/dev/null && pwd)" || die "no such directory: $TARGET"
-[[ "$TARGET" == "$ROOT" ]] && die "that is this repo. The target is the app being integrated."
+if [[ "$SCOPE" == user ]]; then
+  # Refused rather than quietly ignored: a target named alongside --user is somebody
+  # asking for one project, and installing it in all of them instead is not close enough.
+  [[ -z "$TARGET" ]] || die "--user enables it in every project; drop the target, or drop --user."
+else
+  [[ -n "$TARGET" ]] || { usage; die "no target project — which app is the next test on? Or --user for all of them."; }
+  TARGET="$(cd "$TARGET" 2>/dev/null && pwd)" || die "no such directory: $TARGET"
+  [[ "$TARGET" == "$ROOT" ]] && die "that is this repo. The target is the app being integrated."
+fi
 
 command -v node >/dev/null || die "node is needed to edit the host's JSON safely"
 
@@ -159,30 +173,37 @@ say "marketplace registered as a directory source"
 
 node -e '
   const fs = require("fs");
-  const [file, key, target, installPath, version, sha] = process.argv.slice(1);
+  const [file, key, scope, target, installPath, version, sha] = process.argv.slice(1);
   let j = { version: 2, plugins: {} };
   try { j = JSON.parse(fs.readFileSync(file, "utf8")); } catch { }
   j.plugins = j.plugins || {};
   const now = new Date().toISOString();
   const there = p => { try { return fs.existsSync(p); } catch { return false; } };
   const keep = (j.plugins[key] || [])
-    // This project gets exactly one entry, whatever scope a previous install used;
-    // and an entry pointing at a version dir we just pruned, or at a test project
-    // that has since been deleted, is a dead record the host still tries to load.
-    .filter(e => e.projectPath !== target)
+    // One entry per scope we are writing — this project, or the user, whatever scope a
+    // previous install used; and an entry pointing at a version dir we just pruned, or
+    // at a test project since deleted, is a dead record the host still tries to load.
+    .filter(e => scope === "user" ? (e.scope !== "user" && e.projectPath) : e.projectPath !== target)
     .filter(e => there(e.installPath))
     .filter(e => !e.projectPath || there(e.projectPath));
-  keep.push({ scope: "project", projectPath: target, installPath: installPath,
-              version, installedAt: now, lastUpdated: now, gitCommitSha: sha });
+  const entry = { scope, installPath, version, installedAt: now, lastUpdated: now, gitCommitSha: sha };
+  if (scope === "project") entry.projectPath = target;
+  keep.push(entry);
   j.plugins[key] = keep;
   fs.writeFileSync(file, JSON.stringify(j, null, 2) + "\n");
-' "$INSTALLED" "$PLUGIN@$MKT" "$TARGET" "$DEST" "$VERSION" "$SHA" \
+' "$INSTALLED" "$PLUGIN@$MKT" "$SCOPE" "$TARGET" "$DEST" "$VERSION" "$SHA" \
   || die "could not record the install"
-say "installed for $(bold "${TARGET/#$HOME/~}") at commit ${SHA:0:9}"
+say "installed for $(bold "$([[ "$SCOPE" == user ]] && echo "every project" || echo "${TARGET/#$HOME/~}")") at commit ${SHA:0:9}"
 
-# settings.local.json, not settings.json: the latter is untracked-but-not-ignored in
-# most projects, so enabling there would dirty the test app's git status.
-SET_DIR="$TARGET/.claude"; SET="$SET_DIR/settings.local.json"
+# settings.local.json, not settings.json, for a project: the latter is untracked-but-not-
+# ignored in most projects, so enabling there would dirty the test app's git status. At
+# user scope there is no repo to dirty, and settings.json is where the host's own
+# `claude plugin install` puts it.
+if [[ "$SCOPE" == user ]]; then
+  SET_DIR="$HOME/.claude"; SET="$SET_DIR/settings.json"
+else
+  SET_DIR="$TARGET/.claude"; SET="$SET_DIR/settings.local.json"
+fi
 mkdir -p "$SET_DIR" || die "could not create $SET_DIR"
 node -e '
   const fs = require("fs"), [file, key] = process.argv.slice(1);
@@ -219,12 +240,13 @@ say "the marketplace copy agrees with the key it is registered under"
 
 cat <<EOF
 
-$(bold "  Next, from $TARGET:")
+$(bold "  Next, from $([[ "$SCOPE" == user ]] && echo "any project" || echo "$TARGET"):")
 
       claude plugin list
       claude plugin details $PLUGIN@$MKT
 
   $(dim "details prints the component inventory and the always-on token cost —")
-  $(dim "the fastest read on what a client actually gets.")
+  $(dim "the fastest read on what a client actually gets. A session already running")
+  $(dim "keeps the build it loaded at startup, so start a new one to see this one.")
 
 EOF
