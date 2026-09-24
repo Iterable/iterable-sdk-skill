@@ -227,7 +227,11 @@ hot-path subset; the full list lives here and is loaded on demand.
   does not compile there.
 
   ```kotlin
-  import java.util.Properties          // mandatory; Kotlin DSL has no auto-imports
+  import java.util.Properties          // mandatory, and at the very top of the
+                                       // file: Kotlin has no auto-imports here,
+                                       // and an import below `plugins { }` is a
+                                       // compile error. The rest of this block
+                                       // goes next to the existing `android { }`.
 
   fun getSecret(property: String, defaultValue: String = ""): String {
       val f = rootProject.file("local.properties")
@@ -276,8 +280,12 @@ hot-path subset; the full list lives here and is loaded on demand.
   already holds `ITERABLE_API_KEY`, do **not** assume it is the right one.
   It may belong to a different Iterable project, or be a rotated key. Show the
   developer the value you found and ask them to confirm it against the key
-  they gave you; a mismatch authenticates as nothing and surfaces later as a
-  401 with no obvious cause.
+  they gave you. A rotated or deleted key surfaces later as a 401 with no
+  obvious cause. A key from a **different Iterable project** is worse and has
+  no error signal at all: it authenticates, every request returns 200, and the
+  token, the profile and every event land in that other project. The only
+  symptom is that none of it appears in **their** dashboard — so confirm the
+  value, rather than waiting for a failure that will not come.
 
 ## 17. Guessing the user identifier (e.g. a license/account email)
 
