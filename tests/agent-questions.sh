@@ -297,13 +297,11 @@ for k in provision send_proof done investigate; do
     && bad "$k got a question — it is work, not a decision" \
     || ok "$k: no question, just the step"
 done
-# Building and running carry exactly one decision, which device, and only until it is
-# answered. The device screen is proved in its own section; here, that it stops.
-for k in run_app install_app; do
-  TARGET_DEVICE=Pixel_9_Pro q "$k" >/dev/null 2>&1 \
-    && bad "$k asks something with a device already chosen — nothing is left to decide" \
-    || ok "$k with a device on record: no question, just the step"
-done
+# Building and installing carries exactly one decision, which device, and only until it
+# is answered. The device screen is proved in its own section; here, that it stops.
+TARGET_DEVICE=Pixel_9_Pro q install_app >/dev/null 2>&1 \
+  && bad "install_app asks something with a device already chosen — nothing is left to decide" \
+  || ok "install_app with a device on record: no question, just the step"
 
 echo
 echo "  The Iterable walk — four steps, and one rule that cannot be dropped"
@@ -675,9 +673,33 @@ grep -qF 'set TARGET_DEVICE={{answer}}' <<< "$dev" \
 
 # Asked even when only one device is attached — a phone left plugged in to charge
 # resolves as "the only device" and takes the proof push. Not asked twice.
-qdev run_app Pixel_9_Pro >/dev/null 2>&1 \
+grep -qF "Which device" <<< "$(qdev run_app Pixel_9_Pro)" \
   && bad "asked which device again when one is already on record" \
-  || ok "a recorded device is not re-asked: from there it is work, not a decision"
+  || ok "a recorded device is not re-asked: that part is settled"
+
+# What replaced it. With the device settled, run_app is still a question, because signing
+# in and answering the permission dialog happen inside the developer's app. Left silent,
+# an agent filled the gap by driving the emulator over adb: minutes of guessed taps per
+# attempt, and Android's permission question answered by a tool on the person's behalf.
+app="$(qdev run_app Pixel_9_Pro)"
+out="$(node "$TMP/shape.js" <<< "$app")" && ok "the run-it-yourself screen — $out" || bad "the run-it-yourself screen — $out"
+grep -qiF "allow notifications" <<< "$app" \
+  && ok "it asks them to allow notifications rather than doing it for them" \
+  || bad "nothing on the screen asks for the notification permission"
+grep -qF "Sign in" <<< "$app" \
+  && ok "and to sign in, which is what makes a token exist" \
+  || bad "the screen never mentions signing in"
+grep -qE "only reads the device|never.*taps|nothing here taps" <<< "$app" \
+  && ok "and says outright that nothing here touches the device" \
+  || bad "the screen does not rule out the tool working the app itself"
+grep -q '"commands":\["[^"]*/bin/agent"\]' <<< "$app" \
+  && ok "one option re-runs the checks, so proceeding is a choice on the list" \
+  || bad "no option re-reads the device — the developer has nothing to proceed with"
+# The mismatch that makes a working integration look broken: the token filed under one
+# address, the proof push sent to another.
+grep -qF 'set ITBL_EMAIL={{answer}}' <<< "$app" \
+  && ok "and the address it actually signs in as can be corrected here" \
+  || bad "no way to say which identity the app really uses"
 
 echo
 echo "  The contract"

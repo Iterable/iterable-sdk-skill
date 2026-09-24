@@ -41,12 +41,21 @@ reject more than 4 per question); otherwise ask in plain text. Either way, group
 the long tail under one bucket, e.g.:
 
 - Push notifications (FCM)
-- In-app messages
 - Event tracking + user profiles
 - Other (inbox, embedded, deep links) — describe in the option
 
 (If they just want the basics, that's the "init + identify only" path — let
 them say so via the free-form "Other" the tool always provides.)
+
+**In-app messages are not on that list because they are not a choice.** Once the
+SDK is initialized and the user is identified, it fetches in-app messages and
+displays them in the foreground on its own — "there is no need to write any code
+to get this default behavior" (`in-app-messages-on-android`). So don't ask
+whether they want it; tell them they have it, in one line, when you hand over:
+they support in-app messages already, and will see nothing until somebody creates
+an in-app campaign in Iterable. Only *changing* that default is scope —
+`InAppHandler` to filter or defer messages, display intervals, custom rendering —
+and that is a question to ask if they raise it, not up front.
 
 **First check whether this is an upgrade, not a new integration.** If the
 project already depends on `com.iterable:iterableapi`, the scope question above

@@ -1220,6 +1220,11 @@ next_action() {
              # prompt" above a command that lists Firebase projects describes two
              # different jobs, and neither of them the one the command does.
              a_summary="name the app this is about first — nothing has chosen a package yet"
+           # Installed, with only the notification dialog outstanding: that is somebody
+           # opening their own app, not a build to redo. Routed as install_app it read as
+           # "reinstall", which is both wrong and the expensive kind of wrong.
+           elif [[ "$open_status" == pending && "$(_detail_of G13)" == *"not asked yet"* ]]; then
+             a_kind=run_app
            else a_kind=install_app; fi ;;
       G14|G15) [[ "$open_status" == pending ]] && a_kind=run_app || a_kind=investigate ;;
       # Sending is the caller's to run, not the developer's: there is a command for
@@ -1229,6 +1234,11 @@ next_action() {
       G17) a_kind=campaign_send ;;
       *)   [[ "$open_status" == pending ]] && a_kind=run_app || a_kind=investigate ;;
     esac
+    # The one step whose entire content is "somebody has to use their own app", so it
+    # names the screen that asks them. A kind with no command is a step an agent is told
+    # to take and given no way to take, and here it filled the gap by driving the device
+    # over adb: minutes of guessed taps, and a permission dialog answered by a tool.
+    [[ "$a_kind" == run_app ]] && a_cmd="$BIN/agent question run_app"
     # Who does it outranks whether it is allowed, because the terminal path asks for
     # consent in person — the wizard shows the same banner and records the same yes.
     # Routing to the approval first would ask an agent to collect permission for work

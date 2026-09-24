@@ -90,7 +90,11 @@ needed and never which step.
 `next.kind` comes back as `choose_driver` — the fork itself, with `bin/agent question opening` to put
 it to them — rather than either of its answers. Every screen the wizard shows has a twin in
 `next.question`, including registering a missing Android app and picking the device by name, so the
-chat is the whole walk; `bin/handoff` sends them to their own terminal instead, which is the one place
+chat is the whole walk. `run_app` has one too, and keeps it after the device is settled: signing in and
+answering Android's notification dialog happen inside the developer's app, so the tool asks them and
+waits. Nothing in here ever works their device — the gates read `dumpsys` and `logcat` and never tap,
+type or launch, because a guessed tap is indistinguishable from a slow screen and a permission the tool
+granted itself is not evidence of anything. `bin/handoff` sends them to their own terminal instead, `bin/handoff` sends them to their own terminal instead, which is the one place
 that can host the Google sign-in in the same session. `bin/agent set DRIVER=agent` or
 `DRIVER=developer` is the developer answering; nothing else may set either.
 

@@ -64,9 +64,16 @@ multi-select question tool (in Claude Code, `AskUserQuestion` with
 use it and offer **at most 4 options**; otherwise ask in plain text:
 
 - Push notifications (FCM / APNs)
-- In-app messages
 - Event tracking + user identity
 - Other (inbox, embedded, deep links) — describe in the option
+
+**In-app messages are absent from that list on purpose.** By default the SDK
+displays every in-app message it receives and tracks the interactions
+(`in-app-messages`), so an initialized, identified app has them whether or not
+anybody asked. Say so when you hand over — they support in-app already, and will
+see nothing until an in-app campaign exists in Iterable — rather than offering it
+as a feature to opt into. Customizing the default (skipping, deferring, custom
+rendering) is scope; having it is not.
 
 **First check whether this is an upgrade, not a new integration.** If the
 project already depends on `@iterable/react-native-sdk` (and, on Expo,

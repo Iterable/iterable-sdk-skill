@@ -546,6 +546,66 @@ q_pick_device() {
     "$BIN/agent set TARGET_DEVICE={{answer}}")"
 }
 
+# ------------------------------------------------------ part 3: the app's own turn
+#
+# Signing in and answering the notification dialog happen inside the developer's app,
+# behind whatever login it has. Neither is work an agent can do honestly: it has to guess
+# which field is which, a wrong guess is indistinguishable from a screen that was slow,
+# and every attempt costs minutes of tapping over adb against a UI nothing here has seen.
+# The permission dialog is worse than slow — it is a question Android asks *the person*,
+# and a tool that taps Allow has answered it on their behalf.
+#
+# So this asks, and it is the ladder that asks it. Until 2026-09-24 a recorded device left
+# this kind with no question at all, and what filled the silence was an agent trying to
+# work the emulator by itself, every run, slowly, with no way to tell whether it had.
+q_run_app_context() {
+  echo "The app has to run once on ${TARGET_DEVICE:-the device} with somebody signed in. The SDK asks Iterable for a device token at sign-in, so until that has happened there is nothing for a push to arrive at."
+  echo ""
+  echo "Two things, both inside your own app:"
+  echo ""
+  if [[ -n "${ITBL_EMAIL:-}" ]]; then
+    echo "  1. Sign in as $ITBL_EMAIL  ← that exact address"
+  else
+    echo "  1. Sign in — then tell me which address it used, because the token is filed under it"
+  fi
+  echo "  2. Allow notifications when Android asks"
+  echo ""
+  echo "Neither is mine to do. Everything from here only reads the device, and nothing here taps, types or launches anything on it: a tap I guessed at looks exactly like a screen that was slow, and Allow is yours to give."
+  echo ""
+  echo "Then say so below, and every device check runs again."
+}
+
+q_run_app() {
+  printf '{"header":"Your app","prompt":%s,' \
+    "$(jstr "Signed in on ${TARGET_DEVICE:-the device}, with notifications allowed?")"
+  printf '"context":%s,' "$(q_run_app_context | q_arr)"
+  printf '"requires":[],'
+  # Nothing out here can see their screen, so nothing out here gets to nudge "done" — the
+  # same rule as the dashboard steps. A recommendation on an answer the tool cannot check
+  # is an invitation to click past the one step that has to actually have happened.
+  printf '"recommended":null,'
+  printf '"options":['
+  q_opt "Done — signed in, notifications allowed" \
+    "The checks read the device again: the log buffer for the token Iterable accepted, and the permission Android recorded." \
+    "nothing changed; the device half is re-read" "" \
+    "$BIN/agent"
+  printf ','
+  q_opt "It has no sign-in yet" \
+    "Then nothing calls setEmail, and no token can exist for any address. That is code in your app rather than anything to configure — the integration half writes it." \
+    "nothing changed; no identity for a token to be filed under" ""
+  printf ','
+  q_opt "Android never asked about notifications" \
+    "From Android 13 the app has to request POST_NOTIFICATIONS itself, at runtime. Without that the push arrives and is never shown — which reads exactly like a broken integration. Also code, not configuration." \
+    "nothing changed; the permission was never put to you" ""
+  printf '],'
+  # The identity, because a mismatch here is the most common way a working integration
+  # looks broken: the token is filed under one address and the proof push goes to another.
+  printf '"free_text":%s}' "$(q_free_text \
+    "the address your app actually signs in as" \
+    "records ITBL_EMAIL — the identity the proof push is sent to" \
+    "$BIN/agent set ITBL_EMAIL={{answer}}")"
+}
+
 # ------------------------------------------------------- part 1: the Google consent
 #
 # The same two lists the terminal banner prints, from the same two functions. A second
@@ -873,10 +933,19 @@ question_for() {
     # Which device is a choice even when only one is attached, and the last point where
     # it can still be made cheaply. A phone left plugged in to charge resolves as "the
     # only device", takes the proof push, and the developer watching an emulator reports
-    # that nothing arrived. Once one is on record this is work rather than a question.
-    install_app|run_app)
+    # that nothing arrived.
+    #
+    # After that the two part company. Building and installing is work, and work gets no
+    # question. Running the app and answering the permission dialog is the developer's
+    # hands or nobody's, so it stays a question to the end.
+    install_app)
       [[ -n "${TARGET_DEVICE:-}" ]] && return 1
       q_pick_device ;;
+    run_app)
+      # The picker's own rc when nothing is attached: with no device there is no app
+      # running on one, and asking whether they signed in on it would name nothing.
+      [[ -n "${TARGET_DEVICE:-}" ]] || { q_pick_device; return; }
+      q_run_app ;;
     approve_firebase) q_approve_firebase ;;
     # Only while the answer is outstanding. A recorded yes re-offered as a question
     # invites a second one, and the developer has no way to tell the first was kept.
