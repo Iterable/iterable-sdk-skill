@@ -273,7 +273,7 @@ hot-path subset; the full list lives here and is loaded on demand.
   of the lookup (`getSecret('ITERABLE_API_KEY', '<literal>')`). On a public
   repo that commits the key; an **empty** fallback is the only acceptable
   default. Match the property name to what the project already uses. Verify the
-  key is a **mobile** key (Iterable dashboard → API keys); a server-side key in
+  key is a **mobile** key (**Integrations > API Keys**); a server-side key in
   an app exposes all project data. Confirm the file holding the key is
   gitignored before building.
 - **Third flavor — a stale key already in the file.** If `local.properties`

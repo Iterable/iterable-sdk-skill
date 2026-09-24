@@ -159,7 +159,10 @@ the incoming push: *Data notifications* routes it through Iterable's SDK;
 using Iterable's SDK. Pick the wrong one and the app still builds, tokens still
 register, and pushes may even arrive — but the SDK's tracking and action
 handling never fire, with no error anywhere. Say this explicitly; it is a
-two-option dropdown the developer cannot guess right.
+two-option dropdown the developer cannot guess right. One documented exception:
+when mirroring an existing production integration into a sandbox project,
+`fcm-http-v1-migration` says match the production app definition — there, the
+doc wins.
 
 Two things these docs do **not** settle, so keep asking the developer:
 **data region** (confirm it from their dashboard URL — `app.eu.iterable.com`

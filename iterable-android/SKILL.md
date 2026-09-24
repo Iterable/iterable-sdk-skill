@@ -235,7 +235,10 @@ Firebase Console and cannot be generated.
   still builds, tokens still register, and pushes may even arrive — but the
   SDK's tracking and action handling never fire, with no error anywhere. Tell
   the developer this explicitly; it's a two-option dropdown they cannot guess
-  right. See `setting-up-android-push-notifications`.
+  right. See `setting-up-android-push-notifications`. One documented exception:
+  when mirroring an existing production integration into a sandbox project,
+  `fcm-http-v1-migration` says match the production app definition — there, the
+  doc wins.
 - **No ProGuard/R8 consumer rules** are needed.
 - **No artifact rename** since version 3.x — the legacy `com.iterable:iterableapi` Maven coords are still current.
 
@@ -246,7 +249,7 @@ Firebase Console and cannot be generated.
 These rules apply to **every** integration. Rules 1–5 prevent silent runtime
 failures that look like SDK bugs but aren't; rules 6–7 prevent a leaked
 credential and a wrong-identity integration; rule 8 prevents breaking push the
-app already had. Full explanations and the remaining ~10 traps are in
+app already had. Full explanations and the remaining ~15 traps are in
 [`PITFALLS.md`](PITFALLS.md) — read it before generating any non-trivial code.
 
 1. **If the API key is JWT-protected, an `IterableAuthHandler` is mandatory —
@@ -546,7 +549,7 @@ before writing any code is the fastest way to compact mid-task.
    one**, single feature, debugging, or "what does this code do?" Check the
    project's existing Iterable dependency before deciding — an upgrade takes
    the upgrade path (Step 0), not the new-integration path.
-2. **Check rules 1–5 above** against whatever the user already has. Many
+2. **Check rules 1–8 above** against whatever the user already has. Many
    "the SDK isn't working" reports are rule violations.
 3. **Read the matching slug for the task** from `reference/` before writing
    code. Each doc has its own gotchas section that supersedes generic advice.
