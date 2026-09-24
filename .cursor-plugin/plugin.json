@@ -1,6 +1,6 @@
 {
   "name": "iterable-sdk",
-  "version": "26.9.9-beta",
+  "version": "26.9.10-beta",
   "description": "Takes an Android or React Native app from nothing to a push notification proven on a real device — Firebase provisioning, version-pinned SDK integration, silent-failure pitfalls, and device-side proof that a push actually arrived.",
   "author": { "name": "Iterable" },
   "repository": "https://github.com/Iterable/iterable-sdk-skill",

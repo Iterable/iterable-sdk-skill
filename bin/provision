@@ -75,7 +75,7 @@ fi
 APP_ID="$(app_id_for_package "$PACKAGE")"
 if [[ -n "$APP_ID" ]]; then
   skip "app $APP_ID"
-elif [[ "$CREATE_APP" == 1 ]]; then
+elif may_create_app; then
   if ! out="$(api_post "https://firebase.googleapis.com/v1beta1/projects/$PID/androidApps" \
         "{\"packageName\":\"$PACKAGE\",\"displayName\":\"$APP_DISPLAY_NAME\"}")"; then
     printf '  could not register %s: %s\n' "$PACKAGE" "$(api_err "$out")"
@@ -91,7 +91,8 @@ elif [[ "$CREATE_APP" == 1 ]]; then
   printf '  app id %s\n' "$APP_ID"
 else
   echo "  No Android app for $PACKAGE in $PID, and registering one is opt-in."
-  echo "  Either re-run with CREATE_APP=1, or pick a package that exists:"
+  echo "  Something has to say yes to it first: $BIN/agent question register_app asks,"
+  echo "  and the wizard asks in person. Or pick a package that exists:"
   echo
   run_line discover
   exit 20

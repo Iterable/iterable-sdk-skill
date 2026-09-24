@@ -37,7 +37,7 @@ Three tiers, in strict preference order. Nothing drives a browser.
    entire verification loop.
 2. **Human, by design** — three Iterable dashboard steps have no API at all, so you do them and
    the tool proves the result: `bin/iterable-keys` tells you exactly what to click, takes the two
-   keys with echo off, and hands straight to the verifier.
+   keys off the clipboard (or off a prompt with echo off), and hands straight to the verifier.
 3. **Human, because it must be** — Google Cloud ToS, Google sign-in, Iterable sign-in, CAPTCHAs,
    org-policy blocks. The tool writes what it needs to `workspace/ASK.md` and exits `10`.
 
@@ -86,13 +86,22 @@ bin/agent approve firebase      record the developer's yes to changing their pro
 the exit code — rc `40` says something is pending and never which thing, and rc `10` says a human is
 needed and never which step.
 
-**The Google setup is not the agent's to run by default.** `next.kind` comes back as
-`run_in_terminal` with `bin/handoff`, the block that sends the developer to the wizard, because the
-wizard does three things a chat cannot: host the Google sign-in, offer to register an Android app
-when the project has none, and take the Iterable keys with the echo off. That middle one is why the
-default exists — a project with no app has no `google-services.json` to download, and an agent that
-misses `CREATE_APP=1` is one improvisation away from faking the file to keep a build green. `bin/agent
-set DRIVER=agent` is the developer choosing otherwise; nothing else may set it.
+**Who runs the Google setup is the developer's to answer, and stays open until they do.**
+`next.kind` comes back as `choose_driver` — the fork itself, with `bin/agent question opening` to put
+it to them — rather than either of its answers. Every screen the wizard shows has a twin in
+`next.question`, including registering a missing Android app and picking the device by name, so the
+chat is the whole walk; `bin/handoff` sends them to their own terminal instead, which is the one place
+that can host the Google sign-in in the same session. `bin/agent set DRIVER=agent` or
+`DRIVER=developer` is the developer answering; nothing else may set either.
+
+Once `DRIVER=agent` is recorded, `setup.handoff_command` and `setup.drive_it_yourself` both come back
+`null`, and `bin/handoff` prints where the run has got to and what the next part is asking for instead
+of the terminal block. A field an agent can see is a field an agent can reach for, and a terminal
+block left on offer at every read is how a developer who asked for the chat still ended up holding a
+command to type. None of these boxes carries an instruction to run anything: the agent relaying one
+was given `next.kind`, `next.command` and `next.question` in the same read, so what the developer
+needs from the box is where the run stopped and what they are being asked to allow — which is the
+part a relay cannot reconstruct.
 
 That routing is advice to whoever reads it, and twice an agent ran the setup anyway — so the actor
 asks the same question and answers it from disk. `bin/provision` and `bin/onboard --apply` exit `10`
@@ -108,13 +117,32 @@ skips the question is stopped by the program rather than by prose. `approval.pla
 the ladder, so the banner, the dry run and the JSON cannot describe different work. `APPROVED=1` is
 the same answer for a job with no human in it.
 
+**The read is gated the same way**, because it was the one that kept happening: three transcripts
+show an agent finding `gcloud` already signed in and listing every Firebase project the account could
+see, on the strength of prose asking it not to. Being able to look is not being allowed to look, so
+`bin/discover` also exits `10` having read nothing until a yes is recorded — scoped to the Google
+account rather than to a project, since there is no project chosen yet. Three yeses, three sizes:
+`list` to look, `firebase` to change, `create-app` to add.
+
+The `list` yes goes one step further, because the refusal above hands an agent a motive to record it
+itself: it has to have come off a screen. Rendering `choose_target` mints a one-time token into
+`workspace/asked/` and stamps the moment the screen finished printing; `agent approve list` takes
+`--asked <token>` and refuses at exit `10` if there is no screen, if the token is not the one the
+screen carried, or if the yes arrives sooner than `ASK_DWELL_MS` (200ms) after it — nobody reads a
+consent screen in a fifth of a second. The token is spent on use, so one screen buys one yes. What
+this cannot catch is a caller that renders the screen, holds the token and waits: that is forging
+consent rather than drifting past prose, and no check on this side of the conversation can tell it
+from a developer who agreed. A tty skips the whole thing — the wizard asks in person.
+
 Two rules the JSON keeps: **paths, never values** — a credential in a report is a credential in a
 log, so `artifacts` carries `path` and `present` and nothing else — and **the reporter never acts**,
 so `bin/agent` provisions nothing and sends nothing. It names the script; the caller runs it.
 
 Without a terminal, `bin/iterable-keys` prints the same four dashboard steps and writes
-`workspace/.env.template` at mode `0600` with three empty names. The developer fills it in; nobody
-pastes a key into a conversation, and the gates prove the keys by spending them.
+`workspace/.env` at mode `0600` with three empty names. A key gets in from there with
+`bin/iterable-keys --take server|mobile`, which reads it off the clipboard — where the dashboard's
+copy button just put it — writes it to that file, clears the clipboard and prints only a tick. So
+nobody pastes a key into a conversation, and the gates prove the keys by spending them.
 
 Underneath, both use the same pieces, and the split is structural rather than conventional:
 
@@ -251,8 +279,7 @@ service-account key — treat it as sensitive and keep it local.
 | Path | Owner |
 |---|---|
 | `inputs.yml` | you — package name, project ids, region, FCM type. **Reference only:** no code reads it yet. The wizard asks for these and remembers the answers in `resolved.env` |
-| `.env` | you, via `bin/iterable-keys` — the Iterable keys you created, mode `0600`, never printed back. `.env.example` lists the exact names the tool reads |
-| `.env.template` | the tool, on the scripted path — the same names with no values, mode `0600`. Fill it in and rename it to `.env`. Never overwritten once it holds a value: keys are shown once |
+| `.env` | you, via `bin/iterable-keys` — the Iterable keys you created, mode `0600`, never printed back. Created with the names and no values on the scripted path, filled by `--take server\|mobile` off the clipboard or by hand. Never overwritten once it holds a value: keys are shown once. `.env.example` lists the exact names the tool reads |
 | `chrome-profile/` | you — sign in once |
 | `ASK.md` | the tool — what it needs from you |
 | `state.tsv` | the tool — gate results and resume point |

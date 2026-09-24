@@ -196,11 +196,15 @@ negotiable:
   placeholder the file, never comment out the `google-services` plugin, never "make it
   compile for now" — a build that passes with the input faked is worse than a build
   that fails honestly, because it looks finished.
-- **Say what they should do next, and ask them to come back.** The remedy for this
-  exact case is one command in their terminal: route into `iterable-provision`, which
-  prints it via `bin/handoff` — its wizard *offers to register the missing app*.
-  Relay that block, say you'll wait, and stop. Ending on "you'll need to sort out
-  Firebase" leaves the developer holding your problem.
+- **Route into `iterable-provision` and conduct it here.** Its wizard offers to register
+  the missing app, and every screen of it can be put to the developer in this
+  conversation: `next.question` carries the context to show, the two to four answers, and
+  the commands each answer runs — plus a free-text option for a value only they have.
+  Present the screen, wait for a choice, run what that choice says, ask the next one.
+  "Run this in your terminal and come back" is *one of the answers* the first screen
+  offers, so relaying a command and stopping answers it on their behalf. Ending on
+  "you'll need to sort out Firebase" leaves the developer holding your problem; ending on
+  a command to paste leaves them holding the tool.
 
 ### If they don't have an input yet
 
@@ -213,9 +217,15 @@ It produces the three inputs this Preflight cannot invent — it downloads a rea
 `google-services.json` from their Firebase project, creates the service account
 and key that Iterable's push integration asks you to upload, and walks the
 dashboard steps that have no API — and then proves each one with a live call
-instead of trusting that it was done. Announce the handoff in one line and
-continue; don't ask whether to continue, and don't wait for them to come back
-with files.
+instead of trusting that it was done. Announce the handoff in one line and route;
+don't stall on "shall I continue?", and don't wait for them to come back with files.
+
+**Routing is not starting.** The first thing that skill does is run
+`<root>/bin/agent question opening` and put it to the developer — what the job is, what
+it reads, what it will not do — before it runs anything else. Let it. Do not run
+`<root>/bin/agent`, `discover`, or any other command there yourself to save a step:
+deciding that provisioning is needed is not permission to begin it, and a project picker
+is not a consent screen.
 
 To check it is installed: walk up from this `SKILL.md` to the first directory
 containing a `bin/agent`. If there isn't one, this Preflight stops as written

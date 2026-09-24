@@ -123,9 +123,19 @@ wsd() { wsp "${1#$WS/}"; }
 # the caller: `PID=other bin/gates` was silently reading the remembered project
 # and reporting gates about an app nobody asked about. Whatever is already in the
 # environment wins.
+# Read before the cache, because the loop below exports the remembered DRIVER and from
+# then on "they told me on this run" and "a file remembers it" look the same. Either
+# counts as chosen; a default does not.
+DRIVER_SET="${DRIVER+1}"
+
 if [[ -f "$WS/resolved.env" ]]; then
   while IFS='=' read -r _k _v; do
     [[ "$_k" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+    # APPROVED is the CI form of a yes — an environment variable a pipeline sets
+    # deliberately, in place of a person. Honoured from a file in the workspace it
+    # becomes a yes that a file can grant, and this file records pasted values. The
+    # only consent that lives on disk is the approval record, which names its project.
+    [[ "$_k" == APPROVED ]] && continue
     # Defined beats cached, even when defined empty: `TARGET_DEVICE= bin/gates` is
     # how you say "forget the remembered one", and it has to mean that.
     [[ -n "${!_k+x}" ]] && continue
@@ -144,17 +154,24 @@ fi
 : "${CREATE_PROJECT:=0}"
 : "${CREATE_APP:=0}"
 
-# Who runs the Google setup: `developer` at a terminal, or `agent` in a chat. The
-# default is the developer, and not out of caution — the wizard is simply better at
-# this part. It hosts the Google sign-in, it offers to register an Android app when
-# the project has none, and it takes the Iterable keys with the echo off.
+# Who runs the Google setup: `developer` at a terminal, or `agent` in a chat. Every
+# screen exists in both places now, so this is a preference and not a capability gap —
+# what the terminal still has to itself is hosting the Google sign-in in its own session.
 #
-# That first case is why the default changed. A demo hit a project with no Android
-# app, so there was no google-services.json to download; the agent driving the
-# scripts needed CREATE_APP=1, improvised around the missing file to keep the build
-# green, and then stopped without naming a way forward. The wizard asks.
+# `developer` remains the value an unanswered fork falls back to, because the actor must
+# not be able to authorise itself: may_drive_setup reads the recorded answer, not this.
+# But unanswered is not the same as answered, and a run that has not asked yet must ask
+# rather than route — hence driver_chosen, which is what the recommendation follows.
 : "${DRIVER:=developer}"
 agent_driven() { [[ "$DRIVER" == agent ]]; }
+
+# Whether anybody has actually answered the fork. A default is not an answer, and a
+# handoff block presented as the next step when nothing has been asked is the tool
+# choosing for them — which is the thing the fork exists to avoid.
+driver_chosen() {
+  [[ "$DRIVER_SET" == 1 ]] && return 0
+  [[ -f "$WS/resolved.env" ]] && grep -q '^DRIVER=' "$WS/resolved.env"
+}
 
 # The router saying "not yours to run" was not enough: a caller that never reads
 # `next` still reaches the actor, and one did. So the actor asks the same question
@@ -167,6 +184,14 @@ agent_driven() { [[ "$DRIVER" == agent ]]; }
 may_drive_setup() {
   [[ -t 0 ]] && return 0
   [[ "${APPROVED:-0}" == 1 ]] && return 0
+  agent_driving_recorded
+}
+
+# The record on its own, with neither the tty nor the CI shortcut folded in. "They asked
+# the agent to drive" is a different question from "this is allowed to run", and what
+# gets printed to the developer follows the first one: a box telling somebody to open a
+# terminal, in a run they asked the agent to drive, contradicts the answer they gave.
+agent_driving_recorded() {
   [[ -f "$WS/resolved.env" ]] && grep -q '^DRIVER=agent$' "$WS/resolved.env"
 }
 
@@ -621,6 +646,19 @@ gate_detail() { gate_field "$1" 5; }
 # believing the word.
 setup_started() { [[ -f "$SA_KEY" || -f "$GS_JSON" ]]; }
 
+# How far the run has got, in the numbers the developer has been watching go by. A box
+# that asks for a yes has to say what it is interrupting: "the next part" means nothing
+# without the part before it. Read off the ladder that just ran, so it cannot claim
+# progress the gates did not find. rc 1 when nothing has run yet.
+progress_line() {
+  local green total
+  [[ -f "$WS/state.tsv" ]] || return 1
+  green="$(awk -F'\t' 'NF>1 && $2=="green"{n++} END{print n+0}' "$WS/state.tsv")"
+  total="$(awk -F'\t' 'NF>1{n++} END{print n+0}' "$WS/state.tsv")"
+  ((total > 0)) || return 1
+  printf '%s of %s checks pass so far.' "$green" "$total"
+}
+
 # Said in the tool's own voice, because on the path we ship there is nobody else to
 # say it: the developer is talking to an agent, and an agent assuring you that its
 # own output is trustworthy is not worth much. Not written as a legal disclaimer —
@@ -661,19 +699,183 @@ ai_notice_banner() {
 # gets modified. APPROVED=1 is the CI form of the same answer.
 APPROVALS="$WS/approved"
 
-approval_scope() { printf 'firebase %s' "${PID:-<no project chosen>}"; }
+# Whose credentials are about to be spent. Also what the `list` approval is scoped to,
+# so switching accounts does not inherit the previous one's yes.
+gcloud_account() { gcloud config get-value account 2>/dev/null | grep -v '^(unset)$'; }
+
+# Three things get approved, separately, because they are different sizes. `firebase` is
+# the provisioning plan — a service account, a role binding, a key. `create-app`
+# registers a new Android app in the project, which the limits promise never happens
+# "unless you ask outright", so it cannot ride along on the first yes. `list` is the read
+# of the account's whole Firebase estate, which changes nothing and is still not free.
+#
+# `list` is scoped to the Google account and the other two to the project, because that
+# is what each one is actually about: a yes to looking at what this account can see says
+# nothing about the next account, and there is no project chosen yet when it is asked.
+approval_scope() {
+  case "${1:-firebase}" in
+    list) printf 'list %s' "$(gcloud_account)" ;;
+    *)    printf '%s %s' "${1:-firebase}" "${PID:-<no project chosen>}" ;;
+  esac
+}
+
+# What the scope needs named before a yes can be recorded against it. An approval that
+# names neither a project nor an account covers everything, which is the one thing it
+# must never do — and a blank from a gcloud that cannot answer would match a blank on
+# disk, so an unknown account is a refusal rather than a wildcard.
+scope_target() {
+  case "${1:-firebase}" in
+    list) gcloud_account ;;
+    *)    printf '%s' "$PID" ;;
+  esac
+}
 
 approved() {
-  [[ "${APPROVED:-0}" == 1 ]] && return 0
-  [[ -n "$PID" ]] || return 1
-  awk -F'\t' -v s="$(approval_scope)" '$1==s{found=1} END{exit !found}' "$APPROVALS" 2>/dev/null
+  # The CI form covers provisioning and the read. Registering an app is the one change a
+  # pipeline should have to name for itself, with CREATE_APP=1.
+  case "${1:-firebase}" in
+    firebase|list) [[ "${APPROVED:-0}" == 1 ]] && return 0 ;;
+  esac
+  [[ -n "$(scope_target "${1:-firebase}")" ]] || return 1
+  awk -F'\t' -v s="$(approval_scope "${1:-firebase}")" '$1==s{found=1} END{exit !found}' "$APPROVALS" 2>/dev/null
 }
 
 approve() {
-  [[ -n "$PID" ]] || return 1
+  [[ -n "$(scope_target "${1:-firebase}")" ]] || return 1
   ws_init || return 1
-  approved || printf '%s\t%s\n' "$(approval_scope)" "$(date '+%Y-%m-%d %H:%M')" >> "$APPROVALS"
+  approved "${1:-firebase}" \
+    || printf '%s\t%s\n' "$(approval_scope "${1:-firebase}")" "$(date '+%Y-%m-%d %H:%M')" >> "$APPROVALS"
 }
+
+# Reading somebody's whole Firebase estate spends their Google credentials and prints
+# every project name, id and package they own into whatever is listening. Nothing is
+# mutated, and that is exactly why it kept happening: an agent that finds gcloud already
+# authenticated reads "authenticated" as "allowed" and lists. Three live transcripts now
+# show the listing running before anybody was asked, while the screen that asks —
+# `agent question choose_target` — existed the whole time and was skipped.
+#
+# So the refusal moves here, where not reading the prose cannot get past it. Same shape
+# as may_drive_setup: a tty is a human present, APPROVED=1 is the CI form, and otherwise
+# the only yes that counts is one recorded on disk.
+may_list_projects() {
+  [[ -t 0 ]] && return 0
+  approved list
+}
+
+# ------------------------------------------------- proving the screen was put up
+#
+# `approved list` answers whether a yes is on disk and nothing about who put it there. In
+# a chat the agent is the only thing typing, so no local check can tell "they chose this"
+# from "it chose for them" — a tty is the only hard evidence a human is present, which is
+# why that exemption exists and why this is not sold as a lock.
+#
+# What it does close are the two accidental paths, which are the ones that actually
+# happened: recording a yes for a screen that was never generated, and generating the
+# screen and answering it in the same breath. The question mints a one-time token and
+# writes down when; the answer has to carry that token, and has to arrive at least
+# ASK_DWELL_MS after the screen existed. An agent that renders the screen, keeps the token
+# and waits is forging consent, and this will not catch it.
+ASKED="$WS/asked"
+
+# 200ms. Below this nobody has read anything — an agent chaining two commands does it in
+# tens of milliseconds. Above it is a human who knows what they are clicking and clicks
+# fast, and refusing them would be the tool calling a real answer fake. Not overridable
+# from the environment on purpose: a caller that can widen the window has no window.
+ASK_DWELL_MS=200
+
+# Wall clock in milliseconds. `date +%N` is GNU-only and this floors at macOS bash 3.2, so
+# it needs help — and which helper matters, because the reading is taken *inside* the
+# process and its startup lands in the span being measured. Measured on this machine:
+# node 64ms a call, perl 19ms, nothing at all for bash 5's own variable. A 200ms window
+# cannot survive a 64ms ruler, so the cheapest source wins and node is the last resort.
+now_ms() {
+  local ms s f
+  if [[ -n "${EPOCHREALTIME:-}" ]]; then
+    s="${EPOCHREALTIME%%[.,]*}"; f="${EPOCHREALTIME#*[.,]}000"
+    printf '%s' "$(( s * 1000 + 10#${f:0:3} ))"; return 0
+  fi
+  ms="$(perl -MTime::HiRes -e 'printf "%d", Time::HiRes::time()*1000' 2>/dev/null)"
+  [[ "$ms" =~ ^[0-9]+$ ]] && { printf '%s' "$ms"; return 0; }
+  ms="$(node -e 'process.stdout.write(String(Date.now()))' 2>/dev/null)"
+  [[ "$ms" =~ ^[0-9]+$ ]] && { printf '%s' "$ms"; return 0; }
+  return 1
+}
+
+# The token for a screen, minted on first render and kept afterwards. Kept rather than
+# re-minted because the same screen gets rendered again by every status read, and a token
+# that changed underneath the developer would refuse the answer they just gave.
+#
+# The clock starts unset here and is set by ask_stamp once the screen has actually been
+# emitted. Two reasons. Rendering the rest of this question costs ~160ms, so a timestamp
+# taken mid-render hands a third of the window back to whatever it was meant to catch. And
+# only the *first* emission counts: refreshing it on every re-render would refuse a yes
+# that happened to arrive just after some unrelated re-read of the ladder.
+ask_for() { # <kind> — echoes the token, empty if the workspace will not take one
+  local t
+  if [[ -f "$ASKED/$1" ]]; then cut -f1 "$ASKED/$1"; return 0; fi
+  ws_init 2>/dev/null || return 1
+  command mkdir -p "$ASKED" 2>/dev/null || return 1
+  t="$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+  [[ "$t" =~ ^[0-9a-f]{32}$ ]] || return 1
+  printf '%s\t0\n' "$t" > "$ASKED/$1" 2>/dev/null || return 1
+  printf '%s' "$t"
+}
+
+# The screen is up as of now — called once the JSON carrying it has been written out, by
+# whoever wrote it. A no-op after the first time, and a no-op when nothing was minted.
+ask_stamp() { # <kind>
+  local tok minted
+  [[ -f "$ASKED/$1" ]] || return 0
+  IFS=$'\t' read -r tok minted < "$ASKED/$1"
+  [[ "$minted" == 0 ]] || return 0
+  printf '%s\t%s\n' "$tok" "$(now_ms || echo 0)" > "$ASKED/$1" 2>/dev/null || return 0
+}
+
+# 0 = this answer came from a screen that existed and had time to be read; the token is
+# spent either way it succeeds, so one rendering buys one yes. Echoes the reason on a
+# refusal, in words that name the question and never the way around it.
+ask_spent() { # <kind> <token> [now-in-ms]
+  local tok minted now el
+  now="${3:-}"
+  [[ -f "$ASKED/$1" ]] || {
+    printf '%s' "no screen for this has been put up, so there is no answer to record yet — ask $(cmd_path agent) question $1 and let them choose from it"
+    return 1; }
+  IFS=$'\t' read -r tok minted < "$ASKED/$1"
+  [[ -n "${2:-}" && "$2" == "$tok" ]] || {
+    printf '%s' "that is not the token the screen carried, so this is answering a question that is no longer on screen — re-ask $(cmd_path agent) question $1"
+    return 1; }
+  # The caller passes the clock reading it took on entry, because anything this function
+  # does first lands inside the measurement — and `gcloud config get-value account`, which
+  # the approval needs before it gets here, costs a few hundred milliseconds on its own.
+  # Measured from the wrong place, the dwell passes a chained call every time.
+  #
+  # Skipped rather than failed when the clock is unreadable: the token is the part that
+  # can always be checked, and a tool that cannot tell the time should not start calling
+  # real answers fake.
+  [[ "$now" =~ ^[0-9]+$ ]] || now="$(now_ms)" || now=""
+  if [[ "$now" =~ ^[0-9]+$ ]] && [[ "$minted" =~ ^[0-9]+$ ]] && ((minted > 0)); then
+    el=$((now - minted))
+    ((el >= ASK_DWELL_MS)) || {
+      printf '%s' "that yes arrived ${el}ms after the screen was generated, which is faster than anybody could have read it — put the question to them and record what they pick"
+      return 1; }
+  fi
+  rm -f "$ASKED/$1"
+}
+
+# Printed instead of the listing. Names the question rather than the command that records
+# its answer, on purpose: the remedy for a missing yes is asking, and an agent that is
+# handed `approve list` at the moment of being blocked will take it.
+list_refusal() {
+  printf '  %s\n' "Not read: nobody has said yes to listing this account's Firebase projects."
+  printf '  %s\n' "It is a question, and it has a screen — ask it and run what the answer carries:"
+  printf '\n      %s\n\n' "$(bold "$BIN/agent question choose_target")"
+  printf '  %s\n\n' "Do not record the answer yourself. Finding gcloud signed in is not consent."
+}
+
+# An app may be registered if the environment said so outright, or if the developer
+# answered the question that asks. Recorded against the project like every other yes,
+# so it cannot be spent on the next one.
+may_create_app() { [[ "$CREATE_APP" == 1 ]] || approved create-app; }
 
 # What provisioning would change, read out of the ladder rather than written out by
 # hand in each front end. A consent banner that lists something the run will not do,
@@ -701,7 +903,7 @@ firebase_plan() {
   for id in $todo; do
     case "$id" in
       G3) echo "add      Firebase to the project" ;;
-      G4) echo "register $PACKAGE as an Android app — needs CREATE_APP=1" ;;
+      G4) echo "register $PACKAGE as an Android app — asked separately, and no is an answer" ;;
       G5) echo "download google-services.json — a config file, not a secret" ;;
       G6) echo "create   a service account, '$SA_ID'" ;;
       # Two lines, because the role name is the evidence for the claim and neither
@@ -713,6 +915,17 @@ firebase_plan() {
       G9) echo "verify   the key by asking FCM to validate a send (nothing sent)" ;;
     esac
   done
+}
+
+# The boundary half of an honest ask, pulled out of the banner so the agent's question
+# can carry the same three lines. A front end that lists the changes and then writes its
+# own limits is the one that promises something no script here honours.
+firebase_limits() {
+  cat <<'EOF'
+touch an app, integration or credential you already have
+create a Firebase project, or register an app, unless you ask outright
+ask for, store or type a password — you sign in yourself
+EOF
 }
 
 # A plan line that starts with spaces continues the one above it. Bulleting it makes
@@ -738,10 +951,9 @@ firebase_consent_banner() {
   box 31 "  project   ${PID:-<none chosen yet>}" "  package   ${PACKAGE:-<none chosen yet>}" ""
   box 31 "$(bold "  What it would do")"
   firebase_plan | plan_bulleted | while IFS= read -r l; do box 31 "    $l"; done
-  box 31 "" "$(bold "  What it will not do")" \
-    "    · touch an app, integration or credential you already have" \
-    "    · create a Firebase project, or register an app, unless you ask outright" \
-    "    · ask for, store or type a password — you sign in yourself" ""
+  box 31 "" "$(bold "  What it will not do")"
+  firebase_limits | while IFS= read -r l; do box 31 "    · $l"; done
+  box 31 ""
   if [[ "$how" == prompt ]]; then
     box 31 "$(bold "  Answer below.") Nothing has happened yet, and no is a complete answer."
   else
@@ -755,10 +967,11 @@ firebase_consent_banner() {
   box_end 31
 }
 
-# The block that sends a developer to their own terminal, and the reason the default
-# points there: the wizard hosts the Google sign-in, it offers to register an Android
-# app when the project has none, and it takes the Iterable keys with the echo off.
-# None of those three are things a chat can do.
+# The block that sends a developer to their own terminal, printed once they have asked for
+# it. What that path does that a chat cannot: it hosts the Google sign-in in the same
+# session rather than relaying it, and it takes the Iterable keys off a prompt with the echo
+# off rather than off the clipboard. Everything else on it exists as a screen here too,
+# which is why this is a fallback and not the recommendation.
 #
 # Printed by the tool rather than composed by whoever relays it, because the part that
 # goes missing in a paraphrase is the last line — and a developer holding a finished
@@ -770,7 +983,7 @@ firebase_consent_banner() {
 # developer who reads the remedy before the diagnosis has no way to tell whether the tool
 # understood what went wrong. Without one it is a first run, and there is nothing to state.
 handoff_banner() {
-  local proj gate="${1:-}" why="${2:-}" colour=36
+  local proj prog gate="${1:-}" why="${2:-}" colour=36
   proj="$(git rev-parse --show-toplevel 2>/dev/null)" || proj="$PWD"
   [[ -n "$why" ]] && colour=31
   box_top "$colour"
@@ -780,7 +993,15 @@ handoff_banner() {
     box_text "$colour" "$why"
     box "$colour" ""
   else
-    box "$colour" "$(bold "RUN THIS IN YOUR TERMINAL — then come back here")" ""
+    # Not an order. The developer is reading this through an agent that already has the
+    # next step — kind, command and question, on every read — so the instruction is the
+    # one thing this box does not need to supply. What it supplies is where the run got
+    # to and whose turn the next part is, which is the only thing the relay cannot
+    # reconstruct. It opened with "RUN THIS IN YOUR TERMINAL — then come back here"
+    # until 2026-09-24, and shown mid-conversation that reads as the tool taking the
+    # keyboard off both of them.
+    box "$colour" "$(bold "THIS PART IS YOURS TO RUN — one command, and it asks you the rest")" ""
+    prog="$(progress_line)" && box "$colour" "  $prog" ""
   fi
   # The command is relative now, so the directory is part of it rather than a footnote.
   # Not folded: wrapping a path mid-string reads worse than letting one dim line run
@@ -805,6 +1026,40 @@ handoff_banner() {
   box_end "$colour"
 }
 
+# Printed on the agent path, where this text is what the developer is most likely to be
+# shown verbatim — so it is written to a reader who is not holding a terminal and did not
+# ask for one. The agent relaying it already knows the next step; it has the kind, the
+# command and the question from the same read that produced this. So this box is not here
+# to instruct anybody. It is here to tell the developer where the run stopped and what
+# they are being asked to allow next, because that is the part a relay cannot reconstruct
+# and the part a "run this" heading crowds out.
+#
+# handoff_banner is the wrong box here twice over: it is a page of instructions for one of
+# the two answers, and shown before either was chosen it is read as the answer. The
+# terminal line stays, last and in one line, because it has to remain reachable in one
+# step — it is an answer, not the ask.
+next_part_banner() { # [gate name] [its verdict]
+  local colour=36 prog
+  box_top "$colour"
+  box "$colour" "$(bold "WHERE THIS RUN HAS GOT TO — and what the next part needs")" ""
+  prog="$(progress_line)" && box "$colour" "  $prog" ""
+  if [[ -n "${1:-}" ]]; then
+    box "$colour" "  Next: $(bold "$1")"
+    [[ -n "${2:-}" ]] && box_text "$colour" "$2"
+    box "$colour" ""
+  fi
+  box "$colour" \
+    "$(bold "  I can do this part from here") — one question at a time, answered" \
+    "  by picking one. You see every change before it is made, and no is a" \
+    "  complete answer to any of them." \
+    "" \
+    "  Say go and I carry on from here. Nothing changes until you do." \
+    "" \
+    "  $(bold "Or run it yourself") — the same questions, as a terminal menu:" \
+    "      $(bold "$(cmd_path onboard)")"
+  box_end "$colour"
+}
+
 # The one thing stopping the run, printed where nobody can scroll past it. Which
 # gate that is has already been decided by next_action — this is only how it looks,
 # so the styling can never disagree with the routing.
@@ -816,6 +1071,19 @@ blocker_banner() {
   if [[ "$kind" == run_in_terminal ]]; then
     if setup_started; then handoff_banner "$(gate_name "$gate")" "$(gate_detail "$gate")"
     else handoff_banner; fi
+    return 0
+  fi
+  # Unanswered, so which box depends on who is reading. At a terminal the fork is already
+  # settled by where they are standing — the wizard is what "do it here" means — and
+  # offering a chat to somebody mid-command is a question they cannot answer. Without a
+  # tty this is going through an agent, and a page about the terminal is not the ask.
+  if [[ "$kind" == choose_driver ]]; then
+    if [[ -t 0 ]]; then
+      if setup_started; then handoff_banner "$(gate_name "$gate")" "$(gate_detail "$gate")"
+      else handoff_banner; fi
+    else
+      next_part_banner "$(gate_name "$gate")" "$(gate_detail "$gate")"
+    fi
     return 0
   fi
   name="$(gate_name "$gate")"
@@ -883,6 +1151,16 @@ next_action() {
     done
   }
 
+  # Whose move it is on `choose_target`, which is two different moves. Looking at their
+  # Firebase estate is the agent's to run only once looking has been agreed to; until
+  # then the next thing is the question, and reporting the read as the command is how it
+  # got run three times without anybody being asked. `owner` moves with it: a decision
+  # is `human` and a command to run is `agent`, and the field has to mean that.
+  _target_action() {
+    if approved list; then a_owner=agent; a_cmd="$BIN/agent discover"
+    else a_owner=human; a_cmd="$BIN/agent question choose_target"; fi
+  }
+
   missing="$(missing_tools | tr '\n' ' ')"; missing="${missing% }"
 
   if [[ -n "$missing" ]]; then
@@ -902,18 +1180,33 @@ next_action() {
       G0)  a_kind=install_tools ;;
       G1)  a_kind=authenticate; a_cmd="gcloud auth login" ;;
       G2)  if [[ -z "$PID" ]]; then
-             a_kind=choose_target; a_owner=agent; a_cmd="$BIN/agent discover"
+             a_kind=choose_target; _target_action
              # This one is quoted inside a box a person reads, so it has to be a command
              # they could type. It used to be a bare `bin/agent …` for want of anything
              # short enough to fit — the shim is short enough.
              a_summary="pick a Firebase project and an Android package, then: $(cmd_path agent) set PID=… PACKAGE=…"
-           else a_kind=project_unreachable; fi ;;
-      G3)  a_kind=enable_firebase ;;
+           # A project that does not answer is still a target worth changing: a typo'd id
+           # and a project somebody has no access to are both fixed at the same screen,
+           # the one that shows what is on record and offers picking again. The diagnosis
+           # stays in the summary above it. Without the command this was the one red
+           # state whose remedy was unnameable.
+           else a_kind=project_unreachable; a_cmd="$BIN/agent question project_unreachable"; fi ;;
+      # Enabling Firebase is provision's own first step (bin/provision:58-61), so this is
+      # the same work under a different gate. It used to report a kind of its own that had
+      # no command, no question and no row in the skill's table — three ways of saying
+      # nothing, where `provision` says onboard --apply.
+      G3)  a_kind=provision; a_owner=tool; a_cmd="$BIN/onboard --apply" ;;
       G4)  if [[ -z "$PACKAGE" ]]; then
-             a_kind=choose_target; a_owner=agent; a_cmd="$BIN/agent discover"
+             a_kind=choose_target; _target_action
+           elif may_create_app; then
+             # Registering the app is bin/provision's job, so once that yes is on record the
+             # next step is the work itself. Without this arm the one gate that needs
+             # provisioning is the only gate that never names it, and an agent following
+             # `next` re-asks a question it already has the answer to, forever.
+             a_kind=provision; a_owner=tool; a_cmd="$BIN/onboard --apply"
            else
-             a_kind=register_app
-             a_summary="$a_summary — registering it needs CREATE_APP=1, on purpose"
+             a_kind=register_app; a_cmd="$BIN/agent question register_app"
+             a_summary="$a_summary — registering it is its own yes: $(cmd_path agent) question register_app"
            fi ;;
       G5|G6|G7|G8|G9) a_kind=provision; a_owner=tool; a_cmd="$BIN/onboard --apply" ;;
       # The first of four, not all four: the walk is the step, and a caller handed
@@ -922,7 +1215,7 @@ next_action() {
       # No package means nobody has said which app this is about, which is a choice
       # and not a missing install — telling them to build would name no target.
       G13) if [[ -z "$PACKAGE" ]]; then
-             a_kind=choose_target; a_owner=agent; a_cmd="$BIN/agent discover"
+             a_kind=choose_target; _target_action
              # The advice has to be replaced, not kept: "run the app and accept the
              # prompt" above a command that lists Firebase projects describes two
              # different jobs, and neither of them the one the command does.
@@ -942,13 +1235,26 @@ next_action() {
     # it is not the one doing.
     if ! agent_driven; then
       case "$a_kind" in
-        provision|enable_firebase|register_app)
-          a_owner=human; a_kind=run_in_terminal; a_cmd="$BIN/handoff"
-          # The gate's verdict has to survive being handed over. It used to be replaced
-          # outright, so `key rejected by FCM (HTTP 401)` reached the caller as "run the
-          # setup in your own terminal" — the remedy with the diagnosis deleted, which
-          # is the one shape a caller cannot recover from, since it reads as routine.
-          a_summary="${a_summary:+$a_summary — }run the setup in your own terminal; nothing already working gets redone"
+        provision|register_app)
+          # Nobody has answered the fork yet, so the next step is the fork — not one of
+          # its two answers. Routing straight to the handoff here is how a developer who
+          # never chose gets a terminal block presented as the next thing to do, with the
+          # choice mentioned underneath it as an aside. The approval branch below does not
+          # match this kind, so the fork stays the next step until it is answered.
+          if ! driver_chosen; then
+            a_owner=human; a_kind=choose_driver; a_cmd="$BIN/agent question opening"
+            # Same rule as the handover below: the verdict survives the routing. A red
+            # gate that reads only "choose who runs this part" has had its diagnosis
+            # deleted by a question about staffing.
+            a_summary="${a_summary:+$a_summary — }choose who runs this part; the same screens either way, here or in your terminal"
+          else
+            a_owner=human; a_kind=run_in_terminal; a_cmd="$BIN/handoff"
+            # The gate's verdict has to survive being handed over. It used to be replaced
+            # outright, so `key rejected by FCM (HTTP 401)` reached the caller as "run the
+            # setup in your own terminal" — the remedy with the diagnosis deleted, which
+            # is the one shape a caller cannot recover from, since it reads as routine.
+            a_summary="${a_summary:+$a_summary — }run the setup in your own terminal; nothing already working gets redone"
+          fi
           ;;
       esac
     fi
@@ -959,12 +1265,12 @@ next_action() {
     # things an agent decided to create.
     if ! approved; then
       case "$a_kind" in
-        provision|enable_firebase|register_app)
-          # The remedy first: brief() truncates at 100 characters, and the CREATE_APP
+        provision|register_app)
+          # The remedy first: brief() truncates at 100 characters, and the second
           # half of the sentence is the part that survives losing.
           a_summary="approve the changes to ${PID:-the project} first — nothing has happened yet"
           [[ "$a_kind" == register_app ]] &&
-            a_summary="$a_summary; registering $PACKAGE also needs CREATE_APP=1, on purpose"
+            a_summary="$a_summary; registering $PACKAGE is a second, separate yes"
           a_owner=human; a_kind=approve_firebase; a_cmd="$BIN/agent approve firebase"
           ;;
       esac
@@ -976,7 +1282,7 @@ next_action() {
     a_owner=agent; a_kind=run_ladder; a_cmd="$BIN/agent"
     a_summary="nothing has been checked yet"
   fi
-  unset -f _detail_of
+  unset -f _detail_of _target_action
   printf '%s%s%s%s%s%s%s%s%s\n' \
     "$a_owner" "$NEXT_SEP" "$a_kind" "$NEXT_SEP" "$a_gate" "$NEXT_SEP" \
     "$a_cmd" "$NEXT_SEP" "$a_summary"
@@ -1016,7 +1322,16 @@ quota_candidates() {
 # Single writer for resolved.env, so the wizard and the actor cannot drift in how
 # they record a choice. An empty value deletes the key — used to drop a derived
 # value like APP_ID that a new project invalidates.
+#
+# A newline in the value would write a second KEY=VALUE line, and the reader above
+# honours whatever it finds — so one pasted project id could set APPROVED=1 and grant
+# its own consent, for every run after it. Refused here rather than sanitised: a value
+# arriving with a line break in it is not a project id or a package name, and quietly
+# keeping the first line would record a choice nobody made.
 save_resolved() {
+  case "${2:-}" in
+    *$'\n'*) return 1 ;;
+  esac
   ws_init; touch "$WS/resolved.env"
   grep -v "^$1=" "$WS/resolved.env" > "$WS/.resolved.tmp" 2>/dev/null || true
   mv "$WS/.resolved.tmp" "$WS/resolved.env"
@@ -1150,6 +1465,29 @@ device_label() {
   local avd; avd="$(avd_of "$1")"
   [[ -n "$avd" ]] && { printf '%s (%s)' "$avd" "$1"; return 0; }
   printf '%s (%s)' "$(adb -s "$1" shell getprop ro.product.model 2>/dev/null | tr -d '\r')" "$1"
+}
+
+# Every device worth offering, running first, one per line: field 1 is the machine
+# value (an AVD name, or a serial for a phone, which has no AVD name to go by) and the
+# rest is for a person to recognise it by. The wizard feeds this to its menu and the
+# chat picker renders the same lines as options — one list, so the two front ends cannot
+# offer different devices, and an emulator that is not running is still shown rather
+# than silently omitted from somebody's own machine.
+device_options() {
+  local s avd running=" "
+  for s in $(adb_devices); do
+    avd="$(avd_of "$s")"
+    if [[ -n "$avd" ]]; then
+      running="$running$avd "
+      printf '%-28s running\n' "$avd"
+    else
+      printf '%-28s running · %s\n' "$s" "$(adb -s "$s" shell getprop ro.product.model 2>/dev/null | tr -d '\r')"
+    fi
+  done
+  for avd in $(avd_list); do
+    [[ "$running" == *" $avd "* ]] && continue
+    printf '%-28s not running — start it\n' "$avd"
+  done
 }
 
 # A remembered device, resolved fresh every run. TARGET_DEVICE holds an AVD name
@@ -1337,6 +1675,10 @@ classify_itbl_response() {
 # than guess we try candidates against the real call and keep the first that
 # answers. That makes the cached quota project one we have proven, not assumed.
 firebase_projects() {
+  # Here as well as at the call site, so a caller added later inherits the refusal
+  # instead of having to remember it. rc 10 is "a human is needed", which is what an
+  # unasked question is — and it is not rc 1, so nothing reads it as "Google said no".
+  may_list_projects || return 10
   local url='https://firebase.googleapis.com/v1beta1/projects?pageSize=100' body p
   while read -r p; do
     body="$(QP="$p" api_get "$url" 2>/dev/null)" || continue

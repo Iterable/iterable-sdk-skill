@@ -34,9 +34,32 @@ If you reach the filesystem root without finding it, the install is
 incomplete. Say so and stop. Do not guess at a path, and do not reimplement any of
 these checks by hand.
 
+## Before you run anything
+
+The first command is not the ladder. It is the question that asks whether to start one:
+
+```
+<root>/bin/agent question opening
+```
+
+**Ask it, and wait for an answer, before you run any other command here.** It spends no
+credentials, reads nothing, and writes nothing — not even a workspace directory — so it
+is safe to be the first thing that happens. Render it exactly as *When the tool hands you
+a question* says: `context` above the selector, verbatim, then the options.
+
+This ordering is the point and it is easy to get wrong. A status read runs the whole
+eighteen-gate ladder against their Firebase projects, so a question carried in its output
+arrives *after* the work it was asking about. Twice now an agent decided provisioning was
+needed, ran it, and presented a project picker — and a project picker is not a consent
+screen. **Deciding that setup is needed is not permission to start it.** Announcing what
+you are about to do is not either.
+
+If they say no, stop. Do not run the ladder "just to see where things stand".
+
 ## The loop
 
-Run it **from the developer's project directory**, by absolute path:
+Once they have said yes, run it **from the developer's project directory**, by absolute
+path:
 
 ```
 <root>/bin/agent
@@ -66,20 +89,98 @@ broken and nothing proven yet.
 
 Read `next.kind` and act. That is the whole protocol.
 
-## Who runs the Google setup — by default, not you
+## When the tool hands you a question
 
-**The default is that the developer runs it in their own terminal, and you wait.**
-This is not caution about permissions; the wizard is simply better at this part. It
-hosts `gcloud auth login` in the same session, it *offers to register an Android app
-when the Firebase project has none*, it takes the two Iterable API keys with the
-terminal echo off, and it picks the device by name.
+A few steps are the developer's *decision* rather than their work. On those,
+`next.question` is an object instead of `null`, and its presence is the whole
+instruction: **ask it, do not answer it.** Later steps of a walk come one at a time:
 
-That middle one is why this is the default. A project with no Android app has no
-`google-services.json` to download, the script path needs `CREATE_APP=1` to create
-one, and an agent that misses that is one improvisation away from faking the file to
-keep a build green — which is the single worst thing this skill can do.
+```
+<root>/bin/agent question iterable_step 2
+```
 
-So when `next.kind` is `run_in_terminal`:
+Render it as one `AskUserQuestion`:
+
+- `context` goes in the message **immediately above** the selector, every line, verbatim.
+  That is what they are agreeing to. The wording is the tool's because a shortened
+  version of it still comes back "yes".
+- `requires`, when it is not empty, goes in the same message. It is what they have to do
+  themselves, in their own terminal.
+- `header` is the chip, `prompt` is the question, and each entry in `options` is one
+  option — `label` as the label, `description` as the description.
+- When they pick one, run that option's `commands` in order, then read the ladder again.
+- An option with a non-empty `relay` has **no** commands for you. That is a command only
+  the developer can run — it hosts a sign-in, or takes a key with the echo off. Print it,
+  say you will wait, and stop. Running it yourself puts the thing it was written to
+  protect into whatever is reading your output.
+- `free_text`, when present, is the answer that is not on the menu — a project the picker
+  had no room for, a package only they know. The host adds that entry for you (it is
+  *Other*); `hint` is what to ask for. When they type something, put it where `{{answer}}`
+  is in `command` and run that. `bin/agent set` checks the format and exits `30` with an
+  `error` that is written for the developer — relay it and ask again rather than correcting
+  their value for them. **Never** for a secret: no API key, no password, no token — those
+  have their own screens and their own relays.
+- `recommended`, when it is not null, is the option the tool would pick. It is a label to
+  pass on, not a decision that has been made: `null` means the tool has no view, which is
+  most of the pickers, because which of somebody's projects is theirs is not ours to rank
+  on anything but what creates the least.
+
+**Do not add, drop, reword or reorder the options, and do not pick one yourself** — not
+even when only one of them looks sensible from where you are sitting. An option nobody
+was shown was never declined. `effect` says what each one changes; it is there so you
+can tell them, not so you can choose.
+
+The answer has to land on disk, which is why the yes is a command and not a note in this
+conversation: `may_drive_setup` reads the file, so an approval that only ever existed in
+a transcript stops the run just as a missing one does.
+
+`question: null` means the next step is work rather than a choice. Get on with it.
+
+There are **three** of these before anything in their Google project changes, and they
+are not the same ask. In order: `opening`, before you run a single command — is this job
+happening at all. Then `choose_target`, before you list anything — reading their projects
+is the first thing that spends their Google credentials, and agreeing to it is not
+agreeing to changes. Then `approve_firebase`, before the first change, once a project is
+chosen and there is a real list of changes to show.
+
+**None of them covers the next one, and none is optional because a later one is coming.**
+A developer who would have stopped at the first has, by the third, had their whole
+Firebase estate read out and printed into this conversation.
+
+A fourth, only when their project has no Android app for this package: `register_app`.
+That one *creates* something in their project, which the stated limits promise never
+happens unless they ask outright — so the provisioning yes does not include it, and its
+own yes is recorded under its own scope and against that one project.
+
+## Who runs the Google setup — theirs to choose, and unanswered until they do
+
+**Conduct it here unless they ask for the terminal.** Every screen the wizard shows has a
+twin in `next.question` — registering a missing Android app, picking the device by name,
+taking the API keys — so the chat is the whole walk and not a cut-down version of it. The
+terminal is the fallback, for somebody who would rather not answer these here at all.
+
+One thing that path does that a conversation cannot: it hosts `gcloud auth login` in the
+same session instead of relaying it. That is the reason to keep it, and it is the whole
+list.
+
+While nobody has answered, `next.kind` is **`choose_driver`** — the fork itself, with
+`next.command` being `agent question opening`. Ask it. Do not relay a terminal block here:
+that is one of the two answers, and presenting it as the next step answers for them.
+`setup.chosen` is `false` until somebody has actually said, and `setup.recommended` reads
+`agent` until then rather than guessing from `setup.driver`, which sits on its fallback.
+
+**Only they can make that choice.** Setting `DRIVER=agent` because handing over felt slow
+takes a decision that is theirs; relaying the handoff because the chat felt like work does
+the same thing in the other direction.
+
+Once they have chosen the chat, `setup.handoff_command` is `null` and `<root>/bin/handoff`
+prints where the run has got to and what the next part needs — not the terminal block. So
+there is nothing left to reach for there, and nothing to relay that contradicts what they
+answered. None of these boxes tells anybody to run a command, and they are not meant to:
+you were handed the next step in the same read. What the box is for is the developer
+knowing the run reached this point and what they are being asked to let you do next.
+
+Once they have chosen the terminal, `next.kind` is `run_in_terminal`:
 
 1. Run `next.command` (`<root>/bin/handoff`) and relay its block **verbatim**. It
    contains the two lines they type, what the wizard will ask them, and how to come
@@ -91,12 +192,9 @@ So when `next.kind` is `run_in_terminal`:
    read the result off disk. **Never ask them to paste or retype anything**; the
    workspace is in their repo and it is the authority on what happened.
 
-Offer the alternative once, in the same message, as a real choice: one
-`AskUserQuestion` with *I'll run it in my terminal* (recommended — say why in a
-clause) and *You run it for me here*. If they pick the second, record it with
-`<root>/bin/agent set DRIVER=agent`, which unlocks *Once they hand it to you* below.
-**Only they can make that choice.** Setting `DRIVER=agent` because handing over felt
-slow is taking the decision the default exists to leave with them.
+The question carries every answer, so you do not write them: the one it names in
+`recommended` is the tool's pick, and the option that records `DRIVER=agent` is what
+unlocks *Once they hand it to you* below.
 
 The scripts hold the same line, so this is not on your memory: `bin/provision` and
 `bin/onboard --apply` refuse with exit `10` and print the handoff block when nothing
@@ -108,13 +206,16 @@ relay the block, do not look for a flag that gets you past it, and never set
 
 | `next.kind` | What you do |
 |---|---|
-| `run_in_terminal` | The default for the whole Google half. Relay the handoff block, say you'll wait, stop. |
+| `choose_driver` | Nobody has said who runs the Google half yet. Ask `next.question` (`agent question opening`) and wait for their pick. **Do not relay a terminal block here** — that is one of the two answers. |
+| `run_in_terminal` | They chose their own terminal. Relay the handoff block verbatim, say you'll wait, stop. |
 | `install_tools` | Report exactly which binaries are missing (`missing_tools`) and what each unlocks: `gcloud` the Google half, `adb` the device half, `node` the JSON parsing, `java` the keystore reads. Do not install them. |
-| `authenticate` | Ask the developer to run `gcloud auth login` **themselves**, in their own terminal. You never handle their Google credentials. |
-| `choose_target` | Run `<root>/bin/agent discover` for the JSON list of their Firebase projects and Android apps, then ask **one** `AskUserQuestion` listing real projects (a project that already has their package is the zero-mutation path — say so). Record it with `<root>/bin/agent set PID=… PACKAGE=…`. |
-| `project_unreachable` | Relay `next.summary` verbatim; it is a permissions answer from Google, not something to work around. |
-| `iterable_keys` | Four steps in their Iterable account that only they can do. Walk them **one at a time** — see *The four Iterable steps* below. |
-| `install_app` / `run_app` / `send_proof` | The device half — hand off to `iterable-verify`. |
+| `authenticate` | Ask `next.question`; its first option carries `gcloud auth login` as a `relay`. They run it themselves, in their own terminal. You never handle their Google credentials. |
+| `choose_target` | **Ask `next.question` before you run anything.** Listing their projects is the first thing here that spends their Google credentials, and it prints their whole Firebase estate into this conversation. A signed-in `gcloud` is a capability, not a permission — so `discover` refuses with exit `10` until the yes is recorded, and its first option is what records it. Once they agree, run both commands that option carries — then ask the *same kind again*. With a listing on disk it comes back as the picker: their real projects, the one that already has their package ranked first because it is the path that creates nothing, and a free-text option for the rest. **Do not write that menu yourself.** With a project already chosen the same kind asks which app instead. |
+| `project_unreachable` | Relay `next.summary` verbatim — it is a permissions answer from Google, not something to work around — and then ask `next.question`, which offers aiming somewhere else. A typo'd project id and a project they have no access to look identical from here, and both are answered at that screen. |
+| `register_app` | Their project has no Android app for this package. Ask `next.question` — this is the one change the limits promise never happens unless they ask outright, so its yes is separate from the provisioning yes and recorded with `<root>/bin/agent approve create-app`. Never `CREATE_APP=1`. |
+| `iterable_keys` | Four steps in their Iterable account that only they can do. Ask `next.question`, then walk them **one at a time** — see *The four Iterable steps* below. The two keys reach the workspace with `iterable-keys --take server\|mobile`, off their clipboard; never into this conversation. |
+| `install_app` / `run_app` | The device half — hand off to `iterable-verify`. One decision first: until a device is on record `next.question` is the device picker, and it is worth asking even when only one is attached. A phone left plugged in to charge is "the only device", takes the proof push, and the developer watching an emulator reports that nothing arrived. |
+| `send_proof` | The device half — hand off to `iterable-verify`. |
 | `done` | A real push reached the device. Say which device and chain onward. |
 
 `next.command` is the command for that step when there is one. Run it; do not
@@ -129,8 +230,8 @@ table and running it anyway is the one shortcut this skill exists to prevent.
 | `next.kind` | What you do |
 |---|---|
 | `approve_firebase` | Nothing has touched their project yet, and nothing will until they say yes. See *Asking before you change their project*. |
-| `register_app` | Their Firebase project has no Android app, so there is no `google-services.json` to download and nothing downstream can work. Registering one is a real mutation: ask outright, then re-run with `CREATE_APP=1`. **This is the state that must never turn into a workaround** — if you cannot register the app, hand it back to the terminal instead of writing code around the missing file. |
-| `provision` | Show `next.summary`, then run `<root>/bin/onboard --apply`. It creates the service account, binds the send-push role and nothing more, downloads `google-services.json`, and ends by re-running the ladder. Their yes is already recorded by this point — do not ask twice. |
+| `register_app` | Their Firebase project has no Android app, so there is no `google-services.json` to download and nothing downstream can work. Ask `next.question`; a yes runs `<root>/bin/agent approve create-app`, which is scoped to that one project. **Never `CREATE_APP=1`** — that is the environment's flag, for a pipeline with no human in it, and setting it yourself is you answering the one question the stated limits promise is theirs. **This is the state that must never turn into a workaround** — if the answer is no, hand it back rather than writing code around the missing file. |
+| `provision` | Show `next.summary`, then run `<root>/bin/onboard --apply`. It enables Firebase on the project, registers the Android app if that yes is on record, creates the service account, binds the send-push role and nothing more, downloads `google-services.json`, and ends by re-running the ladder. Their yes is already recorded by this point — do not ask twice. **This is also where `register_app` goes once they have said yes to it**: the same state comes back as `provision`, because registering the app is this script's job and no question's. If you are being asked `register_app` again after a yes, something is wrong — report it rather than re-asking. |
 
 ## Asking before you change their project
 
@@ -160,6 +261,27 @@ nobody gave is the worst thing you can do in this skill. You do not need to poli
 the rest: `<root>/bin/provision` checks the record itself and exits `10` without
 making a single call to Google if the yes is missing. The approval covers one
 project; choosing a different one puts you back here, correctly.
+
+**The read is asked for too.** Listing their Firebase projects mutates nothing, and that
+is exactly why it gets taken for granted: an agent that finds `gcloud` already signed in
+treats being *able* to look as being *allowed* to look, and what lands in the transcript
+is every project name, id and package the account can see. So `discover` refuses the same
+way `provision` does — exit `10`, nothing read — until a yes is recorded, scoped to that
+Google account. Three separate yeses, three separate sizes: `list` to look, `firebase` to
+change, `create-app` to add. The first option of the `choose_target` question carries the
+command that records the first one; **that command is theirs to trigger by choosing it,
+never yours to run because the read looked harmless.**
+
+That one is checked rather than trusted, so you do not have to be relied on for it. The
+`list` yes only counts if it came off a screen: rendering `choose_target` mints a one-time
+token, and `approve list` needs that exact token — the option's command already carries it,
+which is why it is run as written and not retyped. Two refusals come back at exit `10`, and
+both mean the same thing. *"No screen for this has been put up"* is an approval for a
+question that was never asked: put the question to them. *"That yes arrived Nms after the
+screen was generated"* is a screen rendered and answered in the same turn, which nobody
+could have read: show it, wait for their answer, then record it. A token is spent by one
+yes, so a new decision means a new screen. None of this is an obstacle to a developer who
+actually says yes; it only costs you anything if you were about to answer for them.
 
 ## Blockers, where nobody can scroll past them
 
@@ -214,25 +336,40 @@ integration, so this is the one stretch of the flow the developer does by hand.
 Everything they produce gets proved afterwards by a real call, and your job in
 between is to keep it to **one step per message**.
 
-Open by saying what the stretch is: four things in their Iterable account, a couple
-of minutes, and nothing downstream works without them. Then, for N in 1 to 4:
+`next.kind` is `iterable_keys` and `next.question` opens the stretch: what it is, why
+these four cannot be automated, and that the keys never come through this conversation.
+Ask it. Then, for each step the chain gives you:
 
-1. Run `<root>/bin/iterable-keys --step N` and show its output as it is. It is
-   written to be read by the developer — do not summarise it, do not retype the
-   URLs, do not merge two steps into one message.
-2. Ask **one** `AskUserQuestion`: *Done* / *It doesn't look like that* / *I'd rather
-   run the whole thing myself*. Then wait. Step N+1 does not exist until they answer.
-3. *It doesn't look like that* — help with that step and no other. The dashboard
-   moves; the values and their meanings do not.
-4. *I'd rather run the whole thing myself* — give them `<root>/bin/iterable-keys`
-   with no arguments, at their own terminal. It prompts with the echo off, stores
-   the keys itself, and ends by running the ladder. Stop walking and wait for them.
+1. Run `<root>/bin/agent question iterable_step N`. Its `context` **is** the step — the
+   numbered clicks, the URL, and the one or two arrows that matter — so show every line of
+   it above the selector, as it came out. Do not summarise it, do not retype the URLs, do
+   not merge two steps into one message. A shortened step is the most expensive mistake in
+   this whole setup: "FCM type: Data notifications" condensed to "enable notifications"
+   breaks push while every other check still reads as configured.
+2. Then wait. Step N+1 does not exist until they answer, and the answer names it. If you
+   find yourself writing the instructions for a dashboard screen, you have skipped the
+   `context` — nothing here needs you to compose a step, and a composed one has already
+   told a developer to rename a file this tool stopped writing.
+3. Its options arrive with the commands that enact them, so the walk cannot lose its
+   place or skip a screen. On step 1 two of them are `--take server` and `--take mobile`:
+   one click each, and the key goes from their clipboard into the file.
+4. One option on every step carries a `relay`, not a `commands`. **Relay it and stop.**
+   That is `iterable-keys` with no arguments at their own terminal, the fallback for
+   somebody who would rather not do this here — it prompts with the echo off, which is
+   the one thing a chat cannot offer.
 
-The two keys go into a file, never into the conversation. Step 1's output names it:
-`.iterable/.env.template`, mode 0600, which they fill in and rename to `.env`. **Do
-not ask them to paste a key to you**, not even to check its shape. If they paste one
-anyway, say plainly that it is in the transcript now and worth rotating — Iterable
-keys are cheap to replace — then carry on with the file.
+**The key goes from their clipboard into a file, and you never hold it.** The dashboard's
+copy button has just put it there, so `--take server` reads it, writes it to
+`.iterable/.env` at mode 0600, clears the clipboard and prints a tick. **Do not read the
+clipboard yourself** — `pbpaste` and its kin are off limits here, because a key read into
+your own output is a key in the transcript. `--take` is the only thing in this flow that
+ever holds one. **And do not ask them to paste a key to you**, not even to check its
+shape; if they paste one anyway, say plainly that it is in the transcript now and worth
+rotating — Iterable keys are cheap to replace — then carry on with the file.
+
+No clipboard on their machine? Then they put the two values on `ITBL_SERVER_KEY` and
+`ITBL_MOBILE_KEY` in `.iterable/.env` themselves, or run the terminal walk. Both are
+fallbacks; neither is the first thing you offer.
 
 When they say step 4 is done, re-run `<root>/bin/agent`. Both keys get spent on a
 real call and the test user is looked up by name, so nothing here rests on anyone's
@@ -242,13 +379,17 @@ swapped — a common mistake, and the check tells them apart.
 ## Secrets
 
 `<root>/bin/iterable-keys --step N` prints one dashboard step and, the first time,
-writes `.iterable/.env.template` at mode 0600 with three empty names. Without
-arguments and without a terminal it prints all four at once — that is the form for a
-script, not for a conversation.
+writes `.iterable/.env` at mode 0600 with three empty names — never overwriting a
+value, because an Iterable key is shown once. Without arguments and without a terminal
+it prints all four at once — that is the form for a script, not for a conversation.
+You do not need to call it on the chat path: `agent question iterable_step N` already
+carries the same clicks in its `context`, from the same source.
 
 - **Never ask anyone to paste a key into the conversation.** Not as a question, not
-  as an `AskUserQuestion` option, not "just to check the format".
-- Never read `.env`, echo it, `cat` it, or pass a key as a command-line argument.
+  as an `AskUserQuestion` option, not "just to check the format". `--take` exists so
+  that the offer is unnecessary.
+- Never read `.env`, echo it, `cat` it, read the clipboard, or pass a key as a
+  command-line argument.
 - You do not need to see a key to know it works. The check spends both keys on real
   calls — including a deliberately invalid control key, so a probe that cannot tell
   a good key from a bad one goes red rather than green.

@@ -17,8 +17,18 @@ on:
       # What actually ships to a developer's machine. Changes confined to
       # pipeline/, .github/ or the repo's own docs do not affect installed
       # skills and should not consume a version.
+      #
+      # bin/ and the other two skills were missing from this list until
+      # 2026-09-23, which is why a season of fixes to the onboarding tool landed
+      # on main and reached nobody: the host had nothing new to install, so it
+      # kept running the cached copy. The list has to name everything a client
+      # receives, not just the parts that were being edited when it was written.
+      - "bin/**"
+      - "agents/**"
+      - "iterable-provision/**"
       - "iterable-android/**"
       - "iterable-react-native/**"
+      - "iterable-verify/**"
       - "mcp.json"
       - ".mcp.json"
   workflow_dispatch:

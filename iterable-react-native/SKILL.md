@@ -140,10 +140,14 @@ API key, a placeholder `google-services.json`, or a JWT signed in the client.
 **A green build is not the deliverable.** Seen live on the Android side: the Firebase
 project had no app registered, so there was no real `google-services.json`; the work
 carried on anyway, made it compile, and ended the turn without naming a way forward.
-So — a missing prerequisite stops the push work *before* the native edit, you say
-which parts of the agreed scope you did not do and why, and you end with the one thing
-to do next plus "then come back and tell me". `iterable-provision` prints that command
-via `bin/handoff`, and its wizard offers to register the missing app.
+So — a missing prerequisite stops the push work *before* the native edit, and you say
+which parts of the agreed scope you did not do and why. Then route into
+`iterable-provision` and conduct it here rather than handing over a command: its wizard
+offers to register the missing app, and `next.question` gives you each screen to put to
+the developer — the context, the two to four answers, the commands each one runs, and a
+free-text option for a value only they have. Present it, wait, run their choice, ask the
+next. "I'll run it in my own terminal" is one of the answers the first screen offers, so
+a relayed command and a stop answers that for them.
 
 ### If they don't have an input yet
 
@@ -155,9 +159,14 @@ push integration themselves.
 It produces the three inputs this Preflight cannot invent — a real
 `google-services.json`, the service-account key that Iterable's push integration
 asks you to upload, and the dashboard steps that have no API — and proves each
-one with a live call. Announce the handoff in one line and continue. To check it
+one with a live call. Announce the handoff in one line and route. To check it
 is installed, walk up from this `SKILL.md` to the first directory containing a
 `bin/agent`; if there isn't one, this Preflight stops as written above.
+
+**Routing is not starting.** The first thing that skill does is run
+`<root>/bin/agent question opening` and put it to the developer before running anything
+else. Let it, and don't run `<root>/bin/agent` or `discover` yourself to save a step —
+deciding provisioning is needed is not permission to begin it.
 
 Once it reports `done`, **you own placing the file**: on bare RN copy
 `.iterable/artifacts/google-services.json` to `android/app/google-services.json`;

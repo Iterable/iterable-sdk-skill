@@ -111,7 +111,9 @@ if ((KEEP == 0)); then
     if ask_yn "Register a new Android app in $PID?"; then
       read -r -p "  Android package name (e.g. com.acme.app): " PACKAGE
       [[ -n "$PACKAGE" ]] || { echo "  No package given."; exit 20; }
-      export CREATE_APP=1
+      # Recorded rather than exported, so the yes reaches provision the same way the
+      # chat's does and the plan screen below does not ask for it a second time.
+      approve create-app
     else
       echo "  Nothing to set up then. Pick a different project next run."
       exit 0
@@ -142,24 +144,9 @@ echo "  from here on reads the same one you will be watching."
 
 # boot_avd lives in config.sh, so tests/device-pick.sh can drive its timeout.
 
-# Field 1 of every option is the machine value — an AVD name, or a serial for a
-# phone, which has no AVD name to go by. Same contract as the project picker.
-device_options() {
-  local s avd running=" "
-  for s in $(adb_devices); do
-    avd="$(avd_of "$s")"
-    if [[ -n "$avd" ]]; then
-      running="$running$avd "
-      printf '%-28s running\n' "$avd"
-    else
-      printf '%-28s running · %s\n' "$s" "$(adb -s "$s" shell getprop ro.product.model 2>/dev/null | tr -d '\r')"
-    fi
-  done
-  for avd in $(avd_list); do
-    [[ "$running" == *" $avd "* ]] && continue
-    printf '%-28s not running — start it\n' "$avd"
-  done
-}
+# device_options lives in config.sh: the chat picker offers the same devices, and a
+# list that exists twice is a list that comes to differ. Field 1 of every option is
+# the machine value. Same contract as the project picker.
 
 if DEV="$(device_serial)"; then WHY=""; else WHY="$DEV"; DEV=""; fi
 CHOSE=""
@@ -323,9 +310,29 @@ ask_yn "Go ahead?" || { echo; echo "  Nothing changed. Whenever you want to pick
 # its caller — and so a re-run does not ask again for the same project.
 approve
 
-# Consent to register an app is this prompt and not a remembered flag: a kept
-# selection must not silently carry last run's permission to create.
-[[ "$(gate_status G4)" == green ]] || export CREATE_APP=1
+# Registering an app is its own yes. The plan above lists it, but one "Go ahead?" cannot
+# be the answer to both "change my project" and "create something in it" — and creating
+# something is the one thing the stated limits promise never happens unless asked
+# outright. Granting it here on the strength of the other answer was that promise being
+# kept by the tool and not by the developer.
+# Only when there is really nothing there: a green G4 means the app exists, and asking
+# permission to create what already exists is the tool not having read its own ladder.
+if [[ "$(gate_status G4)" != green ]] && ! may_create_app; then
+  echo
+  echo "  One item on that list creates something: $PACKAGE is not registered in $PID yet."
+  if ask_yn "Register it as an Android app in $PID?"; then
+    approve create-app
+  else
+    echo
+    echo "  Then there is no google-services.json to download for $PACKAGE, and nothing"
+    echo "  downstream of it can work. Pick a package that exists in $PID, or a project"
+    echo "  that already has this one:"
+    echo
+    run_line discover
+    echo
+    exit 0
+  fi
+fi
 
 echo
 # Quiet, because provision ends by exec'ing the verifier and this function goes on to

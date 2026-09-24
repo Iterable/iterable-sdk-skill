@@ -141,19 +141,28 @@ g3() {
 
 g4() {
   local body; body="$(api_get "https://firebase.googleapis.com/v1beta1/projects/$PID/androidApps")" || return 1
-  local appid
+  local appid rc
   appid="$(printf '%s' "$body" | node -e '
     let d=""; process.stdin.on("data",c=>d+=c).on("end",()=>{
       const apps=(JSON.parse(d||"{}").apps)||[];
       const m=apps.find(a=>a.packageName===process.argv[1]);
-      if(!m){console.error("no app with packageName "+process.argv[1]);process.exit(1)}
+      if(!m){console.error("no app with packageName "+process.argv[1]);process.exit(3)}
       console.log(m.appId);
-    })' "$PACKAGE" 2>&1)" || { echo "$appid"; return 1; }
+    })' "$PACKAGE" 2>&1)"; rc=$?
+  # A project with no such app yet is work nobody has done, not a project answering
+  # wrong — rc 2 so the run reports pending rather than a defect. An agent told the
+  # tool has broken escalates to a human, which is the correct response to a defect
+  # and the wrong one here: registering the app is the next step it can take.
+  ((rc == 3)) && { echo "$appid"; return 2; }
+  ((rc == 0)) || { echo "$appid"; return 1; }
   echo "$appid"
 }
 
 g5() {
-  [[ -f "$GS_JSON" ]] || { echo "not downloaded yet"; return 1; }
+  # Absent is pending for the same reason as G4 and G6: provisioning downloads it, and
+  # a file nobody has fetched yet is not a file that is wrong. A present-but-mismatched
+  # one below stays red, because that is a real disagreement with the project.
+  [[ -f "$GS_JSON" ]] || { echo "not downloaded yet"; return 2; }
   node -e '
     const fs=require("fs"), [f,pid,pkg]=process.argv.slice(1);
     let j; try{ j=JSON.parse(fs.readFileSync(f,"utf8")) }catch(e){ console.error("unparseable: "+e.message); process.exit(1) }
@@ -172,11 +181,12 @@ g6() {
   local out rc
   out="$(sa_exists)"; rc=$?
   case "$rc" in
-    0) printf '%s' "$out" ;;
-    1) echo "not created yet" ;;
-    *) printf '%s' "$out" ;;
+    0) printf '%s' "$out"; return 0 ;;
+    # Absent is pending: provisioning is what creates it, and nothing is wrong until
+    # provisioning has tried. rc 2 keeps that out of the defect count.
+    1) echo "not created yet"; return 2 ;;
+    *) printf '%s' "$out"; return 1 ;;
   esac
-  ((rc == 0))
 }
 
 g7() {

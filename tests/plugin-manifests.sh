@@ -41,6 +41,37 @@ fi
   && ok "$(printf '%-48s %s' "the version is a calendar version" "YY.M.PATCH")" \
   || bad "'$CV' is not YY.M.PATCH[-beta]" "the host sorts and directory-names on this"
 
+# A number that has not moved is a change nobody receives: a host compares this string
+# to what it has installed and skips the update when they match. Every fix made on this
+# branch before 2026-09-15 shipped to nobody for exactly that reason, and the version was
+# the last thing anyone thought to check because nothing in the repo disagreed with it.
+#
+# So: if anything a client actually gets differs from main, this has to differ too. The
+# manifests themselves are not on that list — the bump is the change, and requiring it to
+# justify itself would be a rule nothing could satisfy.
+SHIPPED_PATHS="bin agents iterable-provision iterable-android iterable-react-native iterable-verify mcp.json .mcp.json"
+BASE=main
+if [[ "$(git rev-parse --abbrev-ref HEAD 2>/dev/null)" == "$BASE" ]]; then
+  ok "$(printf '%-48s %s' "the version is not checked against itself" "on $BASE")"
+elif ! git rev-parse --verify --quiet "$BASE" >/dev/null; then
+  # A shallow clone has no main to compare with. Saying so beats failing: this is a
+  # question about two commits, and one of them is not here.
+  ok "$(printf '%-48s %s' "no $BASE to compare the version with" "skipped")"
+else
+  # shellcheck disable=SC2086
+  CHANGED="$(git diff --name-only "$BASE"...HEAD -- $SHIPPED_PATHS 2>/dev/null)"
+  BV="$(git show "$BASE:.claude-plugin/plugin.json" 2>/dev/null \
+        | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(String(JSON.parse(s).version||"")))' 2>/dev/null)"
+  if [[ -z "$CHANGED" ]]; then
+    ok "$(printf '%-48s %s' "nothing a client receives has changed" "no bump needed")"
+  elif [[ -n "$BV" && "$BV" == "$CV" ]]; then
+    bad "$(printf '%s is still %s, and %s file(s) changed' "$BASE" "$BV" "$(wc -l <<< "$CHANGED" | tr -d ' ')")" \
+        "hosts skip an update when the version matches — this reaches nobody"
+  else
+    ok "$(printf '%-48s %s' "the version moved with the shipped files" "$BV → $CV")"
+  fi
+fi
+
 # --------------------------------------------------------------------- the names
 CN="$(j .claude-plugin/plugin.json name)"
 XN="$(j .cursor-plugin/plugin.json name)"

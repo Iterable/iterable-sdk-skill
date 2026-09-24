@@ -26,7 +26,9 @@ notification_dump() {
 # Iterable components at all. PackageManager knows which it is.
 g13() {
   local d dump ver updated sdk perm
-  d="$(device_serial)" || { echo "$d"; return 1; }
+  # Every way device_serial can fail is a human-action state — attach one, start the
+  # AVD, or pick between two — so it is pending here and in G14/G16, not a defect.
+  d="$(device_serial)" || { echo "$d"; return 2; }
   [[ -n "$PACKAGE" ]] || { echo "no package selected yet — nothing has named the app this is about"; return 2; }
 
   adb -s "$d" shell pm path "$PACKAGE" 2>&1 | grep -q '^package:' \
@@ -65,7 +67,7 @@ g13() {
 # pending, not red. What it *can* call red is the SDK running and never asking.
 g14() {
   local d buf out rc scoped started=$SECONDS deadline=$((SECONDS + DEVICE_WAIT))
-  d="$(device_serial)" || { echo "$d"; return 1; }
+  d="$(device_serial)" || { echo "$d"; return 2; }
   while :; do
     # Dumped first, not piped: under pipefail a failing adb would overwrite the
     # parser's verdict with its own exit code.
@@ -112,7 +114,7 @@ g14() {
 # G16 — the push appeared on the device. The one gate the whole tool is for.
 g16() {
   local d dump
-  d="$(device_serial)" || { echo "$d"; return 1; }
+  d="$(device_serial)" || { echo "$d"; return 2; }
   dump="$(notification_dump "$d")" || true
   printf '%s\n' "$dump" \
     | node "$BIN/notify-parse.js" "$PACKAGE" "$ITBL_PROOF_MARKER" "$ITBL_PROOF_SENT_AT" 2>&1
