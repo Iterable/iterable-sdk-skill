@@ -108,10 +108,7 @@ don't leave them to invent one. From the device alone:
    profile lags the token registration; wait and re-check before changing any
    code. Changing code here is how a working integration gets "fixed" into a
    broken one.
-3. **The channel exists** — `adb shell dumpsys notification` shows
-   `NotificationChannel{mId='<the.package.name>', mName=iterable channel}`,
-   created by the SDK.
-4. **A push actually arrived** —
+3. **A push actually arrived** —
    `adb shell dumpsys notification | grep 'pkg=<the.package.name>'` prints the
    `android.title` and `android.text` that landed. Prefer this to a logcat
    marker: the OS is neither the sender nor the app, and it needs no code in
@@ -119,7 +116,7 @@ don't leave them to invent one. From the device alone:
 
 To get a push *sent* at all, hand the dashboard owner two things: the token
 from step 1's request body, and the exact identity value you passed to
-`setEmail`/`setUserId`. Sending it is theirs; steps 1–4 are yours.
+`setEmail`/`setUserId`. Sending it is theirs; steps 1–3 are yours.
 
 ---
 

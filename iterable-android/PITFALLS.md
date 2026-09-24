@@ -485,7 +485,7 @@ hot-path subset; the full list lives here and is loaded on demand.
   Same rule for a second vendor SDK (OneSignal, Braze, a home-grown service):
   one service owns the callback and forwards to every provider. If **they**
   own the receiving service, that is the correct design — don't invert it.
-- **Note:** a missing runtime `POST_NOTIFICATIONS` request (pitfall #4) breaks
+- **Note:** a missing runtime `POST_NOTIFICATIONS` request (pitfall #7) breaks
   *their* pushes as well as Iterable's on Android 13+, and looks exactly like
   "the Iterable change broke our push." Check the grant before accepting that
   diagnosis, and don't accept a culprit inside your own diff without evidence.

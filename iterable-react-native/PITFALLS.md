@@ -346,7 +346,7 @@ React Native project. Do not introduce `@iterable/expo-plugin` there.
 
 ---
 
-Pitfall 14 applies to **both** workflows — any app that already sends push.
+Pitfall 15 applies to **both** workflows — any app that already sends push.
 
 ## 15. Replacing push the app already had
 
