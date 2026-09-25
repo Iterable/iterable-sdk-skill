@@ -75,7 +75,7 @@ looks registered and never receives anything.
 
 ## How you work
 
-Never log a key or a JWT. Use the test identity from `workspace/inputs.yml` — never a real
+Never log a key or a JWT. Use the test identity from `.iterable/.env` (`ITBL_EMAIL`) — never a real
 customer profile. When a send fails, distinguish *rejected by Iterable*, *skipped by Iterable*,
 and *accepted but never arrived*: those point at three different bugs, and the events API is how
 you tell them apart.

@@ -60,7 +60,7 @@ pass. Say so plainly.
 4. Watch for flake masquerading as pass: a gate that goes green on retry with no state change is
    an untrustworthy gate, not a lucky one.
 5. **Grep the run artifacts for leaked secrets.** The tool now creates Iterable API keys, so
-   every run produces credentials that must exist in exactly one place: `workspace/.env`, mode
+   every run produces credentials that must exist in exactly one place: `.iterable/.env`, mode
    `0600`. Check the run report, the logs, the Playwright trace, and any committed recording. A
    trace captures page content, which makes it the likeliest leak. This is a gate on the tool
    itself, and it fails the run.

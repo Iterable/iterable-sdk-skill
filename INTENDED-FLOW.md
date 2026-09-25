@@ -5,10 +5,12 @@ whoever last remembered it. Every patch in this tool's history has defended a pa
 existed only in conversation — which is why the same failure has been fixed three times and
 come back three times.
 
-This file is the contract. `agent-path-auditor` checks the tool against it. When the
-intended path genuinely changes, this file changes *first* and the auditor is told to
-re-derive; a change that contradicts this file without editing it is a regression by
-definition, no matter how reasonable it looked in isolation.
+This file is the contract. Four suites hold the tool to it — `agent-questions.sh`,
+`agent-next-action.sh` and `agent-transitions.sh` for the conducted path, and
+`no-bare-commands.sh` for the handover it replaced. When the intended path genuinely
+changes, this file changes *first* and those suites change with it; a change that
+contradicts this file without editing it is a regression by definition, no matter how
+reasonable it looked in isolation.
 
 ## The shape, in one sentence
 

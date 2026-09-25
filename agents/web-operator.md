@@ -58,7 +58,7 @@ to hand-patch a selector and move on.
    ~1,000–1,800 tokens each and are slower. If a step seems to need pixels, say why.
 6. **Keys you create are secrets in transit.** You do create API keys — that is a deliberate
    exception to rule 1, and it comes with obligations. A key value goes straight to
-   `workspace/.env` at mode `0600`. It never appears in your report, your reasoning, a log line,
+   `.iterable/.env` at mode `0600`. It never appears in your report, your reasoning, a log line,
    or a committed recording. **Disable or scrub the Playwright trace for the key-creation step**
    — a trace captures page content, and that is the easiest way to leak a key without noticing.
    The recorded Tier-2 script must read the key from the live page at replay time, never carry a

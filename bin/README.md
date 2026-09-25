@@ -10,12 +10,12 @@ Companion to the `iterable-android` skill. That skill stops and asks for `google
 a mobile API key, and a configured push integration — because it cannot invent them. This tool
 produces them.
 
-**Where it is going:** this repo merges into `iterable-sdk-skill` as two new skills, so a client
-installs one plugin and the whole path is agent-guided. `skills/iterable-provision/SKILL.md` and
-`skills/iterable-verify/SKILL.md` are written and travel with the merge; the plan is
-`docs/plans/2026-09-21-one-plugin.md` in the skill repo.
+**How it is driven:** two skills in this plugin front it, so a client installs one thing and the
+whole path is agent-guided — `iterable-provision/SKILL.md` produces the prerequisites and
+`iterable-verify/SKILL.md` proves the push arrived.
 
-**Plan and design rationale:** [`docs/plans/2026-09-18-iterable-onboard.md`](docs/plans/2026-09-18-iterable-onboard.md)
+**The contract for the path a run takes:** [`INTENDED-FLOW.md`](../INTENDED-FLOW.md). It changes
+before the code does.
 
 ## Status
 
@@ -26,8 +26,8 @@ own marker on the device 2 seconds after `bin/proof-push` sent it.
 That is one run, on one app, by the person who wrote the tool. What it establishes is that the
 ladder can reach its own definition of done; it is not yet evidence that a stranger's project can.
 
-**Not built:** the recorded-browser tier (deferred on purpose, see the plan), the negative-fixture
-suite for the Google half, and the daily canary.
+**Not built:** the recorded-browser tier (deferred on purpose — see *How it works* below), the
+negative-fixture suite for the Google half, and the daily canary.
 
 ## How it works
 
@@ -39,10 +39,10 @@ Three tiers, in strict preference order. Nothing drives a browser.
    the tool proves the result: `bin/iterable-keys` tells you exactly what to click, takes the two
    keys off the clipboard (or off a prompt with echo off), and hands straight to the verifier.
 3. **Human, because it must be** — Google Cloud ToS, Google sign-in, Iterable sign-in, CAPTCHAs,
-   org-policy blocks. The tool writes what it needs to `workspace/ASK.md` and exits `10`.
+   org-policy blocks. The tool writes what it needs to `.iterable/ASK.md` and exits `10`.
 
-A recorded-Playwright tier for tier 2 is designed and deferred; see the plan. It would be a
-convenience layer over a path that already works, and Iterable's key-creation screen is mid-rewrite.
+A recorded-Playwright tier for tier 2 is designed and deferred. It would be a convenience layer
+over a path that already works, and Iterable's key-creation screen is mid-rewrite.
 
 **The tool never handles your passwords.** You sign in yourself, in your own browser; the
 agent attaches to that session.
@@ -130,7 +130,7 @@ account rather than to a project, since there is no project chosen yet. Three ye
 
 The `list` yes goes one step further, because the refusal above hands an agent a motive to record it
 itself: it has to have come off a screen. Rendering `choose_target` mints a one-time token into
-`workspace/asked/` and stamps the moment the screen finished printing; `agent approve list` takes
+`.iterable/asked/` and stamps the moment the screen finished printing; `agent approve list` takes
 `--asked <token>` and refuses at exit `10` if there is no screen, if the token is not the one the
 screen carried, or if the yes arrives sooner than `ASK_DWELL_MS` (200ms) after it — nobody reads a
 consent screen in a fifth of a second. The token is spent on use, so one screen buys one yes. What
@@ -143,7 +143,7 @@ log, so `artifacts` carries `path` and `present` and nothing else — and **the 
 so `bin/agent` provisions nothing and sends nothing. It names the script; the caller runs it.
 
 Without a terminal, `bin/iterable-keys` prints the same four dashboard steps and writes
-`workspace/.env` at mode `0600` with three empty names. A key gets in from there with
+`.iterable/.env` at mode `0600` with three empty names. A key gets in from there with
 `bin/iterable-keys --take server|mobile`, which reads it off the clipboard — where the dashboard's
 copy button just put it — writes it to that file, clears the clipboard and prints only a tick. So
 nobody pastes a key into a conversation, and the gates prove the keys by spending them.
@@ -188,13 +188,13 @@ push, both were right.
 The actor never grades its own work — that's the property the whole design rests on.
 
 `bin/onboard` is idempotent: it skips gates that are already green. When it needs you, it writes
-`workspace/ASK.md`, exits `10`, and picks up where it left off next time. Safe to drive from a
+`.iterable/ASK.md`, exits `10`, and picks up where it left off next time. Safe to drive from a
 loop or a cron tick.
 
 | Exit code | Meaning |
 |---|---|
 | `0` | All gates green — a push reached the device |
-| `10` | Blocked on you — read `workspace/ASK.md` |
+| `10` | Blocked on you — read `.iterable/ASK.md` |
 | `20` | A gate failed — a real defect; see the run report |
 | `30` | Tool error |
 | `40` | Nothing is broken and nothing is proven — a gate ran and found the state simply hasn't happened yet |
@@ -277,7 +277,7 @@ anything in there is loaded into every client session whether or not a client co
 
 ## Workspace
 
-`workspace/` is yours and is gitignored. It holds live Google session cookies and a downloaded
+`.iterable/` is yours and is gitignored. It holds live Google session cookies and a downloaded
 service-account key — treat it as sensitive and keep it local.
 
 | Path | Owner |
