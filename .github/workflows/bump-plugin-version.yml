@@ -71,6 +71,12 @@ jobs:
       - name: Setup pnpm
         if: steps.check.outputs.needed == 'true'
         uses: pnpm/action-setup@v4
+        # Pinned, as in validate.yml. Without it action-setup reads a version out of
+        # package.json, and there is no package.json at the root and no packageManager
+        # field in pipeline's — so this step failed the first time it was reached, which
+        # is the one run where a missed bump is already the problem being fixed.
+        with:
+          version: 9
 
       - name: Setup Node
         if: steps.check.outputs.needed == 'true'
