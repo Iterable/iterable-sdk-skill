@@ -34,10 +34,17 @@ G10	red	human	Iterable API keys work	no server-side key yet
 G13	pending	human	App installed with the SDK	not installed yet
 EOF
 
-# PATH is left alone: next_action calls missing_tools, and stubbing node/gcloud away
-# would send every ending down the install_tools branch instead of the one under test.
+# next_action calls missing_tools and reports install_tools ahead of everything when one
+# is absent, which would replace every ending under test with the install branch. Stubbing
+# the tools *away* would cause that; so would leaving PATH alone on a machine that has no
+# gcloud — which is how this suite passed for months and then failed the first time CI ran
+# it on a clean runner. Supply them instead, so the branch under test is the one that runs
+# on every host.
+. tests/lib/stub-toolchain.sh
+stub_toolchain "$TMP/tools"
+
 render() { ( cd "$TMP" && WS="$WSD" PID=stub-project PACKAGE=com.example \
-  bash -c "source '$ROOT/bin/config.sh'; $1" 2>&1 ); }
+  PATH="$TMP/tools:$PATH" bash -c "source '$ROOT/bin/config.sh'; $1" 2>&1 ); }
 
 strip() { LC_ALL=C sed $'s/\033\\[[0-9;]*m//g'; }
 

@@ -21,6 +21,14 @@ bad() { printf '  \033[31mFAIL\033[0m %s\n' "$1"; FAILED=1; }
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 W="$TMP/ws"; mkdir -p "$W"
 
+# The toolchain is a precondition of every question below, not a property of the machine:
+# next_action reports install_tools ahead of everything when one of REQUIRED_TOOLS is
+# absent, so without this the whole file asserts about the install branch on any host
+# that lacks gcloud or adb.
+. tests/lib/stub-toolchain.sh
+stub_toolchain "$TMP/tools"
+TOOLS="$TMP/tools"
+
 # Part 1 all but done, part 2 untouched: the state in which both of these questions
 # come up, and the only state in which they are the right ones to ask.
 fixture() {
@@ -33,14 +41,14 @@ EOF
 
 # q <kind> [arg] — one question object, from a workspace with no network in reach.
 q() {
-  WS="$W" PID=my-proj PACKAGE=com.dogshelter bash -c '
+  WS="$W" PID=my-proj PACKAGE=com.dogshelter PATH="$TOOLS:$PATH" bash -c '
     source bin/config.sh >/dev/null 2>&1; source bin/questions.sh; question_for "$@"' _ "$@"
 }
 
 # The kind next_action actually reports for that same state, so these tests ask the
 # question the ladder would ask and not one chosen here to pass.
 kind_now() {
-  WS="$W" PID=my-proj PACKAGE=com.dogshelter bash -c '
+  WS="$W" PID=my-proj PACKAGE=com.dogshelter PATH="$TOOLS:$PATH" bash -c '
     source bin/config.sh >/dev/null 2>&1
     IFS="$NEXT_SEP" read -r o k g c s <<< "$(next_action)"; printf %s "$k"'
 }
@@ -478,7 +486,7 @@ QCALLS="$TMP/qcalls"; : > "$QCALLS"
 # qd <kind> [pid] — a question against the cached discovery, with Google out of reach.
 qd() {
   local kind="$1" pid="${2:-}"
-  QCALLS="$QCALLS" WS="$DISC" PID="$pid" PACKAGE=com.dogshelter PATH="$QSTUB:$PATH" \
+  QCALLS="$QCALLS" WS="$DISC" PID="$pid" PACKAGE=com.dogshelter PATH="$QSTUB:$TOOLS:$PATH" \
     bash -c 'source bin/config.sh >/dev/null 2>&1; source bin/questions.sh; question_for "$@"' _ "$kind"
 }
 
@@ -595,7 +603,7 @@ echo
 #
 # A project chosen and no package yet: the state most of these kinds are reported in,
 # and the one where every screen has something to say.
-qdp() { WS="$DISC" PID="${2:-proj-number-8}" PACKAGE="" \
+qdp() { WS="$DISC" PID="${2:-proj-number-8}" PACKAGE="" PATH="$TOOLS:$PATH" \
   bash -c 'source bin/config.sh >/dev/null 2>&1; source bin/questions.sh; question_for "$1"' _ "$1"; }
 
 for k in $(grep -o 'a_kind=[a-z_]*' bin/config.sh | cut -d= -f2 | sort -u); do
