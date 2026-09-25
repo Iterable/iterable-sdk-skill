@@ -56,6 +56,14 @@ upgrade row in the slug table. The always-on rules still apply (existing
 integrations frequently violate rules 2 and 3), but don't re-derive their
 integration from scratch.
 
+**And check whether the app already sends push without Iterable.** Grep for
+`FirebaseMessagingService` and `com.google.firebase.MESSAGING_EVENT` before
+scoping push work. If either is present the app has a push channel of its own —
+often transactional (order status, shipping, security codes) and more important
+to the business than the marketing push being added. That is an integration
+constraint, not a thing to replace: rule 8 has the shape. Say what you found
+and confirm the plan before editing their service.
+
 Confirm the scope, *then* run Preflight for the inputs that scope needs, *then*
 build. "Finish, don't stub" (below) applies to **the scope you agreed on** —
 it is not licence to implement every feature unprompted. After delivering the
@@ -86,6 +94,30 @@ Write the code for each of these. Only genuinely developer-supplied inputs
 legitimate things to pause and ask for — wiring is not. Don't substitute
 `INTEGRATION_STATUS.md`-style essays for doing the work.
 
+### Proving it works when you don't have the dashboard
+
+`setting-up-android-push-notifications` ends with **Test Push** from the
+dashboard (**Settings > Apps and Websites** → the app). Plenty of app
+developers don't own that dashboard, so don't present it as the only proof and
+don't leave them to invent one. From the device alone:
+
+1. **The token reached Iterable** — `adb logcat -s IterableRequest`, look for a
+   `registerDeviceToken` response with `"code": "Success"`.
+2. **Don't panic at `UnknownEmailError`.** Shortly after that success, calls
+   like `getMessages` can still answer `"No user exists with email …"`. The
+   profile lags the token registration; wait and re-check before changing any
+   code. Changing code here is how a working integration gets "fixed" into a
+   broken one.
+3. **A push actually arrived** —
+   `adb shell dumpsys notification | grep 'pkg=<the.package.name>'` prints the
+   `android.title` and `android.text` that landed. Prefer this to a logcat
+   marker: the OS is neither the sender nor the app, and it needs no code in
+   the app. (`adb shell cmd notification list` is the terser form.)
+
+To get a push *sent* at all, hand the dashboard owner two things: the token
+from step 1's request body, and the exact identity value you passed to
+`setEmail`/`setUserId`. Sending it is theirs; steps 1–3 are yours.
+
 ---
 
 ## Preflight — STOP and gather these before writing any code
@@ -114,10 +146,10 @@ done.
 
 | Input | Needed when | If missing |
 |---|---|---|
-| **`google-services.json`** (real, from the developer's Firebase Console) | Any push / FCM work — the `com.google.gms.google-services` plugin **fails the build without it** | **STOP and ask.** It's project-specific; you cannot generate it. |
-| **Mobile API key** | Always | Ask where it lives; expect `local.properties` (gitignored). Never hardcode. |
+| **`google-services.json`** (real, from the developer's Firebase Console) | Any push / FCM work — the `com.google.gms.google-services` plugin **fails the build without it** | **STOP and ask.** It's project-specific; you cannot generate it. Once you have it, check its `client[].client_info.android_client_info.package_name` against the module's `applicationId` **before building** — a mismatch fails the build with a message about the file, not about the mismatch. Also confirm it's gitignored or intended to be committed; it usually isn't ignored by default. |
+| **Mobile API key** | Always | Ask where it lives; expect `local.properties` (gitignored). Never hardcode. If the file **already** has a key, don't assume it's this project's — show the developer what you found and have them confirm it (pitfall #16). |
 | **Identity model** — `setEmail` vs `setUserId`, and where the value comes from | Always | Ask. Never guess (e.g. grabbing a license email). See rule 7. |
-| **JWT?** — is the mobile key JWT-protected? | Always | Ask. If yes, an auth handler is mandatory (rule 1). |
+| **JWT?** — is the mobile key JWT-protected? | Always | Ask, and **assume yes until told otherwise**: JWT is selected *by default* when a client-side key is created, and the setting can never be changed afterwards. If yes, an auth handler is mandatory (rule 1) **and the team needs a backend endpoint that mints the tokens** — if they don't have one, that is a blocker to raise, not something to work around (pitfall #22). |
 | **Data region** — US or EU | Always | Ask if their dashboard is `app.eu.iterable.com`. See pitfall #8. |
 | **Push integration name** | Push, if it differs from the package name | Ask. See pitfall #9. |
 | **Placement IDs** | Embedded messages | Ask — they're dashboard-assigned numbers. See pitfall #10. |
@@ -133,6 +165,41 @@ Specifically, do **not**:
 
 When blocked on any of these, **surface it to the developer and pause that
 part of the work** — don't silently degrade the integration to keep compiling.
+
+### If they don't have an input yet
+
+Include **"I don't have one yet"** among the options you offer for a missing
+input — plenty of developers own the Iterable dashboard and create the key and
+push integration themselves. When that's the answer, don't send them to
+support.iterable.com; open the doc that covers making it.
+
+| Input they need to create | Where in the dashboard | Slug |
+| ------------------------- | ---------------------- | ---- |
+| Mobile API key — key types, client-side key security, creating one | **Integrations > API Keys** | `api-keys` |
+| Whether the key is JWT-protected, and the shared secret behind it | **Integrations > API Keys** — the JWT choice is made *at creation* and is permanent | `jwt-enabled-api-keys` |
+| The mobile app itself (needed before a push integration can exist) | **Settings > Apps and Websites** | `fcm-http-v1-migration` |
+| Firebase service account, FCM JSON private key, push integration | **Settings > Apps and Websites** → the app → Push | `fcm-http-v1-migration` |
+| Placement IDs | **Settings > Embedded Message Placements** | `embedded-message-placements` |
+| Embedded subscription channel and message type | **Settings > Message Channels and Types** | `embedded-message-subscription-channels` |
+
+Those navigation paths are the ones to give the developer — **do not paraphrase
+them from memory.** "Settings > API Keys" and "Settings > Mobile Apps" are both
+plausible and both wrong, and a developer who doesn't know the dashboard has no
+way to tell. If a path here disagrees with the slug's doc, the doc wins (it
+carries a `source_ref`); open it and use what it says.
+
+**Order matters, and `fcm-http-v1-migration` is the one that walks it.** The
+Iterable project must exist before a mobile app can be defined in it, and the app
+must be defined before a push integration can be configured and the FCM JSON key
+uploaded to it. That doc is *framed* as a migration, but `### Step 2.4`–`### Step
+2.7` are the first-time setup procedure, and `## Step 1` covers creating a
+sandbox project to test in before touching production. Read those sections; skip
+the legacy-key migration narrative around them.
+
+Two things these docs do **not** settle, so keep asking the developer:
+**data region** (confirm it from their dashboard URL — `app.eu.iterable.com`
+means EU; see pitfall #8) and **`google-services.json`**, which comes from their
+Firebase Console and cannot be generated.
 
 ---
 
@@ -160,6 +227,18 @@ part of the work** — don't silently degrade the integration to keep compiling.
 - **Identify users with:** `IterableApi.getInstance().setEmail(email)` or `setUserId(userId)`.
 - **Wrap SDK calls** that run before / during init in `IterableApi.onSDKInitialized { ... }`.
 - **EU customers** must set `IterableConfig.Builder().setDataRegion(IterableDataRegion.EU)` (default is US).
+- **The push integration's FCM type must be "Data notifications", not
+  "Notification messages"** — whenever FCM is in play, greenfield or not. That
+  dropdown decides who handles the incoming push: *Data notifications* routes it
+  through Iterable's SDK; *Notification messages* hands it to the Firebase SDK,
+  which is for apps **not** using Iterable's SDK. Pick the wrong one and the app
+  still builds, tokens still register, and pushes may even arrive — but the
+  SDK's tracking and action handling never fire, with no error anywhere. Tell
+  the developer this explicitly; it's a two-option dropdown they cannot guess
+  right. See `setting-up-android-push-notifications`. One documented exception:
+  when mirroring an existing production integration into a sandbox project,
+  `fcm-http-v1-migration` says match the production app definition — there, the
+  doc wins.
 - **No ProGuard/R8 consumer rules** are needed.
 - **No artifact rename** since version 3.x — the legacy `com.iterable:iterableapi` Maven coords are still current.
 
@@ -169,14 +248,22 @@ part of the work** — don't silently degrade the integration to keep compiling.
 
 These rules apply to **every** integration. Rules 1–5 prevent silent runtime
 failures that look like SDK bugs but aren't; rules 6–7 prevent a leaked
-credential and a wrong-identity integration. Full explanations and the
-remaining ~10 traps are in [`PITFALLS.md`](PITFALLS.md) — read it before
-generating any non-trivial code.
+credential and a wrong-identity integration; rule 8 prevents breaking push the
+app already had. Full explanations and the remaining ~15 traps are in
+[`PITFALLS.md`](PITFALLS.md) — read it before generating any non-trivial code.
 
-1. **If the API key is JWT-protected, an `IterableAuthHandler` is mandatory.**
-   Without one, every SDK call silently fails with no error surface. If the
-   user hands you an API key *and* a JWT secret, do **not** ignore the secret —
-   wire up the handler.
+1. **If the API key is JWT-protected, an `IterableAuthHandler` is mandatory —
+   and the token must come from the team's backend, never from the app.**
+   Without a handler, every SDK call silently fails with no error surface. But
+   the shared secret behind a JWT key is a **server credential**: it must never
+   reach app code, `local.properties`, `BuildConfig`, or anything the build
+   packages. Being handed the secret means "JWT is on, wire the handler" — it is
+   **not** permission to sign tokens on the device. If the team has no
+   token-minting endpoint yet, **say so and stop there**: implement the handler
+   against an interface with a stub that logs loudly and returns `null`, and
+   hand them the token contract. Signing in the app ships the secret inside the
+   APK, where it can be extracted and used to mint a token for *any* user in the
+   project (pitfall #22).
 
 2. **Do not call `setEmail` inside the `initializeInBackground` callback.**
    It consumes the auth manager's retry budget before the handler is ready,
@@ -222,6 +309,37 @@ generating any non-trivial code.
    identifier, and where does its value come from? Pick one mode and use it
    consistently (see pitfall #12).
 
+8. **If the app already has its own `FirebaseMessagingService`, forward to
+   Iterable from it — never replace, delete, or `tools:node="remove"` it.**
+   Before touching push, grep for `FirebaseMessagingService` and
+   `com.google.firebase.MESSAGING_EVENT`. FCM delivers to **one** service, and
+   the SDK registers `IterableFirebaseMessagingService` at
+   `android:priority="-1"` so an app's own service (default priority 0) keeps
+   winning. That means adding the SDK does **not** silently steal their push —
+   but it also means Iterable receives **nothing** until their service forwards
+   to it. Add both calls to the service they already have:
+
+   ```kotlin
+   override fun onMessageReceived(message: RemoteMessage) {
+       if (IterableFirebaseMessagingService.handleMessageReceived(this, message)) return
+       // ...their existing routing, unchanged...
+   }
+
+   override fun onNewToken(token: String) {
+       IterableFirebaseMessagingService.handleTokenRefresh()
+       // ...their existing token registration, unchanged...
+   }
+   ```
+
+   `handleMessageReceived` returns `false` for payloads that aren't Iterable's,
+   so their existing branches still see exactly what they saw before. Their
+   notification channels, grouping and importance are **their** product
+   decisions — leave them alone; Iterable posts on its own channel. Confirm the
+   result in the merged manifest
+   (`app/build/intermediates/merged_manifests/.../AndroidManifest.xml`) rather
+   than assuming. See `setting-up-android-push-notifications` → `#### Handling
+   Firebase push messages and tokens`, and pitfall #23.
+
 ---
 
 ## Canonical minimum integration (start here)
@@ -246,9 +364,12 @@ object IterableTracker {
             .build()
 
         // 4-arg overload: config + trailing-lambda callback (pitfall #18).
-        // The callback runs BEFORE the SDK is ready — keep it empty.
+        // Runs BEFORE the SDK is ready, so log here and do nothing else —
+        // above all do NOT identify here (pitfall #2). Write the log line:
+        // with an empty body you cannot tell "init never fired" from
+        // "init fired, identify didn't".
         IterableApi.initializeInBackground(context, apiKey, config) {
-            // init complete; do NOT identify here (pitfall #2)
+            Log.d("IterableTracker", "Iterable init callback fired")
         }
 
         // onSDKInitialized runs AFTER init (immediately if already ready).
@@ -288,6 +409,44 @@ override fun onCreate() {
 }
 ```
 
+### Variant — identity that arrives after init
+
+The pattern above takes identity as a `String`, which assumes you have it at
+`Application.onCreate()`. Often you don't: it lives in a DataStore / Room /
+`ViewModel` `Flow` (or `LiveData`) that emits when the user logs in, and emits
+again on logout or an account switch. **Take the stream, not a value**, and
+identify on each emission:
+
+```kotlin
+fun initialize(context: Context, apiKey: String, emailFlow: Flow<String>) {
+    val config = /* ...exactly as above... */
+    IterableApi.initializeInBackground(context, apiKey, config) {
+        Log.d("IterableTracker", "Iterable init callback fired")
+    }
+
+    // Application-scoped on purpose: this collector has to outlive every screen.
+    CoroutineScope(Dispatchers.Main + SupervisorJob()).launch {
+        emailFlow.collect { email ->
+            if (email.isEmpty()) return@collect
+            IterableApi.onSDKInitialized {
+                IterableApi.getInstance().setEmail(email)
+            }
+        }
+    }
+}
+```
+
+Both wrappers are load-bearing and neither is redundant: `onSDKInitialized`
+handles an email that arrives *before* the SDK is ready, and the collector
+handles one that arrives *after*. Two ways to get this wrong:
+
+- Moving `setEmail` into the `initializeInBackground` callback to have it ready
+  sooner — that is pitfall #2, and it burns the auth retry budget for the
+  process.
+- Collapsing the flow to a `String` with `first()`/`value` at startup. That
+  captures one value, so the account switch never reaches Iterable and events
+  land on the previous user — pitfall #3, which is about exactly this.
+
 The full per-feature docs (push, in-app, inbox, embedded, deep links, events,
 profiles, UUA) are in `reference/` — see the routing table below.
 
@@ -316,7 +475,7 @@ is already on disk, so there is nothing to fetch and no reason to reach for
 Context7 or the web for content that lives here.**
 
 **One doc per task — don't bulk-load.** Open only the slugs the agreed scope
-needs, one at a time. The full corpus is ~50k tokens; reading it wholesale
+needs, one at a time. The full corpus is ~70k tokens; reading it wholesale
 forces a context compaction mid-task, which costs you the detail of what you
 and the developer agreed in Step 0. Two or three slugs is a normal task. If a
 doc turns out to be the wrong one, say so and open the right one — don't open
@@ -343,6 +502,7 @@ the version they're on.
 | Upgrading an existing integration from an older SDK version | `android-sdk` → `## Upgrading the SDK`. Entries run newest-first (`### Upgrading to 3.10.0` down to `3.2.0`); read every entry **newer than** the version they're on and stop there. Ask their current version first — don't guess it. |
 | Configuration deep-dive (every `IterableConfig` option, `setDataRegion`, allowed protocols, log level) | `configure-the-android-sdk` |
 | FCM push, notification channels, `POST_NOTIFICATIONS`, device registration | `setting-up-android-push-notifications` |
+| The app **already has** its own `FirebaseMessagingService`, or a second push provider (OneSignal, Braze, a home-grown one) | `setting-up-android-push-notifications` → `#### Handling Firebase push messages and tokens`. Forward, don't replace — rule 8 and pitfall #23. |
 | Push behavior overview (silent push, foreground vs background, deep link from notification) | `push-notification-overview` |
 | Modal / banner / fullscreen in-app messages, `InAppHandler`, display intervals | `in-app-messages-on-android` |
 | Mobile inbox UI, `IterableInboxFragment`, default rendering | `setting-up-mobile-inbox-on-android` |
@@ -354,6 +514,19 @@ the version they're on.
 | `setEmail`, `setUserId`, login / logout flow, user identity | `identifying-the-user` |
 | `updateUser`, profile data fields, JSON merging | `updating-user-profiles` |
 | Unknown User Activation (anonymous → identified upgrade) | `setting-up-unknown-user-activation` |
+
+**Dashboard-side prerequisites** (`archetype: prerequisite`). These document
+Iterable's web app, not the SDK — reach for them when the developer owns the
+dashboard and needs to *create* an input, not when they just need to look one up.
+See [If they don't have an input yet](#if-they-dont-have-an-input-yet).
+
+| If the user is asking about… | Slug |
+| ---------------------------- | ---- |
+| Creating a mobile API key, key types, client-side key security, key scope | `api-keys` |
+| Turning on JWT for a key, the shared secret, token claims and expiry | `jwt-enabled-api-keys` |
+| Creating a Firebase service account, FCM JSON private key, defining a mobile app in Iterable, configuring the push integration, sandbox projects | `fcm-http-v1-migration` (read `## Step 1`, `### Step 2.4`–`### Step 2.7`) |
+| Creating or finding a placement ID in the dashboard | `embedded-message-placements` |
+| Embedded message subscription channels and message types | `embedded-message-subscription-channels` |
 
 > **Inbox UI is fragment-based.** `IterableInboxFragment` needs a
 > `FragmentManager`, so its host must be a `FragmentActivity` /
@@ -376,7 +549,7 @@ before writing any code is the fastest way to compact mid-task.
    one**, single feature, debugging, or "what does this code do?" Check the
    project's existing Iterable dependency before deciding — an upgrade takes
    the upgrade path (Step 0), not the new-integration path.
-2. **Check rules 1–5 above** against whatever the user already has. Many
+2. **Check rules 1–8 above** against whatever the user already has. Many
    "the SDK isn't working" reports are rule violations.
 3. **Read the matching slug for the task** from `reference/` before writing
    code. Each doc has its own gotchas section that supersedes generic advice.

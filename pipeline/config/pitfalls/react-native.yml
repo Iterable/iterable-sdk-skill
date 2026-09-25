@@ -136,3 +136,15 @@ pitfalls:
     triggers:
       - "requestPermissionsForPushNotifications"
     features: [push-notifications, integration]
+
+  - id: 15
+    title: Replacing push the app already had
+    triggers:
+      - "FirebaseMessagingService"
+      - "MESSAGING_EVENT"
+      - "handleMessageReceived"
+      - "handleTokenRefresh"
+      - "node=\"remove\""
+      - "@react-native-firebase/messaging"
+      - "react-native-onesignal"
+    features: [push-notifications, integration]

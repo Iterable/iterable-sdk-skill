@@ -16,7 +16,7 @@ export interface LayerAContext {
   /** Feature tag from pipeline config. */
   feature: string;
   /** Archetype tag from pipeline config. */
-  archetype: "integration" | "feature" | "identity";
+  archetype: "integration" | "feature" | "identity" | "prerequisite";
   /** SDK version pin (e.g. "3.7.0") from config. */
   sdkVersion: string;
   /** SDK artifact name (Maven coordinate or npm package) for version banner. */

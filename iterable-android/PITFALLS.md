@@ -1,7 +1,7 @@
 # Iterable Android SDK — Agent Pitfalls
 
 Silent failures, foot-guns, and "looks fine but is broken" patterns the agent
-will hit if it relies on generic SDK intuition. The five in `SKILL.md` are the
+will hit if it relies on generic SDK intuition. The eight in `SKILL.md` are the
 hot-path subset; the full list lives here and is loaded on demand.
 
 > Format: each pitfall has **Symptom** (what the developer sees), **Cause**
@@ -17,11 +17,16 @@ hot-path subset; the full list lives here and is loaded on demand.
 - **Cause:** Mobile API keys can be configured server-side to require a JWT.
   When this is on, the SDK silently drops every request that lacks an
   `Authorization: Bearer <jwt>` header. The SDK does not log this.
-- **Fix:** Wire up `IterableConfig.Builder().setAuthHandler(...)`. The
-  handler must return a freshly minted JWT (see pitfall #3). If the user
-  provides an API key **and** a JWT secret, treat the secret as a signal
-  that JWT is on and never skip the handler. See
-  `features/jwt-authentication.md`.
+- **Fix:** Wire up `IterableConfig.Builder().setAuthHandler(...)`. The handler
+  must return a freshly minted JWT (see pitfall #3), **fetched from the team's
+  own backend** — Iterable does not mint tokens, and the shared secret is a
+  server credential the app never holds (pitfall #22). If the user provides an
+  API key **and** a JWT secret, treat the secret as a signal that JWT is on and
+  never skip the handler — but not as permission to sign in the app. See
+  [`reference/jwt-enabled-api-keys.md`](reference/jwt-enabled-api-keys.md).
+- **Note:** assume JWT is on unless the developer says otherwise. It is
+  selected **by default** when a client-side key is created, and the choice
+  cannot be changed afterwards — a new key is the only way to switch.
 
 ## 2. `setEmail` inside the init callback
 
@@ -33,8 +38,11 @@ hot-path subset; the full list lives here and is loaded on demand.
   and consumes the manager's retry budget. The retry budget never resets
   within the process.
 - **Fix:** Call `setEmail` from the login / session-restore flow, wrapped in
-  `IterableApi.onSDKInitialized { }`. The init callback should log
-  initialization and nothing else.
+  `IterableApi.onSDKInitialized { }`. In the init callback, log and nothing
+  else — write the `Log.d` line the canonical pattern in `SKILL.md` shows.
+  Leaving the body empty is not equivalent: the SDK's own verbose log tells
+  you *it* initialized, but only your line tells you your callback ran, which
+  is what separates "init never fired" from "init fired, identify didn't".
 
 ## 3. Stale email captured in the auth handler lambda
 
@@ -212,7 +220,39 @@ hot-path subset; the full list lives here and is loaded on demand.
   `OPEN_EXCHANGE_RATES_API_KEY` pattern many repos already have) *looks* like
   it reads `local.properties` but does not — it only sees `gradle.properties` /
   `-P` flags, so it silently yields an empty key. Read the file yourself with
-  `Properties()`:
+  `Properties()`.
+
+  **Match the build language before you copy either block below** — Kotlin DSL
+  (`build.gradle.kts`) is the default for new projects, and the Groovy version
+  does not compile there.
+
+  ```kotlin
+  import java.util.Properties          // mandatory, and at the very top of the
+                                       // file: Kotlin has no auto-imports here,
+                                       // and an import below `plugins { }` is a
+                                       // compile error. The rest of this block
+                                       // goes next to the existing `android { }`.
+
+  fun getSecret(property: String, defaultValue: String = ""): String {
+      val f = rootProject.file("local.properties")
+      if (!f.exists()) return defaultValue
+      val props = Properties()
+      f.inputStream().use { props.load(it) }
+      return props.getProperty(property) ?: defaultValue
+  }
+
+  android {
+      defaultConfig {
+          buildConfigField("String", "ITERABLE_API_KEY", "\"${getSecret("ITERABLE_API_KEY")}\"")
+      }
+      buildFeatures { buildConfig = true }
+  }
+  ```
+  `buildConfig = true` is not optional on AGP 8.0+, which stopped defaulting it
+  on. Omit it and the build fails with `defaultConfig contains custom
+  BuildConfig fields, but the feature is disabled` (measured on AGP 8.4) — read
+  that message as "enable the flag", not as "the field is wrong".
+
   ```groovy
   def getSecret(property, defaultValue) {
       def f = rootProject.file("local.properties")
@@ -233,9 +273,20 @@ hot-path subset; the full list lives here and is loaded on demand.
   of the lookup (`getSecret('ITERABLE_API_KEY', '<literal>')`). On a public
   repo that commits the key; an **empty** fallback is the only acceptable
   default. Match the property name to what the project already uses. Verify the
-  key is a **mobile** key (Iterable dashboard → API keys); a server-side key in
+  key is a **mobile** key (**Integrations > API Keys**); a server-side key in
   an app exposes all project data. Confirm the file holding the key is
   gitignored before building.
+- **Third flavor — a stale key already in the file.** If `local.properties`
+  already holds `ITERABLE_API_KEY`, do **not** assume it is the right one.
+  It may belong to a different Iterable project, or be a rotated key. Show the
+  developer the value you found and ask them to confirm it against the key
+  they gave you. A rotated or deleted key answers 401, but the body naming it
+  (`Invalid API Key`) logs at **VERBOSE** only — at the default log level even
+  that surfaces as nothing. A key from a **different Iterable project** is worse and has
+  no error signal at all: it authenticates, every request returns 200, and the
+  token, the profile and every event land in that other project. The only
+  symptom is that none of it appears in **their** dashboard — so confirm the
+  value, rather than waiting for a failure that will not come.
 
 ## 17. Guessing the user identifier (e.g. a license/account email)
 
@@ -354,3 +405,98 @@ hot-path subset; the full list lives here and is loaded on demand.
   `CommerceItem` fully via their constructor rather than mutating fields
   post-construction with `.apply { }` — several fields are intentionally
   write-once and only enforce it at runtime.
+
+## 22. Signing Iterable JWTs on the device
+
+- **Symptom:** Nothing looks wrong. Tokens validate, users appear in Iterable,
+  push arrives, the build is green. Meanwhile the shared secret ships inside the
+  APK, recoverable with nothing more than `unzip` and `grep` over `classes.dex`.
+  Anyone who downloads the app can then mint a token for **any** user in the
+  project and read or overwrite that profile, unsubscribe them, or push to their
+  devices.
+- **Cause:** The team has a JWT-enabled key (the default for client-side keys)
+  but no token endpoint yet, so the integration signs locally "for now" to get
+  something working. `reference/jwt-enabled-api-keys.md` makes this easy to
+  reach for: it ships a complete `IterableJwtGenerator.java` using
+  `Mac.getInstance("HmacSHA256")` and `SecretKeySpec`. **That sample is server
+  code.** It is in the corpus because the doc covers both sides of the exchange;
+  it is not a client-side pattern, and porting it into the app is the entire
+  defect. The same doc states the rule plainly: *"Generate them on your server
+  and provide a way for mobile apps to query them for individual users as
+  needed."*
+- **Fix:** Keep the shared secret out of app code, `local.properties`,
+  `BuildConfig`, Gradle files, and anything the build packages. Documenting the
+  risk in a comment does not make it safe — the secret is still in the APK. When
+  there is no endpoint yet, **raise it as a blocker rather than improvising**:
+  1. Define the token source as an interface and inject it, so swapping in a
+     real backend later touches one construction site.
+  2. Ship a stub that logs at `ERROR` and returns `null`. The integration is
+     then inert but honest; per pitfall #1 the developer must be told that calls
+     will fail until the endpoint exists.
+  3. Hand the backend team the contract from `reference/jwt-enabled-api-keys.md`
+     ("Generating JWTs"): HS256, payload carrying `email` **or** `userId` (never
+     both), plus `iat` and `exp` no more than one year out.
+
+  A build that cannot authenticate yet is recoverable in an afternoon. A leaked
+  shared secret means rotating it in Iterable and shipping a new app release,
+  and every APK already in the wild keeps working until it's rotated.
+
+## 23. Replacing the app's existing `FirebaseMessagingService`
+
+- **Symptom:** After the integration, the app's own pushes — order status,
+  shipping, security codes — stop arriving, or the developer reports that "the
+  Iterable work removed our push implementation." Alternatively the opposite:
+  their pushes are fine but nothing from Iterable ever arrives, and no error
+  appears anywhere.
+- **Cause:** FCM dispatches `com.google.firebase.MESSAGING_EVENT` to **one**
+  service. Two things follow from the SDK's manifest entry, and they pull in
+  opposite directions:
+  - The SDK registers `IterableFirebaseMessagingService` at
+    `android:priority="-1"`, *below* an app's own service (default 0). So
+    installing the SDK does **not** hijack an existing service — that part of
+    the fear is unfounded.
+  - Which means Iterable receives **nothing** unless the app's service forwards
+    to it. Push registration appears to work, tokens register, the dashboard
+    reports a send, and nothing arrives. `reference/setting-up-android-push-notifications.md`
+    marks the forwarding step `[!WARNING] ... mandatory for handling multiple
+    push providers`.
+
+  The damaging failure is an agent "resolving the conflict" — deleting their
+  service, pointing the manifest entry at Iterable's, or adding
+  `tools:node="remove"` — to make Iterable work. That trades a silent Iterable
+  failure for a broken transactional channel, which is almost always the more
+  valuable of the two.
+- **Fix:** Treat their service as the integration point, not an obstacle. Grep
+  for `FirebaseMessagingService` and `com.google.firebase.MESSAGING_EVENT`
+  before starting push work, and add two forwarding calls to the service that is
+  already there:
+
+  ```kotlin
+  override fun onMessageReceived(message: RemoteMessage) {
+      if (IterableFirebaseMessagingService.handleMessageReceived(this, message)) return
+      // ...their existing routing, unchanged...
+  }
+
+  override fun onNewToken(token: String) {
+      IterableFirebaseMessagingService.handleTokenRefresh()
+      // ...their existing token registration, unchanged...
+  }
+  ```
+
+  `handleMessageReceived` returns `false` for anything that isn't an Iterable
+  payload, so their existing branches are unaffected. Leave their notification
+  channels, grouping and importance alone — those are product decisions (a
+  deliberately silent deals channel is not a bug), and Iterable posts on its own
+  channel anyway. Verify in the merged manifest under
+  `app/build/intermediates/merged_manifests/` that both services survived the
+  merge and that the `-1` sits on Iterable's `MESSAGING_EVENT` **intent-filter**.
+  Theirs declares no priority at all — that default of 0 is what makes it win —
+  so don't go hunting a literal `priority="0"`.
+
+  Same rule for a second vendor SDK (OneSignal, Braze, a home-grown service):
+  one service owns the callback and forwards to every provider. If **they**
+  own the receiving service, that is the correct design — don't invert it.
+- **Note:** a missing runtime `POST_NOTIFICATIONS` request (pitfall #7) breaks
+  *their* pushes as well as Iterable's on Android 13+, and looks exactly like
+  "the Iterable change broke our push." Check the grant before accepting that
+  diagnosis, and don't accept a culprit inside your own diff without evidence.

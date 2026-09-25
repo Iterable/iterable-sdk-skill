@@ -22,9 +22,10 @@ to **every** React Native app, including Expo. #7–11 and #13–#14 are Expo
 config-plugin traps (build-time and configuration-time). Use them only
 after Step 0 classified the project as Expo. **#12** is Xcode **27** on
 iOS (bare **and** Expo): Device Hub launch and resource-bundle compile
-floors — not an Iterable API change. #3's *symptom* is both workflows;
-its **bare** native fix (manifest + `PermissionsAndroid`) is wrong on
-Expo — branch first.
+floors — not an Iterable API change. **#15** is native Android and applies
+to **both** workflows, but only when the app already sends push. #3's
+*symptom* is both workflows; its **bare** native fix (manifest +
+`PermissionsAndroid`) is wrong on Expo — branch first.
 
 ---
 
@@ -53,6 +54,11 @@ Expo — branch first.
   The sample mints tokens via `NativeJwtTokenModule` + `ITBL_JWT_SECRET`
   **because it is Iterable's sandbox** — do not copy that module or the
   secret into a production app. See `reference/authentication.md`.
+- **Note:** assume JWT is on unless the developer says otherwise. It is
+  selected **by default** when a client-side key is created, and the choice
+  cannot be changed afterwards — a new key is the only way to switch. If they
+  have a JWT key but no token endpoint yet, that is a blocker to raise, not
+  something to work around by signing locally.
 
 ## 2. EU customer hitting US endpoint
 
@@ -337,3 +343,55 @@ React Native project. Do not introduce `@iterable/expo-plugin` there.
   if they want iOS permission prompting. Do not hand-edit
   `reference/expo.md` to "fix" the table — the next docs refresh will
   overwrite it. Report the drift against `Iterable/iterable-docs`.
+
+---
+
+Pitfall 15 applies to **both** workflows — any app that already sends push.
+
+## 15. Replacing push the app already had
+
+- **Symptom:** After the integration the app's own pushes (order status,
+  shipping, security codes) stop arriving, or the developer reports that the
+  Iterable work "removed our push implementation." Or the inverse: their pushes
+  are fine and nothing from Iterable ever arrives, with no error.
+- **Cause:** Many RN apps already have a push channel — `@react-native-firebase/messaging`,
+  another vendor SDK, or a hand-written `FirebaseMessagingService` under
+  `android/`. On Android, FCM dispatches `com.google.firebase.MESSAGING_EVENT`
+  to **one** service. The native Android SDK under this package registers
+  `IterableFirebaseMessagingService` at `android:priority="-1"`, *below* an app's
+  own service (default 0). Two consequences:
+  - Installing the SDK does **not** hijack their service. That part of the fear
+    is unfounded.
+  - Iterable therefore receives **nothing** until their service forwards to it.
+    Registration looks fine, the dashboard reports a send, nothing arrives.
+
+  The damaging failure is an agent "resolving the conflict" to make Iterable
+  work — deleting their service, repointing the manifest entry, or adding
+  `tools:node="remove"` — which trades a silent Iterable failure for a broken
+  transactional channel. That is nearly always the worse trade.
+
+  **The RN corpus does not cover this.** The forwarding contract
+  (`IterableFirebaseMessagingService.handleMessageReceived` /
+  `handleTokenRefresh`) is documented on the native Android side, not in
+  `reference/push-notifications.md`. Don't infer a JS-level API for it — there
+  isn't one; it is native Android configuration performed as part of the RN
+  integration, like `POST_NOTIFICATIONS` (rule 3).
+- **Fix:** Treat the existing service as the integration point.
+  - **Bare:** add the two forwarding calls to the Kotlin/Java service already in
+    `android/app/src/main/`. `handleMessageReceived` returns `false` for payloads
+    that aren't Iterable's, so their existing routing is unaffected. Leave their
+    notification channels, grouping and importance alone — product decisions,
+    not defects — and verify in the merged manifest under
+    `android/app/build/intermediates/merged_manifests/` that their service is
+    still the priority-0 entry.
+  - **Expo:** do **not** hand-edit `android/` to add it — `prebuild --clean`
+    wipes that (pitfall #8). It belongs in a config plugin. If they hand-maintain
+    native code, pitfall #9 already says not to add `@iterable/expo-plugin`.
+  - If **they** own the receiving service and forward to every provider, that is
+    the correct design. Don't invert it to put Iterable on top.
+- **Note:** iOS coexistence is a different mechanism entirely — do not assume
+  this Android shape transfers. And a missing runtime `POST_NOTIFICATIONS`
+  (pitfall #3) breaks *their* push as well as Iterable's on Android 13+, which
+  looks exactly like "the Iterable change broke our push." Check the grant
+  before accepting that diagnosis, and don't accept a culprit inside your own
+  diff without evidence.

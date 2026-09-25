@@ -94,3 +94,31 @@ articles:
     source_path: docs/developer-and-api-docs/embedded-messaging/embedded-messages-with-iterables-react-native-sdk/index.md
     feature: embedded-messaging
     archetype: feature
+
+  # `prerequisite` articles document Iterable's web app, not the SDK. They cover
+  # the Preflight inputs a developer who owns dashboard access has to create
+  # themselves; platform-neutral, so android.yml pulls the same paths.
+  - slug: api-keys
+    source_path: docs/developer-and-api-docs/api/api-keys/index.md
+    feature: integration
+    archetype: prerequisite
+
+  - slug: jwt-enabled-api-keys
+    source_path: docs/developer-and-api-docs/api/jwt-enabled-api-keys/index.md
+    feature: jwt-authentication
+    archetype: prerequisite
+
+  - slug: fcm-http-v1-migration
+    source_path: docs/sending-messages-by-channel/push-notification/mobile-push-notifications-migrating-to-the-fcm-http-v1-api/index.md
+    feature: push-notifications
+    archetype: prerequisite
+
+  - slug: embedded-message-placements
+    source_path: docs/sending-messages-by-channel/embedded-messaging/placements-for-embedded-messages/index.md
+    feature: embedded-messaging
+    archetype: prerequisite
+
+  - slug: embedded-message-subscription-channels
+    source_path: docs/sending-messages-by-channel/embedded-messaging/embedded-messaging-subscription-channels-and-types/index.md
+    feature: embedded-messaging
+    archetype: prerequisite

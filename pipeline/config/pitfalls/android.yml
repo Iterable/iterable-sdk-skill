@@ -133,6 +133,9 @@ pitfalls:
       - "BuildConfig"
       - "local\\.properties"
       - "API_KEY"
+      - "getSecret"
+      - "buildFeatures"
+      - "build\\.gradle\\.kts"
     features: [integration]
 
   - id: 17
@@ -158,3 +161,46 @@ pitfalls:
       - "placeholder"
       - "project_info"
     features: [integration, push-notifications]
+
+  - id: 20
+    title: Link tap routed to a handler that isn't set (silently dropped)
+    triggers:
+      - "setUrlHandler"
+      - "setCustomActionHandler"
+      - "IterableUrlHandler"
+      - "IterableCustomActionHandler"
+      - "action://"
+      - "itbl://"
+    features: [deep-links, push-notifications, in-app-messages]
+
+  - id: 21
+    title: Setting CommerceItem.categories after construction
+    triggers:
+      - "CommerceItem"
+      - "categories"
+      - "trackPurchase"
+    features: [commerce, event-tracking]
+
+  - id: 22
+    title: Signing Iterable JWTs on the device
+    triggers:
+      - "HmacSHA256"
+      - "SecretKeySpec"
+      - "Jwts\\.builder"
+      - "signWith"
+      - "io\\.jsonwebtoken"
+      - "shared secret"
+      - "IterableJwtGenerator"
+    features: [jwt-authentication, integration]
+
+  - id: 23
+    title: Replacing the app's existing FirebaseMessagingService
+    triggers:
+      - "FirebaseMessagingService"
+      - "MESSAGING_EVENT"
+      - "handleMessageReceived"
+      - "handleTokenRefresh"
+      - "node=\"remove\""
+      - "OneSignal"
+      - "Braze"
+    features: [push-notifications, integration]
