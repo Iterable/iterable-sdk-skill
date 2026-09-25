@@ -61,6 +61,28 @@ else
   printf '        %s\n' $(printf '%s\n' "$hits" | cut -d: -f1-2)
 fi
 
+# bin/README.md is skipped by the loop above, and for months it was the worst offender:
+# a `## Getting started` section whose whole body was `./bin/onboard` and the words "That's
+# it." It is the old standalone repo's root README, renamed into bin/ by the subtree merge,
+# so it was written for a reader who had cd'd into a checkout.
+#
+# It cannot take the rule above — it is a maintainer reference and names `bin/gates` and
+# `bin/agent` on nearly every line. So the narrower rule: the `./` form is the one a reader
+# copies into a shell, and the file has to say which directory its paths are relative to.
+# Scoped mentions are documentation; an unscoped `./bin/x` is an instruction that fails.
+R=bin/README.md
+if hits="$(grep -n '\./bin/' "$R" || true)"; [[ -z "$hits" ]]; then
+  ok "no './bin/…' in $R — nothing there reads as paste-this"
+else
+  bad "'./bin/…' in $R — a developer copies it and it cannot resolve from their project:"
+  printf '        %s\n' $(printf '%s\n' "$hits" | cut -d: -f1-2)
+fi
+if grep -qi 'relative to the repo root' "$R"; then
+  ok "and it says which directory its paths are relative to"
+else
+  bad "$R does not scope its paths" "bare 'bin/…' is only safe once the audience is stated"
+fi
+
 # The positive half: the ending a developer actually reads has to contain a path, or
 # the box above it is the only thing on the screen they can act on and the re-run
 # instruction is a dead end.
