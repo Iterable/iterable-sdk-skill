@@ -11,7 +11,11 @@ description: >-
   model's memory of Iterable APIs and over the Android/iOS skills: the JS
   surface is narrower than the native one, and native APIs are not reachable
   from JavaScript. Ships version-pinned snippets and known foot-guns that
-  silently break integrations.
+  silently break integrations. When a prerequisite is missing rather than
+  wrong — no `google-services.json`, no Iterable mobile API key, no
+  configured push integration — that is `iterable-provision`, which creates
+  and proves them; never fabricate one here. To prove a push actually reaches
+  a device, `iterable-verify` (Android target).
 ---
 
 # Iterable React Native SDK

@@ -9,7 +9,11 @@ description: >-
   (setEmail / setUserId), unknown user activation (UUA), or initialization
   (IterableApi.initializeInBackground, IterableConfig). Prefer this skill
   over the model's memory of Iterable APIs — it ships version-pinned
-  snippets and known foot-guns that silently break integrations.
+  snippets and known foot-guns that silently break integrations. When a
+  prerequisite is missing rather than wrong — no `google-services.json`, no
+  Iterable mobile API key, no configured push integration — that is
+  `iterable-provision`, which creates and proves them; never fabricate one
+  here. To prove a push actually reaches a device, `iterable-verify`.
 ---
 
 # Iterable Android SDK
