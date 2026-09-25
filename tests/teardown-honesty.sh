@@ -42,7 +42,10 @@ case "$1 $2" in
           *)      echo "itbl-onboard-fcm@stub-project.iam.gserviceaccount.com" ;;
         esac ;;
       describe) echo "PERMISSION_DENIED: nothing should be asking this" >&2; exit 1 ;;
-      delete)   echo "deleted" ;;
+      delete)
+        [[ "$MODE" == deletefail ]] \
+          && { echo "PERMISSION_DENIED: caller lacks iam.serviceAccounts.delete" >&2; exit 1; }
+        echo "deleted" ;;
     esac ;;
   *) exit 0 ;;
 esac
@@ -123,6 +126,23 @@ fi
 grep -qE 'gates' <<< "$out" \
   && ok "and names the check by a command that resolves" \
   || bad "no verifier named" "$(tr -s '\n ' ' ' <<< "$out" | cut -c1-90)"
+
+# -------------------------------------------------- a live account it cannot delete
+# The branch above this one refuses for exactly this reason when the *read* fails.
+# The delete failing is the same situation arrived at one step later, and it used to
+# fall straight through to `rm -rf artifacts/` — losing the only copy of a key whose
+# account is still up there.
+fresh_ws
+out="$(run_teardown deletefail)"; rc=$?
+[[ -f "$TMP/ws/artifacts/sa-key.json" ]] \
+  && ok "a delete that failed leaves the local key alone" \
+  || bad "artifacts removed after a failed delete" "the account is still live and unreachable"
+((rc != 0)) \
+  && ok "and exits non-zero rather than reporting a teardown" \
+  || bad "exit 0 after a failed delete" "a caller would read that as done"
+grep -qiE 'could not delete' <<< "$out" \
+  && ok "and says which half failed" \
+  || bad "the failed delete was not named" "$(tr -s '\n ' ' ' <<< "$out" | cut -c1-90)"
 
 echo
 ((FAILED)) && { echo "  FAILED"; exit 1; }

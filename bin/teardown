@@ -46,8 +46,17 @@ if ((rc == 0)); then
     --member="serviceAccount:$SA_EMAIL" --role="$FCM_ROLE" --quiet >/dev/null 2>&1 \
     && echo "  removed role binding"
   # Deleting the account revokes its keys, so no separate key deletion is needed.
-  gcloud iam service-accounts delete "$SA_EMAIL" --quiet \
-    && echo "  deleted $SA_EMAIL"
+  # Which is also why a failure here has to stop the script: the local key below is
+  # only safe to remove once the account it belongs to is gone.
+  if gcloud iam service-accounts delete "$SA_EMAIL" --quiet; then
+    echo "  deleted $SA_EMAIL"
+  else
+    echo
+    echo "  Could not delete $SA_EMAIL — nothing local was removed either, because"
+    echo "  the key on disk still opens an account that still exists."
+    echo
+    exit 1
+  fi
 elif ((rc == 1)); then
   echo "  service account already gone"
 else
