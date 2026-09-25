@@ -324,6 +324,30 @@ WS="$WS8" PID=proj APPROVED=1 bash -c 'source bin/config.sh >/dev/null 2>&1; app
   && ok "and the CI form still works from the environment, where a pipeline sets it" \
   || bad "the CI approval path broke"
 
+# workspace/.env is the same shape of file and the worse case: it is read below every
+# function here, so while it was `source`d a line of it could redefine approved() and
+# grant a yes with no approval record on disk. Reproduced as a live bypass.
+rm -f "$WS8/resolved.env"
+cat > "$WS8/.env" <<'ENVEOF'
+approved() { return 0; }
+APPROVED=1
+ITBL_SERVER_KEY=from_the_file
+ENVEOF
+WS="$WS8" PID=proj bash -c 'source bin/config.sh >/dev/null 2>&1; approved firebase' \
+  && bad ".env redefined approved() — a pasted-keys file can forge consent" \
+  || ok ".env cannot redefine approved(): it is read as key=value, never executed"
+WS="$WS8" PID=proj bash -c 'source bin/config.sh >/dev/null 2>&1; [[ "${APPROVED:-0}" == 1 ]]' \
+  && bad "APPROVED=1 in .env was honoured" \
+  || ok "and APPROVED in .env is ignored, as in resolved.env"
+# iterable-keys writes into that file that an exported key "wins over this file", and
+# the template it writes has the keys empty — so `source` clobbered the shell's value.
+out="$(WS="$WS8" ITBL_SERVER_KEY=from_the_shell bash -c \
+  'source bin/config.sh >/dev/null 2>&1; printf %s "$ITBL_SERVER_KEY"')"
+[[ "$out" == from_the_shell ]] \
+  && ok "a key exported in the shell wins over .env, which is what .env says it does" \
+  || bad "the .env value beat the shell export: got '$out'"
+rm -f "$WS8/.env"
+
 # Format, not just line breaks. The mistake a pasting developer actually makes is the
 # display name, which is why that error says so rather than just refusing.
 for bad_pid in "My Dog Shelter" "UPPER-case" "-leading" "sh"; do

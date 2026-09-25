@@ -116,33 +116,48 @@ wsp() {
 # the scripts open them; a person reading one wants it relative to where they stand.
 wsd() { wsp "${1#$WS/}"; }
 
-# Anything resolved from live state (the project's existing package name, app id)
-# is cached here so the verifier and the actor agree on what they are talking about.
+# The single reader for every file in the workspace that remembers a value.
 #
-# Sourced key by key rather than with `source`, because a cache must not outrank
-# the caller: `PID=other bin/gates` was silently reading the remembered project
-# and reporting gates about an app nobody asked about. Whatever is already in the
-# environment wins.
-# Read before the cache, because the loop below exports the remembered DRIVER and from
-# then on "they told me on this run" and "a file remembers it" look the same. Either
-# counts as chosen; a default does not.
-DRIVER_SET="${DRIVER+1}"
-
-if [[ -f "$WS/resolved.env" ]]; then
-  while IFS='=' read -r _k _v; do
+# Key by key rather than with `source`, for two reasons. A file in the workspace must
+# not be able to run code: these files are read after every function here is defined,
+# so one `approved() { return 0; }` line would forge the consent gate. And a file must
+# not outrank the caller: `PID=other bin/gates` was silently reading the remembered
+# project and reporting gates about an app nobody asked about.
+#
+# `source` also gave up on the whole file at the first apostrophe in a pasted value,
+# leaving every key below it unset — which reads as "the developer never did the
+# dashboard steps" rather than as a parse error.
+load_env_file() {
+  [[ -f "$1" ]] || return 0
+  local _k _v
+  # `|| [[ -n "$_k" ]]` so a hand-edited file with no trailing newline keeps its last key.
+  while IFS='=' read -r _k _v || [[ -n "$_k" ]]; do
+    _k="${_k#"${_k%%[![:space:]]*}"}"; _k="${_k#export }"
     [[ "$_k" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+    # Quoting the value is what someone does after an apostrophe broke the old reader,
+    # so honour one layer of it rather than exporting the quotes as part of the key.
+    [[ "$_v" == \"*\" || "$_v" == \'*\' ]] && _v="${_v:1:${#_v}-2}"
     # APPROVED is the CI form of a yes — an environment variable a pipeline sets
     # deliberately, in place of a person. Honoured from a file in the workspace it
-    # becomes a yes that a file can grant, and this file records pasted values. The
+    # becomes a yes that a file can grant, and these files record pasted values. The
     # only consent that lives on disk is the approval record, which names its project.
     [[ "$_k" == APPROVED ]] && continue
     # Defined beats cached, even when defined empty: `TARGET_DEVICE= bin/gates` is
     # how you say "forget the remembered one", and it has to mean that.
     [[ -n "${!_k+x}" ]] && continue
     export "$_k=$_v"
-  done < "$WS/resolved.env"
-  unset _k _v
-fi
+  done < "$1"
+}
+
+# Anything resolved from live state (the project's existing package name, app id)
+# is cached here so the verifier and the actor agree on what they are talking about.
+#
+# Read before the cache, because load_env_file exports the remembered DRIVER and from
+# then on "they told me on this run" and "a file remembers it" look the same. Either
+# counts as chosen; a default does not.
+DRIVER_SET="${DRIVER+1}"
+
+load_env_file "$WS/resolved.env"
 
 : "${PID:=}"
 : "${PACKAGE:=}"
@@ -1418,8 +1433,9 @@ android_apps() { api_get "https://firebase.googleapis.com/v1beta1/projects/$PID/
 # Keys live in their own file, not resolved.env: resolved.env holds choices that
 # are safe to print, this holds secrets that are not.
 ITBL_ENV="$WS/.env"
-# shellcheck disable=SC1090
-[[ -f "$ITBL_ENV" ]] && source "$ITBL_ENV"
+# Same reader as the cache, and for the stronger version of the same reason: this file
+# holds values pasted from a dashboard, and it is read here — below every function.
+load_env_file "$ITBL_ENV"
 
 # EDC-based Iterable projects answer on api.eu.iterable.com. A key from one data
 # centre returns 401 against the other, which reads exactly like a bad key — so
