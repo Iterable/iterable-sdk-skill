@@ -35,7 +35,7 @@ STUB="$TMP/bin"; mkdir -p "$STUB" "$WS"
 
 # node is real: every screen here is parsed by the same code that renders it, and a
 # stubbed parser would agree with anything. The rest answer without reaching anything.
-for c in adb java; do printf '#!/bin/sh\nexit 0\n' > "$STUB/$c"; chmod +x "$STUB/$c"; done
+for c in adb; do printf '#!/bin/sh\nexit 0\n' > "$STUB/$c"; chmod +x "$STUB/$c"; done
 ln -s "$(command -v node)" "$STUB/node"
 cat > "$STUB/gcloud" <<'EOF'
 #!/bin/sh

@@ -431,8 +431,12 @@ jstr() {
 # An array, not a space-separated string, because splitting a string needs IFS and
 # a caller is entitled to have changed it — `IFS=$'\t' read … <<< "$(next_action)"`
 # runs this function with tabs as the only separator, and the string form then
-# looked for one binary called "node gcloud adb java" and reported all four missing.
-REQUIRED_TOOLS=(node gcloud adb java)
+# looked for one binary called "node gcloud adb" and reported all three missing.
+#
+# No `java`, though an Android developer has one: nothing here builds, signs or reads
+# a keystore. A missing tool outranks every gate, so listing a binary we never call
+# parks the whole ladder — including the device half, which reads through adb.
+REQUIRED_TOOLS=(node gcloud adb)
 missing_tools() {
   local c
   for c in "${REQUIRED_TOOLS[@]}"; do command -v "$c" >/dev/null || echo "$c"; done

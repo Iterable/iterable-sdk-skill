@@ -22,7 +22,7 @@ STUB="$TMP/bin"; mkdir -p "$STUB"
 # Every binary provision could reach, recording that it was reached. gcloud exits 1
 # so the run stops at the first step rather than walking the whole ladder — what is
 # being measured is whether it got that far at all.
-for c in gcloud curl adb java; do
+for c in gcloud curl adb; do
   printf '#!/bin/sh\necho "%s $*" >> "$CALLS"\nexit 1\n' "$c" > "$STUB/$c"
   chmod +x "$STUB/$c"
 done

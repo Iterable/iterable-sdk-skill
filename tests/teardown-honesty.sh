@@ -19,7 +19,7 @@ bad() { printf '  \033[31mFAIL\033[0m %-48s %s\n' "$1" "$2"; FAILED=1; }
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 STUB="$TMP/bin"; mkdir -p "$STUB"
-for c in node adb java curl; do printf '#!/bin/sh\nexit 0\n' > "$STUB/$c"; chmod +x "$STUB/$c"; done
+for c in node adb curl; do printf '#!/bin/sh\nexit 0\n' > "$STUB/$c"; chmod +x "$STUB/$c"; done
 export PATH="$STUB:/usr/bin:/bin"
 
 # MODE is read by the stub at call time, so one stub covers every case.

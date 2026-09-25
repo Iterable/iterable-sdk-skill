@@ -27,7 +27,7 @@ export WS="$TMP/ws"; mkdir -p "$WS/artifacts"
 # binary. Prefixing left the developer's own adb one entry further down, and the
 # missing-tool case passed by accident against a machine that had everything.
 STUB="$TMP/bin"; mkdir -p "$STUB"
-for c in node gcloud adb java; do printf '#!/bin/sh\nexit 0\n' > "$STUB/$c"; chmod +x "$STUB/$c"; done
+for c in node gcloud adb; do printf '#!/bin/sh\nexit 0\n' > "$STUB/$c"; chmod +x "$STUB/$c"; done
 export PATH="$STUB:/usr/bin:/bin"
 
 source bin/config.sh

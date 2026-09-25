@@ -66,7 +66,7 @@ your passwords — see [Security](#security).
 what you have:
 
 ```bash
-node --version && gcloud --version && adb --version && java -version
+node --version && gcloud --version && adb --version
 ```
 
 | Tool | Needed for | Install |
@@ -74,7 +74,9 @@ node --version && gcloud --version && adb --version && java -version
 | **`gcloud`** | the entire Google half — project, Firebase, service account, IAM, key | [Google Cloud CLI](https://cloud.google.com/sdk/docs/install), or `brew install --cask gcloud-cli` |
 | **`adb`** | the device half — reading the installed app, its FCM token, and the arriving push | Android Studio's SDK Manager (platform-tools), or `brew install --cask android-platform-tools` |
 | **`node`** | parsing API responses | [nodejs.org](https://nodejs.org), or `brew install node` |
-| **`java`** | building your app | bundled with Android Studio, or `brew install --cask temurin` |
+
+Those three and nothing else: you build and install your own app, so your JDK and
+Gradle are yours and the plugin never invokes them.
 
 **If one is missing, nothing is guessed.** Gate `G0 Tooling present` goes red, every
 gate below it reports `waiting on Tooling present` rather than failing, and the run

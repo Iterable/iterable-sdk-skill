@@ -3,7 +3,7 @@
 # preconditions instead of inheriting whatever is installed on the machine running them.
 #
 # Written because two suites were green for months on a developer's laptop and failed the
-# first time CI ran them on a clean runner. `REQUIRED_TOOLS=(node gcloud adb java)`, and
+# first time CI ran them on a clean runner. `REQUIRED_TOOLS=(node gcloud adb)`, and
 # `next_action` reports `install_tools` ahead of everything else when one is absent — so on
 # a machine without gcloud every assertion about a later rung was testing the install
 # branch instead. Not a product bug: `install_tools` is the right answer there. The suites
@@ -27,9 +27,6 @@ stub_toolchain() {
 
   printf '#!/bin/sh\necho "gcloud $*" >> "${STUB_CALLS:-/dev/null}"\nexit 1\n' > "$d/gcloud"
 
-  # Only has to exist; the ladder checks for a JDK and never runs it here.
-  printf '#!/bin/sh\nexit 0\n' > "$d/java"
-
   # One booted emulator, answering the dialects the device resolver uses to name it.
   cat > "$d/adb" <<'ADB'
 #!/bin/sh
@@ -49,5 +46,5 @@ esac
 exit 0
 ADB
 
-  chmod +x "$d/gcloud" "$d/java" "$d/adb"
+  chmod +x "$d/gcloud" "$d/adb"
 }
