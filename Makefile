@@ -1,4 +1,4 @@
-.PHONY: link-agents unlink-agents
+.PHONY: link-agents unlink-agents test test-all
 
 AGENT_DIR := $(HOME)/.claude/agents
 
@@ -19,3 +19,11 @@ unlink-agents:
 		rm -f "$(AGENT_DIR)/$$(basename $$f)"; \
 		echo "unlinked $$(basename $$f)"; \
 	done
+
+# Everything in tests/ that needs no network. What CI runs.
+test:
+	@tests/run-all.sh
+
+# Plus the ones that reach Iterable's published spec.
+test-all:
+	@tests/run-all.sh --all

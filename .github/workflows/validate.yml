@@ -9,7 +9,13 @@ on:
     paths:
       - iterable-android/**
       - iterable-react-native/**
+      - iterable-provision/**
+      - iterable-verify/**
       - pipeline/**
+      - bin/**
+      - tests/**
+      - agents/**
+      - Makefile
       - .claude-plugin/**
       - .cursor-plugin/**
       - mcp.json
@@ -21,7 +27,13 @@ on:
     paths:
       - iterable-android/**
       - iterable-react-native/**
+      - iterable-provision/**
+      - iterable-verify/**
       - pipeline/**
+      - bin/**
+      - tests/**
+      - agents/**
+      - Makefile
       - .claude-plugin/**
       - .cursor-plugin/**
       - mcp.json
@@ -60,3 +72,25 @@ jobs:
       - name: Run all gates
         working-directory: pipeline
         run: pnpm check:all
+
+  # The onboarding tool is shell, and none of it was reachable from CI: nineteen suites
+  # existed and nothing ran them.
+  #
+  # macOS because that is where the tool runs — an Android developer with Xcode, adb and
+  # gcloud on the same machine — and because its /bin/bash is 3.2, so it fails on a bash-4
+  # construct that ubuntu would accept. expect ships with macOS, so the four interactive
+  # suites run here too.
+  shell:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Run the shell suites
+        run: tests/run-all.sh
