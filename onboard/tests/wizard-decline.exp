@@ -1,0 +1,123 @@
+#!/usr/bin/expect -f
+# Drives bin/wizard through a real pty and declines at the consent prompt.
+#
+# This is the wizard's central promise under test: it changes nothing before you
+# say yes. It also covers the prompts and menus themselves, which no amount of
+# `bash -n` or non-interactive running can reach — the menu once read its choice
+# from an already-drained stdin and looped forever, and only a pty showed it.
+#
+# Reads live Google APIs. Mutates nothing.
+#
+#   tests/wizard-decline.exp [project-menu-choice] [app-menu-choice]
+
+set timeout 180
+# Menu positions shift as projects come and go, so find the project to use rather
+# than hardcoding an index. Two requirements, and the second one was learned the
+# hard way: the project must have an Android app (or the run goes down the
+# registration branch instead of the path under test), and it must still need
+# work. On a fully provisioned project the wizard exits before the consent prompt,
+# so the assertion this test exists for is unreachable and it silently skipped.
+proc first_project_needing_work {} {
+  return [exec bash -c {
+    source bin/config.sh
+    i=0
+    while IFS=$'\t' read -r p _; do
+      i=$((i + 1))
+      [[ -n "$(android_apps_of "$p")" ]] || continue
+      gcloud iam service-accounts describe "itbl-onboard-fcm@$p.iam.gserviceaccount.com" \
+        --format='value(email)' >/dev/null 2>&1 && continue
+      echo "$i"; exit 0
+    done <<< "$(firebase_projects)"
+    echo 0
+  }]
+}
+
+set proj [expr {$argc > 0 ? [lindex $argv 0] : [first_project_needing_work]}]
+set app  [expr {$argc > 1 ? [lindex $argv 1] : 1}]
+
+if {$proj == 0} {
+  puts "\nSKIP: every Firebase project with an Android app is already provisioned."
+  puts "This test needs one with work left, so the consent prompt is reachable."
+  exit 0
+}
+
+# The run picks a project, which rewrites resolved.env. Put the developer's own
+# selection back afterwards — a test must not change what they are working on.
+set saved "/tmp/itbl-resolved.env.test"
+catch { exec cp workspace/resolved.env $saved }
+proc finish {code msg} {
+  global saved
+  catch { exec cp $saved workspace/resolved.env }
+  catch { exec rm -f $saved }
+  puts "\n$msg"
+  exit $code
+}
+proc bad {msg} { finish 1 "FAIL: $msg" }
+
+spawn bash bin/wizard
+
+expect {
+  "Press enter to begin." { send "\r" }
+  timeout { bad "no intro screen" }
+}
+
+# Either the remembered-choice prompt or the picker itself is acceptable; both
+# must end up at a project menu.
+expect {
+  "Use that again?" { send "n\r"; exp_continue }
+  -re "Choose 1-\[0-9\]+" { send "$proj\r" }
+  "Run 'gcloud auth login' now?" { bad "not signed in — run gcloud auth login first" }
+  "Could not list Firebase projects" { bad "project listing failed (quota project?)" }
+  timeout { bad "no project menu" }
+}
+
+expect {
+  "project: " { }
+  timeout { bad "project choice not confirmed" }
+}
+
+expect {
+  -re "Choose 1-\[0-9\]+" { send "$app\r" }
+  "has no Android app registered yet" { bad "chosen project has no Android app" }
+  timeout { bad "no app menu" }
+}
+
+expect {
+  "app: " { }
+  timeout { bad "app choice not confirmed" }
+}
+
+# The device step sits between the app choice and consent. Any of its three shapes
+# is fine here; what must not happen is this test booting an emulator, so the
+# picker gets `q` rather than a choice that might mean "start it".
+expect {
+  "Use it?" { send "y\r" }
+  -re "Choose 1-\[0-9\]+" { send "q\r" }
+  "No devices and no AVDs" { }
+  timeout { bad "no device step before consent" }
+}
+
+expect {
+  "Go ahead?" { send "n\r" }
+  # We deliberately chose a project with a missing service account, so a green
+  # ladder here means the chooser and the ladder disagree — a real defect.
+  "Done — a push reached the device" {
+    bad "chose a project that needs work, but the ladder came back all green"
+  }
+  # Same disagreement, other shape: nothing red and nothing to provision.
+  "no push has been proven yet" {
+    bad "chose a project that needs work, but nothing was left for the tool to do"
+  }
+  timeout { bad "never reached the consent prompt" }
+}
+
+expect {
+  "Nothing changed." { }
+  timeout { bad "declining did not report that nothing changed" }
+}
+
+expect eof
+catch wait result
+set rc [lindex $result 3]
+if {$rc != 0} { bad "declined run should exit 0, got $rc" }
+finish 0 "PASS: wizard offered the choice, then changed nothing when declined."

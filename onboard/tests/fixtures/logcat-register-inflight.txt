@@ -1,0 +1,115 @@
+09-21 11:54:18.861 11752 11793 V IterableRequest:  body : 
+09-21 11:54:18.861 11752 11793 V IterableRequest: {
+09-21 11:54:18.861 11752 11793 V IterableRequest:   "email": "test@useremail.com",
+09-21 11:54:18.861 11752 11793 V IterableRequest:   "count": 100,
+09-21 11:54:18.861 11752 11793 V IterableRequest:   "platform": "Android",
+09-21 11:54:18.861 11752 11793 V IterableRequest:   "SDKVersion": "3.10.1",
+09-21 11:54:18.861 11752 11793 V IterableRequest:   "systemVersion": "16",
+09-21 11:54:18.861 11752 11793 V IterableRequest:   "packageName": "com.dogshelter",
+09-21 11:54:18.861 11752 11793 V IterableRequest:   "createdAt": 1789988058
+09-21 11:54:18.861 11752 11793 V IterableRequest: }
+09-21 11:54:18.861 11752 11793 V IterableRequest:  💛 ======================================
+09-21 11:54:18.866 11752 11797 V IterableRequest:  💛 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+09-21 11:54:18.875 11752 11797 V IterableRequest:  💛 POST Request 
+09-21 11:54:18.875 11752 11797 V IterableRequest: URI : https://api.iterable.com/api/users/registerDeviceToken
+09-21 11:54:18.875 11752 11797 V IterableRequest: Headers { 
+09-21 11:54:18.875 11752 11797 V IterableRequest: Accept : [application/json]
+09-21 11:54:18.875 11752 11797 V IterableRequest: Content-Type : [application/json]
+09-21 11:54:18.875 11752 11797 V IterableRequest: SDK-Platform : [Android]
+09-21 11:54:18.875 11752 11797 V IterableRequest: SDK-Request-Processor : [Online]
+09-21 11:54:18.875 11752 11797 V IterableRequest: SDK-Version : [3.10.1]
+09-21 11:54:18.875 11752 11797 V IterableRequest: Sent-At : [1789988058]
+09-21 11:54:18.875 11752 11797 V IterableRequest: }
+09-21 11:54:18.875 11752 11797 V IterableRequest:  body : 
+09-21 11:54:18.875 11752 11797 V IterableRequest: {
+09-21 11:54:18.875 11752 11797 V IterableRequest:   "email": "test@useremail.com",
+09-21 11:54:18.875 11752 11797 V IterableRequest:   "device": {
+09-21 11:54:18.875 11752 11797 V IterableRequest:     "token": "<redacted-by-fixture>",
+09-21 11:54:18.875 11752 11797 V IterableRequest:     "platform": "GCM",
+09-21 11:54:18.875 11752 11797 V IterableRequest:     "applicationName": "com.dogshelter",
+09-21 11:54:18.875 11752 11797 V IterableRequest:     "dataFields": {
+09-21 11:54:18.875 11752 11797 V IterableRequest:       "tokenRegistrationType": "FCM",
+09-21 11:54:18.875 11752 11797 V IterableRequest:       "firebaseCompatible": true,
+09-21 11:54:18.875 11752 11797 V IterableRequest:       "brand": "google",
+09-21 11:54:18.875 11752 11797 V IterableRequest:       "manufacturer": "Google",
+09-21 11:54:18.875 11752 11797 V IterableRequest:       "systemName": "emu64a",
+09-21 11:54:18.875 11752 11797 V IterableRequest:       "systemVersion": "16",
+09-21 11:54:18.875 11752 11797 V IterableRequest:       "model": "sdk_gphone64_arm64",
+09-21 11:54:18.875 11752 11797 V IterableRequest:       "sdkVersion": 36,
+09-21 11:54:18.875 11752 11797 V IterableRequest:       "deviceId": "8d6ab09e-ac52-4075-890a-19c64aa31a1e",
+09-21 11:54:18.875 11752 11797 V IterableRequest:       "appPackageName": "com.dogshelter",
+09-21 11:54:18.875 11752 11797 V IterableRequest:       "appVersion": "1.0",
+09-21 11:54:18.875 11752 11797 V IterableRequest:       "appBuild": "1",
+09-21 11:54:18.875 11752 11797 V IterableRequest:       "iterableSdkVersion": "3.10.1",
+09-21 11:54:18.875 11752 11797 V IterableRequest:       "mobileFrameworkInfo": {
+09-21 11:54:18.875 11752 11797 V IterableRequest:         "frameworkType": "native",
+09-21 11:54:18.875 11752 11797 V IterableRequest:         "iterableSdkVersion": "3.10.1"
+09-21 11:54:18.875 11752 11797 V IterableRequest:       },
+09-21 11:54:18.875 11752 11797 V IterableRequest:       "notificationsEnabled": true
+09-21 11:54:18.875 11752 11797 V IterableRequest:     }
+09-21 11:54:18.875 11752 11797 V IterableRequest:   },
+09-21 11:54:18.875 11752 11797 V IterableRequest:   "createdAt": 1789988058
+09-21 11:54:18.875 11752 11797 V IterableRequest: }
+09-21 11:54:18.903 11752 11752 W HWUI    : Unknown dataspace 0
+09-21 11:54:18.926 11752 11752 D IterableBackgroundInit:  💚 Initialization completed successfully, notifying callbacks after 396ms
+09-21 11:54:18.928 11752 11752 D IterableInitCallbackMgr:  💚 Called subscriber (immediate) callback on main thread
+09-21 11:54:19.157 11752 11752 W com.dogshelter: Method java.lang.Object androidx.compose.runtime.snapshots.SnapshotStateMap.mutate(kotlin.jvm.functions.Function1) failed lock verification and will run slower.
+09-21 11:54:19.157 11752 11752 W com.dogshelter: Common causes for lock verification issues are non-optimized dex code
+09-21 11:54:19.157 11752 11752 W com.dogshelter: and incorrect proguard optimizations.
+09-21 11:54:19.158 11752 11752 W com.dogshelter: Method void androidx.compose.runtime.snapshots.SnapshotStateMap.update(kotlin.jvm.functions.Function1) failed lock verification and will run slower.
+09-21 11:54:19.158 11752 11752 W com.dogshelter: Method boolean androidx.compose.runtime.snapshots.SnapshotStateMap.removeIf$runtime_release(kotlin.jvm.functions.Function1) failed lock verification and will run slower.
+09-21 11:54:19.332 11752 11797 V IterableRequest:  💛 ======================================
+09-21 11:54:19.384   687  1224 D CoreBackPreview: Window{6ff00c1 u0 com.dogshelter/com.dogshelter.MainActivity}: Setting back callback OnBackInvokedCallbackInfo{mCallback=android.window.IOnBackInvokedCallback$Stub$Proxy@c1a6c54, mPriority=0, mIsAnimationCallback=false, mOverrideBehavior=0}
+09-21 11:54:19.444 11752 11794 V IterableRequest:  💛 <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+09-21 11:54:19.444 11752 11794 V IterableRequest: Response from : https://api.iterable.com/api/mobile/getRemoteConfiguration
+09-21 11:54:19.444 11752 11794 V IterableRequest:  💛 {
+09-21 11:54:19.444 11752 11794 V IterableRequest:   "offlineMode": false,
+09-21 11:54:19.444 11752 11794 V IterableRequest:   "offlineModeBeta": false,
+09-21 11:54:19.444 11752 11794 V IterableRequest:   "autoRetry": false
+09-21 11:54:19.444 11752 11794 V IterableRequest: }
+09-21 11:54:19.444 11752 11794 V IterableRequest:  💛 ======================================
+09-21 11:54:19.483 11752 11787 V IterableRequest:  💛 <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+09-21 11:54:19.483 11752 11787 V IterableRequest: Response from : https://api.iterable.com/api/inApp/getMessages
+09-21 11:54:19.485 11752 11787 V IterableRequest:  💛 {
+09-21 11:54:19.485 11752 11787 V IterableRequest:   "inAppMessages": [
+09-21 11:54:19.485 11752 11787 V IterableRequest:     {
+09-21 11:54:19.485 11752 11787 V IterableRequest:       "messageId": "2w8MBnw5lTJBW05UMZKG5I8H4uer7pvjiaLAhA2aXAEmW",
+09-21 11:54:19.485 11752 11787 V IterableRequest:       "campaignId": 18625210,
+09-21 11:54:19.485 11752 11787 V IterableRequest:       "createdAt": 1789983754612,
+09-21 11:54:19.485 11752 11787 V IterableRequest:       "expiresAt": 1797759754612,
+09-21 11:54:19.485 11752 11787 V IterableRequest:       "content": {
+09-21 11:54:19.485 11752 11787 V IterableRequest:         "html": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\" \/>\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1, maximum-scale=1\" \/>\n  <title>Brewly — Welcome Offer<\/title>\n  <style>\n    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }\n\n    html, body {\n      margin: 0;\n      padding: 0;\n      font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, Helvetica, Arial, sans-serif;\n      color: #2B2018;\n    }\n\n    .scrim {\n      position: fixed;\n      inset: 0;\n      z-index: 1;\n      background: rgba(33, 26, 20, 0.55);\n    }\n    .center {\n      position: fixed;\n      inset: 0;\n      z-index: 2;\n      display: flex;\n      align-items: center;\n      justify-content: center;\n      padding: 20px;\n      pointer-events: none;\n    }\n\n    .card {\n      pointer-events: auto;\n      width: 100%;\n      max-width: 320px;\n      background: #FFFDF9;\n      border-radius: 16px;\n      padding: 28px 24px;\n      text-align: center;\n      box-shadow: 0 12px 36px rgba(33, 26, 20, 0.28);\n    }\n\n    h1 {\n      margin: 0 0 6px;\n      font-size: 20px;\n      font-weight: 700;\n    }\n\n    p {\n      margin: 0 0 20px;\n      font-size: 14px;\n      line-height: 1.5;\n      color: rgba(43, 32, 24, 0.62);\n    }\n\n    .code {\n      display: block;\n      font-family: ui-monospace, Menlo, Consolas, monospace;\n      font-size: 22px;\n      font-weight: 700;\n      letter-spacing: 0.12em;\n      color: #6F4E37;\n      background: #F2EADF;\n      border: 1px dashed #C8995A;\n      border-radius: 10px;\n      padding: 14px 0;\n      -webkit-user-select: all;\n      user-select: all;\n    }\n\n    .hint {\n      display: block;\n      margin-top: 8px;\n      font-size: 12px;\n      color: rgba(43, 32, 24, 0.45);\n    }\n\n    .btn {\n      display: block;\n      margin-top: 22px;\n      background: #6F4E37;\n      color: #F5EFE6;\n      text-decoration: none;\n      font-size: 15px;\n      font-weight: 600;\n      padding: 14px 0;\n      border-radius: 10px;\n    }\n  <\/style>\n<\/head>\n<body>\n  <a class=\"scrim\" href=\"iterable:\/\/dismiss\" aria-label=\"Dismiss\"><\/a>\n  <div class=\"center\">\n    <div class=\"card\">\n      <h1>15% off your first order<\/h1>\n      <p>Thanks for joining Brewly. Use this code at checkout.<\/p>\n      <span class=\"code\">WELCOME15<\/span>\n      <span class=\"hint\">Press &amp; hold to copy<\/span>\n      <a class=\"btn\" href=\"brewly:\/\/home\">Start shopping<\/a>\n    <\/div>\n  <\/div>\n<\/body>\n<\/html>\n",
+09-21 11:54:19.485 11752 11787 V IterableRequest:         "inAppDisplaySettings": {
+09-21 11:54:19.485 11752 11787 V IterableRequest:           "top": {
+09-21 11:54:19.485 11752 11787 V IterableRequest:             "percentage": 0
+09-21 11:54:19.485 11752 11787 V IterableRequest:           },
+09-21 11:54:19.485 11752 11787 V IterableRequest:           "right": {
+09-21 11:54:19.485 11752 11787 V IterableRequest:             "percentage": 0
+09-21 11:54:19.485 11752 11787 V IterableRequest:           },
+09-21 11:54:19.485 11752 11787 V IterableRequest:           "bottom": {
+09-21 11:54:19.485 11752 11787 V IterableRequest:             "percentage": 0
+09-21 11:54:19.485 11752 11787 V IterableRequest:           },
+09-21 11:54:19.485 11752 11787 V IterableRequest:           "left": {
+09-21 11:54:19.485 11752 11787 V IterableRequest:             "percentage": 0
+09-21 11:54:19.485 11752 11787 V IterableRequest:           }
+09-21 11:54:19.485 11752 11787 V IterableRequest:         },
+09-21 11:54:19.485 11752 11787 V IterableRequest:         "webInAppDisplaySettings": {
+09-21 11:54:19.485 11752 11787 V IterableRequest:           "position": "Full"
+09-21 11:54:19.485 11752 11787 V IterableRequest:         }
+09-21 11:54:19.485 11752 11787 V IterableRequest:       },
+09-21 11:54:19.485 11752 11787 V IterableRequest:       "trigger": {
+09-21 11:54:19.485 11752 11787 V IterableRequest:         "type": "immediate"
+09-21 11:54:19.485 11752 11787 V IterableRequest:       },
+09-21 11:54:19.485 11752 11787 V IterableRequest:       "saveToInbox": true,
+09-21 11:54:19.485 11752 11787 V IterableRequest:       "inboxMetadata": {
+09-21 11:54:19.485 11752 11787 V IterableRequest:         "title": "Grab your offer",
+09-21 11:54:19.485 11752 11787 V IterableRequest:         "subtitle": "Don't miss the chance! Grab your offer now."
+09-21 11:54:19.485 11752 11787 V IterableRequest:       },
+09-21 11:54:19.485 11752 11787 V IterableRequest:       "priorityLevel": 300.5,
+09-21 11:54:19.485 11752 11787 V IterableRequest:       "read": true,
+09-21 11:54:19.485 11752 11787 V IterableRequest:       "jsonOnly": false,
+09-21 11:54:19.485 11752 11787 V IterableRequest:       "typeOfContent": "Static",
+09-21 11:54:19.485 11752 11787 V IterableRequest:       "messageType": "Mobile"
+09-21 11:54:19.485 11752 11787 V IterableRequest:     }
+09-21 11:54:19.485 11752 11787 V IterableRequest:   ]
+09-21 11:54:19.485 11752 11787 V IterableRequest: }

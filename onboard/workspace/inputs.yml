@@ -1,0 +1,46 @@
+# Everything iterable-onboard needs to know about your app and accounts.
+# Fill what you know; leave the rest blank and the tool will create it or ask.
+# Nothing here is secret — secrets go in .env.
+
+app:
+  # Android application id. This must match the real app; it is the join key
+  # between Firebase, Iterable, and the device. Getting it wrong is the single
+  # most common cause of a push that never arrives.
+  package_name: com.example.pushtest
+  display_name: Example Push Test
+
+google:
+  # Leave project_id blank to have a new Firebase project created.
+  project_id:
+  # Reused if it already exists.
+  service_account_id: fcm-sender
+  service_account_display_name: FCM Sender (Iterable)
+
+iterable:
+  # us | eu — eu switches both the dashboard host and the API host.
+  region: us
+  # The sandbox project used for testing. Name it so nobody mistakes it for prod.
+  project_name: Android Onboarding Sandbox
+  # Data notifications | Notification messages
+  # Data notifications is correct when using Iterable's Android SDK. Choosing
+  # the other one is a silent failure: the push is accepted, the SDK never sees
+  # it. Gate G16 exists to catch exactly this.
+  fcm_message_type: Data notifications
+  # Iterable app name, if it should differ from the package name.
+  app_name:
+  # Create the mobile key with JWT auth enabled? Default false: it is the shortest
+  # path to a verified push, and the shared secret is shown only once at creation.
+  # Set true if this app will ship with JWT — the SDK requires it once enabled, so
+  # starting with a JWT key avoids a second setup pass.
+  mobile_key_jwt_enabled: false
+
+test:
+  # Internal test identity for the verification loop. Never a real customer.
+  email: android-onboarding-test@example.com
+  # Emulator to use. Leave blank to create and manage one automatically.
+  avd_name:
+  # google_apis, not google_apis_playstore: FCM needs Play Services, which
+  # google_apis includes. The playstore variant only adds the Play Store app and
+  # costs an extra multi-GB download. Prefer an already-installed image over
+  # downloading this one.
+  system_image: system-images;android-34;google_apis;arm64-v8a

@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# Sends the one push the whole ladder exists to prove, and records what it sent.
+# The actor half of G16: this script never checks whether the push arrived, and
+# bin/gates never sends one. A verifier that triggers the thing it verifies can
+# only ever agree with itself.
+#
+# `templates/push/proof` is used rather than `push/target` because proof sends to
+# a user directly — no campaign, no list, so no dashboard click. The cost of that
+# choice, measured 2026-09-21: a proof send raises no pushSend event, so G17 has
+# nothing to corroborate it with. G16 reads the device instead.
+
+source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
+
+CLIENT_TEMPLATE_ID="itbl-onboard-g16-proof"
+
+[[ -n "$ITBL_SERVER_KEY" ]] || { echo "no server-side key — run bin/iterable-keys" >&2; exit 1; }
+[[ -n "$ITBL_EMAIL" ]] || { echo "no ITBL_EMAIL set — the proof needs a user to send to" >&2; exit 1; }
+
+# The marker is what makes the arrival attributable. Without it G16 can only say
+# "an Iterable push is on screen"; with it, it can say this send arrived.
+MARKER="itbl-onboard-$(date +%s)"
+TITLE="Iterable onboard proof"
+MESSAGE="G16 proof $MARKER"
+
+body="$(node -e '
+  const [cid,name,title,message]=process.argv.slice(1);
+  process.stdout.write(JSON.stringify({clientTemplateId:cid,name,title,message}));
+' "$CLIENT_TEMPLATE_ID" "Iterable onboard G16 proof" "$TITLE" "$MESSAGE")"
+
+itbl_post "$ITBL_SERVER_KEY" /api/templates/push/upsert "$body" \
+  || { echo "template upsert failed: $(itbl_err "$ITBL_BODY")" >&2; exit 1; }
+
+# The new template's id comes back only inside the prose: Iterable answers
+# {"msg":"Upserted 1 templates with IDs: 26219806"} with no field for it.
+tid="$(printf '%s' "$ITBL_BODY" | sed -n 's/.*IDs: *\([0-9][0-9]*\).*/\1/p' | head -1)"
+if [[ -z "$tid" ]]; then
+  # Nothing reads a template back by clientTemplateId — /templates/push/get takes
+  # a numeric id only — so a cached id from an earlier run is the only fallback.
+  tid="${ITBL_PROOF_TEMPLATE_ID:-}"
+  [[ -n "$tid" ]] || { echo "could not read a template id out of: $(itbl_err "$ITBL_BODY")" >&2; exit 1; }
+fi
+
+# Counted before the send, reported after. Android groups a second notification
+# from the same app with the first and marks it SILENT: it arrives, G16 sees it,
+# and the screen shows nothing at all — which a developer watching the device
+# reads as a failed push.
+PRIOR_PROOF=""
+if PP_DEV="$(device_serial 2>/dev/null)"; then
+  adb -s "$PP_DEV" shell dumpsys notification --noredact 2>/dev/null \
+    | grep -q 'itbl-onboard-' && PRIOR_PROOF=1
+fi
+
+sent_at="$(node -e 'process.stdout.write(String(Date.now()))')"
+itbl_post "$ITBL_SERVER_KEY" /api/templates/push/proof \
+  "$(node -e 'process.stdout.write(JSON.stringify({templateId:Number(process.argv[1]),recipientEmail:process.argv[2]}))' "$tid" "$ITBL_EMAIL")" \
+  || { echo "proof send failed: $(itbl_err "$ITBL_BODY")" >&2; exit 1; }
+
+save_resolved ITBL_PROOF_TEMPLATE_ID "$tid"
+save_resolved ITBL_PROOF_MARKER "$MARKER"
+save_resolved ITBL_PROOF_SENT_AT "$sent_at"
+
+echo
+echo "  Sent template $tid to $ITBL_EMAIL, marked $MARKER."
+if [[ -n "$PRIOR_PROOF" ]]; then
+  echo
+  echo "  $(bold "An earlier proof is still in the shade.") Android will bundle this one with"
+  echo "  it and mark it SILENT: no banner, no sound. It still arrives and G16 still"
+  echo "  sees it. To watch it land, clear the shade first and send again."
+fi
+echo "  $(dim "Whether it arrived is not this script's call:")"
+echo "      bin/gates      # G16 reads the device"
+echo

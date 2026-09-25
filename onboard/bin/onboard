@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+# The front door. One command, run as many times as you like. It never prompts:
+# it tells you the single next thing to do and exits. That makes it safe to drive
+# from a loop, a CI job, or an agent, and it means a client is never stuck
+# staring at a prompt they don't understand.
+#
+#   bin/onboard           show where I am and what's next   (reads only)
+#   bin/onboard --apply   do the next thing that changes something
+
+source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
+
+APPLY=0
+[[ "${1:-}" == "--apply" ]] && APPLY=1
+
+# A human at a terminal gets the wizard; a script, CI job, or agent gets the
+# report-and-exit path. Same ladder and same actions underneath — only the
+# conversation differs. --apply forces the non-interactive path so an automated
+# caller is never ambushed by a prompt.
+if interactive && ((APPLY == 0)); then
+  exec "$BIN/wizard"
+fi
+
+cat <<EOF
+
+  $(bold "iterable-onboard") — gets Iterable push notifications working on your Android app,
+  and proves it by landing a real push on a device.
+
+  $(bold "What it does")
+    · reads your existing Firebase project and app config
+    · adds a service account scoped to sending push, and downloads its key
+    · walks you through the Iterable dashboard steps, then proves each one by API
+    · sends a real push and confirms the device received it
+
+  $(bold "What it will never do")
+    · ask for, store, or type your passwords — you sign in yourself
+    · create a Firebase project or register an app unless you ask outright
+    · modify an app, integration, or credential you already have
+    · tell you something worked when it has not been verified
+EOF
+
+QUIET_VERDICT=1 "$BIN/gates"
+LADDER=$?
+
+cat <<'EOF'
+  G11 and G12 are marked ~ because Iterable's public API has no endpoint that can
+  read them back, so nothing here can honestly claim to have checked them. They
+  are proved indirectly: if G16 lands a push, both were right.
+
+EOF
+
+case $LADDER in
+  0)
+    echo "  $(bold "Done — a push reached the device.")"
+    echo
+    exit 0
+    ;;
+  40)
+    if push_proven; then
+      echo "  $(bold "A push arrived — and something above is still pending.")"
+    else
+      echo "  $(bold "Nothing is broken — and no push has been proven.")"
+    fi
+    echo
+    pending_advice | sed 's/^/      /'
+    echo
+    echo "  Then run $(bold "bin/onboard") again. Nothing already green gets redone."
+    echo
+    exit 40
+    ;;
+  10)
+    echo "  $(bold "NEXT — this one is yours") (also written to workspace/ASK.md):"
+    echo
+    sed -n '5p' "$WS/ASK.md" 2>/dev/null | sed 's/^ */      /'
+    echo
+    echo "  Then run $(bold "bin/onboard") again. Nothing already green gets redone."
+    echo
+    exit 10
+    ;;
+esac
+
+# A gate failed that the tool itself can clear. Say what would change before
+# changing it: this runs against someone's real cloud project.
+echo "  $(bold "NEXT — the tool can do this part.") It would:"
+echo
+if [[ -z "$PID" ]]; then
+  echo "      nothing yet — first pick a project:  $(bold "bin/discover")"
+  echo
+  exit 20
+fi
+printf '      project        %s\n' "$PID"
+printf '      package        %s\n' "${PACKAGE:-<not chosen — run bin/discover>}"
+echo
+
+# Derived from workspace/state.tsv, not hardcoded: the listed actions must match
+# the gates that are actually red, or the dry run is lying about what it will do.
+while IFS=$'\t' read -r id status owner name detail; do
+  [[ "$status" == green ]] && continue
+  case "$id" in
+    G5) echo "      download       google-services.json for $PACKAGE" ;;
+    G6) echo "      create         service account '$SA_ID'" ;;
+    G7) echo "      grant          $FCM_ROLE  (send push, nothing else)" ;;
+    G8) echo "      create         a JSON key at workspace/artifacts/sa-key.json (mode 0600)" ;;
+    G9) echo "      verify         the key by asking FCM to validate a send (nothing is delivered)" ;;
+  esac
+done < "$WS/state.tsv"
+
+cat <<'EOF'
+
+  It will not create a project or register an app. Those need CREATE_PROJECT=1
+  or CREATE_APP=1, on purpose.
+
+EOF
+
+if ((APPLY)); then
+  exec "$BIN/provision"
+fi
+
+echo "  This was a dry run. To go ahead:  $(bold "bin/onboard --apply")"
+echo
+exit 20

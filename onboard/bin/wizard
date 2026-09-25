@@ -1,0 +1,322 @@
+#!/usr/bin/env bash
+# Interactive front end. Same gate ladder, same actions as the non-interactive
+# path — the difference is that a TTY lets us host sub-processes (gcloud's own
+# sign-in) and offer menus, instead of telling you to go run something and
+# come back.
+#
+# Never invoked directly by a client: bin/onboard dispatches here when stdin is
+# a terminal.
+
+source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
+
+trap 'echo; echo "  Stopped. Nothing in progress was left half-done — run bin/onboard again."; echo; exit 130' INT
+
+pause() { read -r -p "  $1 " _; }
+
+ask_yn() {
+  local ans
+  read -r -p "  $1 [y/N] " ans
+  [[ "$ans" == [yY]* ]]
+}
+
+# Numbered menu over stdin lines. Echoes the chosen line.
+# The answer is read from /dev/tty, not stdin: stdin is the option list and the
+# loop above has already drained it to EOF, so reading the choice from it would
+# spin forever on an empty line.
+menu() {
+  local -a opts=(); local line i choice
+  while IFS= read -r line; do opts+=("$line"); done
+  ((${#opts[@]})) || return 1
+  for i in "${!opts[@]}"; do printf '    %2d) %s\n' $((i+1)) "${opts[$i]}" >&2; done
+  echo >&2
+  while :; do
+    printf '  Choose 1-%d (or q to quit): ' "${#opts[@]}" >&2
+    read -r choice < /dev/tty || return 1
+    [[ "$choice" == q ]] && return 1
+    [[ "$choice" =~ ^[0-9]+$ ]] && ((choice >= 1 && choice <= ${#opts[@]})) \
+      && { printf '%s' "${opts[$((choice-1))]}"; return 0; }
+    echo "  Not a valid choice." >&2
+  done
+}
+
+save() { save_resolved "$1" "$2"; }
+
+clear 2>/dev/null || true
+cat <<EOF
+
+  $(bold "iterable-onboard")
+
+  This gets Iterable push notifications working on your Android app, and proves
+  it by landing a real push on a device.
+
+  $(bold "It will")     read your Firebase project config, add a service account scoped
+              only to sending push, and download its key.
+  $(bold "It won't")    ask for your passwords, create a Firebase project or app unless
+              you say so, change anything you already have, or claim success it
+              has not verified.
+
+  You can stop at any point with Ctrl-C and pick up where you left off.
+
+EOF
+pause "Press enter to begin."
+
+# ---------------------------------------------------------------- G1: identity
+if [[ -z "$(tok)" ]]; then
+  echo
+  echo "  $(bold "Sign in to Google")"
+  echo "  I never see your password — gcloud opens your browser and handles it."
+  echo
+  if ask_yn "Run 'gcloud auth login' now?"; then
+    echo
+    gcloud auth login || { echo "  Sign-in did not complete."; exit 10; }
+  else
+    echo "  Can't continue without it. Run bin/onboard again when ready."
+    exit 10
+  fi
+fi
+echo
+echo "  $(green ✓) Signed in as $(gcloud config get-value account 2>/dev/null)"
+
+# ------------------------------------------------------------- Firebase phase
+echo
+echo "  ── $(bold "Firebase") ─────────────────────────────────────────────────────"
+
+# Always offer the choice. If a previous run remembered one, it is a default to
+# confirm, not a decision already made on your behalf.
+if [[ -n "$PID" && -n "$PACKAGE" ]]; then
+  echo
+  echo "  Last time you chose:  $(bold "$PID")  /  $PACKAGE"
+  echo
+  ask_yn "Use that again?" && KEEP=1 || KEEP=0
+else
+  KEEP=0
+fi
+
+if ((KEEP == 0)); then
+  echo
+  echo "  $(bold "Pick the Firebase project")"
+  echo
+  PROJECTS="$(firebase_projects)" || { echo "  Could not list Firebase projects."; exit 20; }
+  [[ -n "$PROJECTS" ]] || { echo "  You have no Firebase-enabled projects."; exit 20; }
+
+  CHOICE="$(printf '%s\n' "$PROJECTS" | awk -F'\t' '{printf "%-30s %s\n", $1, $2}' | menu)" \
+    || { echo "  Nothing chosen."; exit 0; }
+  PID="$(awk '{print $1}' <<< "$CHOICE")"
+  refresh_derived
+  echo
+  echo "  $(green ✓) project: $PID"
+
+  echo
+  echo "  $(bold "Pick the Android app")"
+  echo
+  APPS="$(android_apps_of "$PID")"
+  if [[ -z "$APPS" ]]; then
+    echo "  $PID has no Android app registered yet."
+    echo "  Registering one changes your project, so it needs an explicit yes."
+    echo
+    if ask_yn "Register a new Android app in $PID?"; then
+      read -r -p "  Android package name (e.g. com.acme.app): " PACKAGE
+      [[ -n "$PACKAGE" ]] || { echo "  No package given."; exit 20; }
+      export CREATE_APP=1
+    else
+      echo "  Nothing to set up then. Pick a different project next run."
+      exit 0
+    fi
+  else
+    CHOICE="$(printf '%s\n' "$APPS" | awk -F'\t' '{printf "%-44s %s\n", $1, $2}' | menu)" \
+      || { echo "  Nothing chosen."; exit 0; }
+    PACKAGE="$(awk '{print $1}' <<< "$CHOICE")"
+  fi
+
+  save PID "$PID"; save PACKAGE "$PACKAGE"
+  # APP_ID belongs to the project and package we just replaced. Keeping it would
+  # point the actor at an app in someone else's project.
+  save APP_ID ""
+  echo
+  echo "  $(green ✓) app: $PACKAGE"
+fi
+
+# -------------------------------------------------------------------- the device
+# `emulator-5556` is a port number. Asked to confirm one, a developer is being
+# asked about a string they have no way to recognise — so every line here names
+# the AVD, and the remembered choice is stored as that name too.
+echo
+echo "  ── $(bold "Device") ─────────────────────────────────────────────────────────"
+
+# boot_avd lives in config.sh, so tests/device-pick.sh can drive its timeout.
+
+# Field 1 of every option is the machine value — an AVD name, or a serial for a
+# phone, which has no AVD name to go by. Same contract as the project picker.
+device_options() {
+  local s avd running=" "
+  for s in $(adb_devices); do
+    avd="$(avd_of "$s")"
+    if [[ -n "$avd" ]]; then
+      running="$running$avd "
+      printf '%-28s running\n' "$avd"
+    else
+      printf '%-28s running · %s\n' "$s" "$(adb -s "$s" shell getprop ro.product.model 2>/dev/null | tr -d '\r')"
+    fi
+  done
+  for avd in $(avd_list); do
+    [[ "$running" == *" $avd "* ]] && continue
+    printf '%-28s not running — start it\n' "$avd"
+  done
+}
+
+if DEV="$(device_serial)"; then WHY=""; else WHY="$DEV"; DEV=""; fi
+CHOSE=""
+if [[ -n "$DEV" ]]; then
+  echo
+  echo "  Device:  $(bold "$(device_label "$DEV")")"
+  echo
+  # Asked even when there is exactly one. A phone left plugged in to charge, or
+  # yesterday's emulator, is still the wrong device to prove a push on — and the
+  # only person who knows which one is meant is the one reading this.
+  if ask_yn "Use it?"; then
+    CHOSE="$(avd_of "$DEV")"; CHOSE="${CHOSE:-$DEV}"
+  fi
+else
+  echo
+  echo "  $WHY"
+fi
+
+if [[ -z "$CHOSE" ]]; then
+  echo
+  echo "  $(bold "Pick a device")"
+  echo
+  OPTS="$(device_options)"
+  if [[ -z "$OPTS" ]]; then
+    echo "  No devices and no AVDs. Create one in Android Studio, or attach a phone."
+    echo "  Everything before G13 still works — re-run when you have one."
+    echo
+  else
+    LINE="$(printf '%s\n' "$OPTS" | menu)" || LINE=""
+    if [[ -n "$LINE" ]]; then
+      CHOSE="$(awk '{print $1}' <<< "$LINE")"
+      if [[ "$LINE" == *"start it"* ]]; then
+        echo
+        boot_avd "$CHOSE" >/dev/null || true
+      fi
+    fi
+  fi
+fi
+
+if [[ -n "$CHOSE" ]]; then
+  save TARGET_DEVICE "$CHOSE"
+  # The AVD name is what gets remembered; the serial is resolved fresh, here and
+  # on every later run, because emulator serials are handed out in boot order.
+  if SER="$(target_serial "$CHOSE")"; then
+    export ANDROID_SERIAL="$SER"
+    echo
+    echo "  $(green ✓) device: $(device_label "$SER")"
+  else
+    echo
+    # Remembered regardless — it is still the device they chose. But the gates do
+    # not wait for anything, so don't promise that they do.
+    echo "  $(bold "$CHOSE") is not up yet. Remembered it, and G13 onwards will"
+    echo "  report it as not running until you start it."
+  fi
+else
+  echo "  No device chosen — G13 onwards will stay blocked, and say so."
+fi
+
+# ------------------------------------------------------------------- the ladder
+echo
+echo "  $(bold "Checking what already works")"
+QUIET_VERDICT=1 "$BIN/gates"
+LADDER=$?
+
+if ((LADDER == 0)); then
+  echo "  $(bold "Done — a push reached the device.") Nothing to change."
+  echo
+  exit 0
+fi
+
+# Everything the tool can do is already done, and what's left is someone running
+# the app or sending the proof. Saying "what I would change in your project" here,
+# then reporting "done" after provisioning nothing, was a lie in the front door:
+# rc 40 means no push has been proven.
+if ((LADDER == 40)); then
+  if push_proven; then
+    echo "  $(bold "A push arrived — and something above is still pending.")"
+  else
+    echo "  $(bold "Nothing is broken — and no push has been proven yet.")"
+  fi
+  echo
+  pending_advice | sed 's/^/      /'
+  echo
+  echo "  Then run $(bold "bin/onboard") again. Nothing already green gets redone."
+  echo
+  exit 40
+fi
+
+# -------------------------------------------------------------------- the plan
+echo "  $(bold "What I would change in $PID")"
+echo
+while IFS=$'\t' read -r id status owner name detail; do
+  [[ "$status" == green ]] && continue
+  case "$id" in
+    G4) echo "    · register $PACKAGE as an Android app in $PID"
+        # Consent for this is the one prompt below, not a remembered flag: a
+        # kept selection must not silently carry last run's permission to create.
+        NEEDS_APP=1 ;;
+    G5) echo "    · download google-services.json for $PACKAGE (local file, not a secret)" ;;
+    G6) echo "    · create service account '$SA_ID'" ;;
+    G7) echo "    · grant it $FCM_ROLE — send push, nothing else" ;;
+    G8) echo "    · create a JSON key at workspace/artifacts/sa-key.json, mode 0600" ;;
+    G9) echo "    · ask FCM to validate a send, proving the key works (nothing is delivered)" ;;
+  esac
+done < "$WS/state.tsv"
+cat <<EOF
+
+    The JSON key is a long-lived credential until you delete it. It is the thing
+    Iterable's Firebase integration needs. I'll offer to remove it at the end.
+
+EOF
+
+ask_yn "Go ahead?" || { echo; echo "  Nothing changed. Re-run bin/onboard any time."; echo; exit 0; }
+
+[[ "${NEEDS_APP:-0}" == 1 ]] && export CREATE_APP=1
+
+echo
+"$BIN/provision"
+RC=$?
+echo
+
+# provision ends by exec'ing the verifier, so RC is the whole ladder's verdict and
+# not a report on provisioning. 0 really does mean a push arrived; 40 means the
+# provisioning worked and nobody has run the app or sent the proof yet.
+if ((RC == 0 || RC == 40)); then
+  cat <<EOF
+  Your service-account key:  workspace/artifacts/sa-key.json
+  This is the file Iterable's Firebase push integration asks you to upload.
+
+EOF
+  if ask_yn "Delete the local key now? (choose no if you still need to upload it)"; then
+    rm -f "$SA_KEY" && echo "  Removed. The key still exists in Google — bin/teardown removes it there."
+  fi
+  echo
+fi
+
+case "$RC" in
+  0)
+    echo "  $(bold "Done — a push reached the device.") Verified, not assumed."
+    echo
+    echo "  To undo everything this added: $(bold "bin/teardown")"
+    echo
+    exit 0 ;;
+  40)
+    echo "  $(bold "Nothing is broken — and no push has been proven yet.")"
+    echo
+    pending_advice | sed 's/^/      /'
+    echo
+    echo "  Then run $(bold "bin/onboard") again. Nothing already green gets redone."
+    echo
+    exit 40 ;;
+esac
+
+echo "  Stopped short. The ladder above shows the first red gate — that is the real problem."
+echo "  Re-run bin/onboard to retry; nothing already green is redone."
+echo
+exit "$RC"

@@ -1,0 +1,13 @@
+node_modules/
+dist/
+
+# The human's workspace. Holds live credentials, Google session cookies, and
+# downloaded service-account keys. Never commit any of it.
+workspace/*
+# Two templates, both safe: example values only, no secrets.
+!workspace/inputs.yml
+!workspace/.env.example
+# ASK.md is deliberately NOT here. It is live output about one machine — it named
+# the local emulator serial — and rewritten every time the tool blocks.
+
+.DS_Store
