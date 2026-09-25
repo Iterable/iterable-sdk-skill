@@ -1415,6 +1415,21 @@ api_get() {
   [[ "$code" =~ ^2 ]]
 }
 
+# The app's google-services.json, written only once it is whole. `api_get … > "$GS_JSON"`
+# truncated the target before the fetch even ran, so a re-run that failed left an empty
+# file where a good one had been — and G5 then called the file unparseable instead of
+# calling the download failed. Lives here rather than in provision so a test can stub
+# api_get and prove the existing file survives.
+fetch_gs_json() {
+  api_get "https://firebase.googleapis.com/v1beta1/projects/$PID/androidApps/$1/config" \
+    | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{
+        const j=JSON.parse(d);
+        if(!j.configFileContents){console.error(JSON.stringify(j).slice(0,300));process.exit(1)}
+        process.stdout.write(Buffer.from(j.configFileContents,"base64").toString("utf8"))})' \
+    > "$GS_JSON.part" || { rm -f "$GS_JSON.part"; return 1; }
+  mv "$GS_JSON.part" "$GS_JSON"
+}
+
 jqn() { local s="$1"; shift; node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d||'{}');$s})" "$@"; }
 
 # Verdict on an FCM messages:send response, split out as a pure function so the
@@ -1474,10 +1489,16 @@ itbl_integration() { printf '%s' "${ITBL_PUSH_INTEGRATION:-$PACKAGE}"; }
 
 # Single writer for the workspace .env, kept 0600. An empty value deletes the key.
 save_env() {
-  ws_init; touch "$ITBL_ENV"; chmod 600 "$ITBL_ENV"
-  grep -v "^$1=" "$ITBL_ENV" > "$WS/.env.tmp" 2>/dev/null || true
-  mv "$WS/.env.tmp" "$ITBL_ENV"; chmod 600 "$ITBL_ENV"
-  [[ -n "${2:-}" ]] && printf '%s=%s\n' "$1" "$2" >> "$ITBL_ENV"
+  ws_init
+  # umask, not a chmod afterwards: the temp file holds every *other* key, and `mv`
+  # carries its mode with it, so the world-readable window existed at both names.
+  # The chmod stays for a file an older version of this left behind at 0644.
+  ( umask 077
+    touch "$ITBL_ENV"
+    grep -v "^$1=" "$ITBL_ENV" > "$WS/.env.tmp" 2>/dev/null || true
+    mv "$WS/.env.tmp" "$ITBL_ENV"
+    [[ -n "${2:-}" ]] && printf '%s=%s\n' "$1" "$2" >> "$ITBL_ENV" )
+  chmod 600 "$ITBL_ENV"
   return 0
 }
 

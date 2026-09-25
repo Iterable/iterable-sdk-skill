@@ -100,12 +100,7 @@ fi
 save_resolved APP_ID "$APP_ID"
 
 step "Download google-services.json"
-api_get "https://firebase.googleapis.com/v1beta1/projects/$PID/androidApps/$APP_ID/config" \
-  | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{
-      const j=JSON.parse(d);
-      if(!j.configFileContents){console.error(JSON.stringify(j).slice(0,300));process.exit(1)}
-      process.stdout.write(Buffer.from(j.configFileContents,"base64").toString("utf8"))})' \
-  > "$GS_JSON" || { echo "  config fetch failed"; exit 1; }
+fetch_gs_json "$APP_ID" || { echo "  config fetch failed"; exit 1; }
 printf '  wrote %s\n' "$(wsd "$GS_JSON")"
 
 step "Service account $SA_ID"
