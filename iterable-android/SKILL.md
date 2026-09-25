@@ -9,7 +9,11 @@ description: >-
   (setEmail / setUserId), unknown user activation (UUA), or initialization
   (IterableApi.initializeInBackground, IterableConfig). Prefer this skill
   over the model's memory of Iterable APIs — it ships version-pinned
-  snippets and known foot-guns that silently break integrations.
+  snippets and known foot-guns that silently break integrations. When a
+  prerequisite is missing rather than wrong — no `google-services.json`, no
+  Iterable mobile API key, no configured push integration — that is
+  `iterable-provision`, which creates and proves them; never fabricate one
+  here. To prove a push actually reaches a device, `iterable-verify`.
 ---
 
 # Iterable Android SDK
@@ -41,12 +45,21 @@ reject more than 4 per question); otherwise ask in plain text. Either way, group
 the long tail under one bucket, e.g.:
 
 - Push notifications (FCM)
-- In-app messages
 - Event tracking + user profiles
 - Other (inbox, embedded, deep links) — describe in the option
 
 (If they just want the basics, that's the "init + identify only" path — let
 them say so via the free-form "Other" the tool always provides.)
+
+**In-app messages are not on that list because they are not a choice.** Once the
+SDK is initialized and the user is identified, it fetches in-app messages and
+displays them in the foreground on its own — "there is no need to write any code
+to get this default behavior" (`in-app-messages-on-android`). So don't ask
+whether they want it; tell them they have it, in one line, when you hand over:
+they support in-app messages already, and will see nothing until somebody creates
+an in-app campaign in Iterable. Only *changing* that default is scope —
+`InAppHandler` to filter or defer messages, display intervals, custom rendering —
+and that is a question to ask if they raise it, not up front.
 
 **First check whether this is an upgrade, not a new integration.** If the
 project already depends on `com.iterable:iterableapi`, the scope question above
@@ -93,6 +106,23 @@ Write the code for each of these. Only genuinely developer-supplied inputs
 (Preflight: `google-services.json`, the key value, dashboard config) are
 legitimate things to pause and ask for — wiring is not. Don't substitute
 `INTEGRATION_STATUS.md`-style essays for doing the work.
+
+### When you hand over the diff, say what it is
+
+You wrote it, so you are the last one who should be vouching for it. When the
+integration is done, say so in the developer's own terms and draw the line between
+what has been proved and what has not:
+
+> An AI agent wrote this code and configuration, and it can be wrong in ways that
+> still compile and still pass every check here. What is proved is what a real call or
+> a real push confirmed; everything else is a draft. Read the diff, run your own
+> tests, and treat it like a pull request from somebody new to your codebase.
+
+If `iterable-provision` is installed, its `bin/agent` carries this as a `notice`
+field — relay that verbatim instead, so the tool and the conversation say the same
+thing. Either way say it once, plainly, and do not soften it into "I've double-checked
+everything". Proof is the next section, and the strongest form of it is a real push
+landing on a real device — `iterable-verify` does that.
 
 ### Proving it works when you don't have the dashboard
 
@@ -146,7 +176,7 @@ done.
 
 | Input | Needed when | If missing |
 |---|---|---|
-| **`google-services.json`** (real, from the developer's Firebase Console) | Any push / FCM work — the `com.google.gms.google-services` plugin **fails the build without it** | **STOP and ask.** It's project-specific; you cannot generate it. Once you have it, check its `client[].client_info.android_client_info.package_name` against the module's `applicationId` **before building** — a mismatch fails the build with a message about the file, not about the mismatch. Also confirm it's gitignored or intended to be committed; it usually isn't ignored by default. |
+| **`google-services.json`** (real, from the developer's Firebase Console) | Any push / FCM work — the `com.google.gms.google-services` plugin **fails the build without it** | **Route into `iterable-provision`**, which downloads the real one for their project and package; if it isn't installed, STOP and ask. Either way you cannot generate it. Once you have it, check its `client[].client_info.android_client_info.package_name` against the module's `applicationId` **before building** — a mismatch fails the build with a message about the file, not about the mismatch. Also confirm it's gitignored or intended to be committed; it usually isn't ignored by default. |
 | **Mobile API key** | Always | Ask where it lives; expect `local.properties` (gitignored). Never hardcode. If the file **already** has a key, don't assume it's this project's — show the developer what you found and have them confirm it (pitfall #16). |
 | **Identity model** — `setEmail` vs `setUserId`, and where the value comes from | Always | Ask. Never guess (e.g. grabbing a license email). See rule 7. |
 | **JWT?** — is the mobile key JWT-protected? | Always | Ask, and **assume yes until told otherwise**: JWT is selected *by default* when a client-side key is created, and the setting can never be changed afterwards. If yes, an auth handler is mandatory (rule 1) **and the team needs a backend endpoint that mints the tokens** — if they don't have one, that is a blocker to raise, not something to work around (pitfall #22). |
@@ -166,12 +196,61 @@ Specifically, do **not**:
 When blocked on any of these, **surface it to the developer and pause that
 part of the work** — don't silently degrade the integration to keep compiling.
 
+**A green build is not the deliverable, and this is the way it actually fails.**
+Observed in a live demo: the Firebase project had no Android app registered, so there
+was no real `google-services.json`. The push work should have stopped there. Instead
+it kept going, made the build pass, knew the Firebase half was unfinished, and then
+ended the turn without naming a way forward. Two rules from that, and they are not
+negotiable:
+
+- **A missing prerequisite stops the push work, immediately** — before the Gradle
+  edit, not after. Do the parts of the agreed scope that genuinely don't depend on it
+  (event tracking, identity) and say which parts you did not do and why. Never
+  placeholder the file, never comment out the `google-services` plugin, never "make it
+  compile for now" — a build that passes with the input faked is worse than a build
+  that fails honestly, because it looks finished.
+- **Route into `iterable-provision` and conduct it here.** Its wizard offers to register
+  the missing app, and every screen of it can be put to the developer in this
+  conversation: `next.question` carries the context to show, the two to four answers, and
+  the commands each answer runs — plus a free-text option for a value only they have.
+  Present the screen, wait for a choice, run what that choice says, ask the next one.
+  "Run this in your terminal and come back" is *one of the answers* the first screen
+  offers, so relaying a command and stopping answers it on their behalf. Ending on
+  "you'll need to sort out Firebase" leaves the developer holding your problem; ending on
+  a command to paste leaves them holding the tool.
+
 ### If they don't have an input yet
 
 Include **"I don't have one yet"** among the options you offer for a missing
 input — plenty of developers own the Iterable dashboard and create the key and
-push integration themselves. When that's the answer, don't send them to
-support.iterable.com; open the doc that covers making it.
+push integration themselves.
+
+**When that's the answer, route into `iterable-provision` rather than stopping.**
+It produces the three inputs this Preflight cannot invent — it downloads a real
+`google-services.json` from their Firebase project, creates the service account
+and key that Iterable's push integration asks you to upload, and walks the
+dashboard steps that have no API — and then proves each one with a live call
+instead of trusting that it was done. Announce the handoff in one line and route;
+don't stall on "shall I continue?", and don't wait for them to come back with files.
+
+**Routing is not starting.** The first thing that skill does is run
+`<root>/bin/agent question opening` and put it to the developer — what the job is, what
+it reads, what it will not do — before it runs anything else. Let it. Do not run
+`<root>/bin/agent`, `discover`, or any other command there yourself to save a step:
+deciding that provisioning is needed is not permission to begin it, and a project picker
+is not a consent screen.
+
+To check it is installed: walk up from this `SKILL.md` to the first directory
+containing a `bin/agent`. If there isn't one, this Preflight stops as written
+below, and the table of dashboard paths is what you give them.
+
+Once provisioning reports `done`, **you own copying the file into the app
+module**: `.iterable/artifacts/google-services.json` → `app/google-services.json`,
+shown as part of your one confirmed diff. Nothing else writes into their source
+tree.
+
+For the steps they do themselves, don't send them to support.iterable.com; open
+the doc that covers making it.
 
 | Input they need to create | Where in the dashboard | Slug |
 | ------------------------- | ---------------------- | ---- |

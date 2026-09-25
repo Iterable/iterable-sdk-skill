@@ -1,0 +1,383 @@
+#!/usr/bin/env bash
+# Read-only verifier for the whole ladder, G0-G17. Performs no provisioning: every
+# check here is a read, and each makes the smallest real call that fails if the
+# state is wrong. Exit 0 = all green, 10 = blocked on a human, 20 = a gate failed,
+# 40 = nothing is broken and nothing is proven yet.
+
+source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/gates-iterable.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/gates-device.sh"
+
+FIRST_RED=""
+FAILED=0
+STATE="$WS/state.tsv"
+ws_init; : > "$STATE"
+
+# The spinner hides the cursor, and a hidden cursor outlives the process — Ctrl-C out of
+# a slow gate would otherwise leave the developer's own shell without one. INT is named
+# separately because a trap on EXIT alone does not reliably run when a signal kills the
+# shell, and Ctrl-C during a device read is the likeliest way out of this script.
+trap 'printf "\033[?25h"; rm -f "$STATE.running"' EXIT
+trap 'printf "\033[?25h"; echo; exit 130' INT
+
+# brief() lives in config.sh so it can be tested without running the ladder.
+
+# Three states, not two. A gate downstream of a red prerequisite is *blocked*,
+# not failed: it says nothing about the system, so running it only produces
+# noise and burns API calls. Local file checks need no credentials, so they
+# still run and stay informative.
+HUMAN_FIX=""   # set when the first red gate is one only a human can clear
+GREEN=" "      # ids proven green this run
+PENDING=""     # ids that ran and found the state simply hasn't happened yet
+NGREEN=0
+TOTAL=0
+
+# A step with no read-back anywhere in the public API. Not a gate, and the ladder
+# must not imply otherwise: reading a local file to decide a remote step happened
+# is exactly the false pass this tool exists to avoid. Printed so the ladder shows
+# the whole flow, counted in nothing.
+note() {
+  printf '  %s  %-4s %-34s %s\n' "$(dim '~')" "$1" "$2" "$3"
+  row "$1" unverifiable human "$2" "$3"
+}
+
+# The single writer for state.tsv. Five columns — id, status, owner, name, verdict —
+# because a front end that has to re-derive the verdict text from the terminal
+# output is a second reader of the truth, and the two drift. brief() has already
+# stripped tabs and newlines, so a row cannot split itself.
+row() { printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" "$5" >> "$STATE"; }
+
+# Each gate names the gate it depends on. If that one isn't green, this one is
+# *blocked* — it cannot say anything true about the system, so running it would
+# only produce noise. A local file check is still downstream: "google-services.json
+# is missing" is not a useful complaint when we haven't identified a project yet.
+gate() {
+  local id="$1" name="$2" prereq="$3" owner="$4"; shift 4
+  ((TOTAL++))
+  # Comma-separated prerequisites: G15 needs both a working key (G10) and a token
+  # on the device (G14), and either one missing makes it unanswerable.
+  if [[ "$prereq" != - ]]; then
+    local p deps missing=""
+    IFS=, read -ra deps <<< "$prereq"
+    for p in "${deps[@]}"; do
+      [[ "$GREEN" == *" $p "* ]] || { missing="$p"; break; }
+    done
+    if [[ -n "$missing" ]]; then
+      # By name, not by id. This detail is the one the front ends relay to the
+      # developer, and "waiting on G2" is our vocabulary, not theirs. The row is
+      # already in state.tsv — prerequisites always run first — so there is no
+      # second copy of the names to keep in step.
+      local mname; mname="$(awk -F'\t' -v i="$missing" '$1==i{print $4; exit}' "$STATE")"
+      printf '  %s  %-4s %-34s %s\n' "$(dim ·)" "$id" "$name" "waiting on ${mname:-$missing}"
+      row "$id" blocked "$owner" "$name" "waiting on ${mname:-$missing}"
+      return
+    fi
+  fi
+  local out rc running="$STATE.running"
+  # Not a command substitution any more: the body runs in the background so its row can
+  # mark time while it works. A gate body was always in a subshell, so nothing it sets
+  # was ever visible here — that part is unchanged.
+  run_spinner "$running" "$(printf '%-4s %-34s checking' "$id" "$name")" "$@"
+  rc=$?
+  out="$(brief < "$running")"
+  rm -f "$running"
+  # Only a green row's detail is dim. The status glyph carries the answer there, and the
+  # text behind it is corroboration nobody has to act on — whereas on every other row it
+  # is the one thing worth reading, and grey is how you make text nobody reads.
+  if ((rc == 0)); then
+    printf '  %s  %-4s %-34s %s\n' "$(green ✓)" "$id" "$name" "$(dim "${out:-ok}")"
+    GREEN+="$id "
+    ((NGREEN++))
+    row "$id" green "$owner" "$name" "${out:-ok}"
+  elif ((rc == 2)); then
+    # rc 2 = the answer is "not yet". The gate ran, reached the service, and found
+    # the state simply hasn't happened — nobody has registered a token, nothing has
+    # been sent. Reporting that as red blames the customer for pending work.
+    printf '  %s  %-4s %-34s %s\n' "$(dim '·')" "$id" "$name" "${out:-not yet}"
+    PENDING+="$id "
+    row "$id" pending "$owner" "$name" "${out:-not yet}"
+  else
+    row "$id" red "$owner" "$name" "${out:-failed}"
+    printf '  %s  %-4s %-34s %s\n' "$(red ✗)" "$id" "$name" "$(red "${out:-failed}")"
+    FAILED=1
+    if [[ -z "$FIRST_RED" ]]; then
+      FIRST_RED="$id"
+      [[ "$owner" == human ]] && HUMAN_FIX="$out"
+    fi
+  fi
+}
+
+g0() {
+  local missing
+  missing="$(missing_tools | tr '\n' ' ')"
+  [[ -n "${missing// /}" ]] && { echo "missing: ${missing% }"; return 1; }
+  echo "node $(node -v), gcloud $(gcloud version 2>/dev/null | awk '/Google Cloud SDK/{print $4}')"
+}
+
+# Presence of a credential is not proof of a working credential: mint a token
+# AND spend it. This gate passed on expired creds when it only read gcloud config.
+g1() {
+  local t; t="$(tok)" || { echo "no token: run 'gcloud auth login'"; return 1; }
+  [[ -n "$t" ]] || { echo "empty token: run 'gcloud auth login'"; return 1; }
+  local code
+  code="$(curl_auth "Authorization: Bearer $t" -- \
+    -sS -o /dev/null -w '%{http_code}' \
+    'https://cloudresourcemanager.googleapis.com/v1/projects?pageSize=1')"
+  [[ "$code" == 200 ]] || { echo "token rejected (HTTP $code): run 'gcloud auth login'"; return 1; }
+  echo "$(gcloud config get-value account 2>/dev/null), token spendable"
+}
+
+g2() {
+  # rc 2, not 1: nobody has named a project yet. That is a choice nobody has made,
+  # not a defect in their account, and reporting it red blames them for pending work.
+  [[ -n "$PID" ]] || { echo "no project selected yet — nothing has named the project this is about"; return 2; }
+  gcloud projects describe "$PID" --format='value(projectId,lifecycleState)' 2>&1 | tr '\t' ' '
+}
+
+g3() {
+  api_get "https://firebase.googleapis.com/v1beta1/projects/$PID" >/dev/null || return 1
+  echo "firebase enabled on $PID"
+}
+
+g4() {
+  local body; body="$(api_get "https://firebase.googleapis.com/v1beta1/projects/$PID/androidApps")" || return 1
+  local appid rc
+  appid="$(printf '%s' "$body" | node -e '
+    let d=""; process.stdin.on("data",c=>d+=c).on("end",()=>{
+      const apps=(JSON.parse(d||"{}").apps)||[];
+      const m=apps.find(a=>a.packageName===process.argv[1]);
+      if(!m){console.error("no app with packageName "+process.argv[1]);process.exit(3)}
+      console.log(m.appId);
+    })' "$PACKAGE" 2>&1)"; rc=$?
+  # A project with no such app yet is work nobody has done, not a project answering
+  # wrong — rc 2 so the run reports pending rather than a defect. An agent told the
+  # tool has broken escalates to a human, which is the correct response to a defect
+  # and the wrong one here: registering the app is the next step it can take.
+  ((rc == 3)) && { echo "$appid"; return 2; }
+  ((rc == 0)) || { echo "$appid"; return 1; }
+  echo "$appid"
+}
+
+g5() {
+  # Absent is pending for the same reason as G4 and G6: provisioning downloads it, and
+  # a file nobody has fetched yet is not a file that is wrong. A present-but-mismatched
+  # one below stays red, because that is a real disagreement with the project.
+  [[ -f "$GS_JSON" ]] || { echo "not downloaded yet"; return 2; }
+  node -e '
+    const fs=require("fs"), [f,pid,pkg]=process.argv.slice(1);
+    let j; try{ j=JSON.parse(fs.readFileSync(f,"utf8")) }catch(e){ console.error("unparseable: "+e.message); process.exit(1) }
+    const fail=m=>{console.error(m);process.exit(1)};
+    if(j.project_info?.project_id!==pid) fail(`project_id ${j.project_info?.project_id} != ${pid}`);
+    const c=(j.client||[]).find(c=>c.client_info?.android_client_info?.package_name===pkg);
+    if(!c) fail(`no client[] entry for ${pkg}`);
+    if(!c.api_key?.[0]?.current_key) fail("api_key missing");
+    console.log(`project_id + package_name + api_key all present`);
+  ' "$GS_JSON" "$PID" "$PACKAGE" 2>&1
+}
+
+# gcloud's NOT_FOUND for a service account is three sentences long and mentions
+# the authenticated identity, which reads like a permissions failure. It isn't.
+g6() {
+  local out rc
+  out="$(sa_exists)"; rc=$?
+  case "$rc" in
+    0) printf '%s' "$out"; return 0 ;;
+    # Absent is pending: provisioning is what creates it, and nothing is wrong until
+    # provisioning has tried. rc 2 keeps that out of the defect count.
+    1) echo "not created yet"; return 2 ;;
+    *) printf '%s' "$out"; return 1 ;;
+  esac
+}
+
+g7() {
+  local bound
+  bound="$(gcloud projects get-iam-policy "$PID" \
+    --flatten='bindings[].members' \
+    --filter="bindings.role=$FCM_ROLE AND bindings.members:$SA_EMAIL" \
+    --format='value(bindings.role)' 2>&1)"
+  [[ "$bound" == "$FCM_ROLE" ]] || { echo "$FCM_ROLE not bound to $SA_ID"; return 1; }
+  echo "$FCM_ROLE"
+}
+
+g8() {
+  [[ -f "$SA_KEY" ]] || { echo "not created yet"; return 1; }
+  local mode; mode="$(stat -f '%Lp' "$SA_KEY")"
+  [[ "$mode" == 600 ]] || { echo "mode $mode, must be 600"; return 1; }
+  node -e '
+    const fs=require("fs"), [f,pid]=process.argv.slice(1);
+    let j; try{ j=JSON.parse(fs.readFileSync(f,"utf8")) }catch(e){ console.error("unparseable: "+e.message); process.exit(1) }
+    const fail=m=>{console.error(m);process.exit(1)};
+    if(j.type!=="service_account") fail(`type is ${j.type}`);
+    if(j.project_id!==pid) fail(`key project_id ${j.project_id} != ${pid}`);
+    if(!j.private_key) fail("private_key missing");
+    console.log("service_account key, project matches, mode 600");
+  ' "$SA_KEY" "$PID" 2>&1
+}
+
+# The credential proof. Mints a token as the service account and asks FCM to
+# validate a send. validate_only means nothing is delivered.
+mint_once() {
+  local t
+  t="$(gcloud auth print-access-token --impersonate-service-account="$SA_EMAIL" \
+        --scopes=https://www.googleapis.com/auth/firebase.messaging 2>/dev/null)" \
+    || t="$(SA_KEY_FILE="$SA_KEY" node "$(dirname "${BASH_SOURCE[0]}")/sa-token.js" 2>&1)"
+  printf '%s' "$t"
+  [[ -n "$t" && "$t" != *error* ]]
+}
+
+# One attempt at the whole proof: mint a token from the key, then ask FCM to
+# validate a send. Echoes the verdict. Returns 0 green, 1 red, 2 "not yet".
+g9_probe() {
+  local t body code
+  t="$(mint_once)" || {
+    # Keep the cause in the message: if the retry gives up, this is what the
+    # developer has to act on, and "not yet" alone would hide it.
+    [[ "$t" == *"Invalid JWT Signature"* ]] \
+      && { echo "key not usable yet (Invalid JWT Signature)"; return 2; }
+    echo "could not mint SA token: $t"; return 1
+  }
+  body="$(curl_auth "Authorization: Bearer $t" -- \
+    -sS -w $'\n%{http_code}' -X POST -H 'Content-Type: application/json' \
+    -d '{"validate_only":true,"message":{"token":"validate-only-placeholder","data":{"probe":"g9"}}}' \
+    "https://fcm.googleapis.com/v1/projects/$PID/messages:send")"
+  code="${body##*$'\n'}"; body="${body%$'\n'*}"
+  classify_fcm_response "$code" "$body"
+}
+
+# Two things here are eventually consistent, and both looked like defects on a real
+# run. A new key answers "Invalid JWT Signature" until its public half propagates
+# (measured 64s); a new role binding answers 403 on cloudmessaging.messages.create
+# until IAM propagates (measured 74s) — even though G7 is already green, because the
+# binding really is in the policy. So retry both, but only while the credential is
+# young and only to a deadline: an old key or an genuinely unbound role still goes
+# red with the real message.
+g9() {
+  [[ -f "$SA_KEY" ]] || { echo "no key to test"; return 1; }
+  local out rc started=$SECONDS waited age
+  age=$(( $(date +%s) - $(stat -f %m "$SA_KEY" 2>/dev/null || echo 0) ))
+  local deadline=$((SECONDS + ${PROPAGATION_WAIT:-${KEY_PROPAGATION_WAIT:-180}}))
+  while :; do
+    out="$(g9_probe)"; rc=$?
+    ((rc == 2)) || break
+    (( age < 900 && SECONDS < deadline )) || break
+    sleep 5
+  done
+  waited=$((SECONDS - started))
+  if ((rc == 2)); then
+    echo "$out — still not after ${waited}s"
+    return 1
+  fi
+  ((waited > 5)) && out="$out, ready after ${waited}s"
+  echo "$out"
+  ((rc == 0))
+}
+
+echo
+echo "  Google-side ladder — project ${PID:-<none selected>}, package ${PACKAGE:-<none selected>}"
+echo
+gate G0 "Tooling present"            -   human  g0
+gate G1 "Google authenticated"       G0  human  g1
+gate G2 "GCP project exists"         G1  tool   g2
+gate G3 "Firebase enabled"           G2  tool   g3
+gate G4 "Android app registered"     G3  tool   g4
+gate G5 "google-services.json sane"  G4  tool   g5
+gate G6 "Service account exists"     G2  tool   g6
+gate G7 "FCM role bound"             G6  tool   g7
+gate G8 "Key file sane"              G7  tool   g8
+gate G9 "Key actually works"         G8  tool   g9
+
+echo
+DEV="$(device_serial)" || DEV="no device"
+echo "  Iterable and device ladder — ${ITBL_BASE#https://}, user ${ITBL_EMAIL:-<none set>}, on $DEV"
+echo
+gate G10 "Iterable API keys work"     -       human  g10
+note G11 "Mobile app in Iterable"     "human step — no API read-back exists"
+note G12 "Push integration configured" "human step — no API read-back exists"
+# The device half reads the developer's own app on their own device. G13 depends on
+# no gate above it on purpose: an installed APK is a fact about the device, and it
+# stays worth reporting when the Google or Iterable half is still red.
+gate G13 "App installed with the SDK"  -    human  g13
+gate G14 "FCM token obtained"          G13  tool   g14
+# Deliberately NOT waiting on G14, even now that G14 exists. The two gates read
+# different kinds of evidence: G14 reads a log ring buffer that rotates within
+# hours, G15 reads durable server state. So they can legitimately disagree — a
+# token registered yesterday is invisible to G14 and plainly there for G15 — and
+# when they do, the durable one is the one worth believing. Chaining them would
+# silence the more reliable of the two.
+gate G15 "Token registered in Iterable" G10 tool g15
+gate G16 "Push arrives on device"      G13  tool   g16
+# G17 only means something for a campaign send. Measured 2026-09-21: a proof send
+# via templates/push/proof that demonstrably reached the device produced *zero*
+# push events on /api/events/{email}, checked over 7 minutes. So on the proof path
+# G17 has nothing to read, and leaving it as a gate would leave the ladder
+# permanently "not done" for a run that in fact succeeded.
+#
+# It must not wait on G16 either: it corroborates G16 from the server side, so
+# coupling them would silence the one gate that can explain a G16 failure —
+# pushSendSkip and pushBounce are what you want when no push landed.
+if [[ -n "$ITBL_CAMPAIGN_ID" ]]; then
+  gate G17 "Iterable agrees it sent"    G10 tool g17
+else
+  note G17 "Iterable agrees it sent"    "proof sends raise no pushSend event — set ITBL_CAMPAIGN_ID"
+fi
+
+echo
+printf '  %d of %d gates green.\n' "$NGREEN" "$TOTAL"
+echo
+
+if ((FAILED == 0)); then
+  if [[ -n "$PENDING" ]]; then
+    if [[ "${QUIET_VERDICT:-0}" != 1 ]]; then
+      echo "  Nothing is broken, and this is not done."
+      echo "    ${PENDING% } — ran fine, the state just hasn't happened yet."
+      # Which of the two true things to say depends on G16. Saying "no push has been
+      # proven" while G16 is green is the same class of error as the false green,
+      # just pointing the other way.
+      if [[ "$GREEN" == *" G16 "* ]]; then
+        echo "  A push did arrive — the device check saw it. Something else is still pending."
+      else
+        echo "  $(bold "No push has been proven. Do not read this as success.")"
+      fi
+      blocker_banner
+    fi
+    exit 40
+  fi
+  echo "  All gates green — a push reached the device."
+  # The one run where the review reminder belongs in the verifier's own output: the
+  # code is written, the push is proven, and this is the moment somebody is most
+  # likely to mistake a green ladder for a reviewed change.
+  [[ "${QUIET_VERDICT:-0}" == 1 ]] || ai_notice_banner
+  echo
+  exit 0
+fi
+
+# Exit 10 and 20 are different situations with different owners: 10 is "the tool
+# needs you", 20 is "the tool found a real defect". Conflating them means a cron
+# loop cannot tell "waiting on a human" from "broken".
+if [[ -n "$HUMAN_FIX" ]]; then
+  cat > "$WS/ASK.md" <<EOF
+# ASK.md
+
+Waiting on you at **$(gate_name "$FIRST_RED")**, which only you can clear.
+
+    $HUMAN_FIX
+
+Do that, then run this again — nothing already green will be redone:
+
+    $(cmd_path onboard)
+
+_Written $(date '+%Y-%m-%d %H:%M'). The tool overwrites this file each time it blocks._
+EOF
+  # bin/onboard prints its own block; don't say it twice.
+  if [[ "${QUIET_VERDICT:-0}" != 1 ]]; then
+    blocker_banner
+    echo "  $(dim "Also written to $(wsp ASK.md).")"
+    echo
+  fi
+  exit 10
+fi
+
+if [[ "${QUIET_VERDICT:-0}" != 1 ]]; then
+  blocker_banner
+fi
+exit 20

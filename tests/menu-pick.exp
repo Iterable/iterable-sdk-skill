@@ -1,0 +1,112 @@
+#!/usr/bin/expect -f
+# Drives the picker through a real pty. Nothing offline can reach it: the arrow-key
+# form only runs when stderr is a terminal, and the keys themselves are escape
+# sequences a pipe never delivers.
+#
+# No network, no credentials, no device — only config.sh's menu functions.
+
+set timeout 20
+set out "/tmp/itbl-menu-pick.out"
+set failed 0
+
+# config.sh refuses to resolve a workspace inside the tool itself, which is where a
+# run from the repo would land. Without this the source fails, the menu never opens,
+# and the cancel cases pass for the wrong reason — they did, before this line existed.
+set ws "/tmp/itbl-menu-pick.ws"
+file delete -force $ws
+file mkdir $ws
+set env(WS) $ws
+
+proc ok  {msg} { puts "  \033\[32mPASS\033\[0m $msg" }
+proc bad {msg why} { global failed; set failed 1; puts "  \033\[31mFAIL\033\[0m $msg — $why" }
+
+# Runs the picker over four known options, sends keys, returns the chosen line.
+# stdout goes to a file because in a pty it would otherwise be mixed in with the
+# drawing, which is on stderr — and which half goes where is part of the contract.
+proc pick {pre keys} {
+  global out
+  file delete -force $out
+  spawn bash -c "$pre source bin/config.sh; printf 'alpha\\nbravo\\ncharlie\\ndelta\\n' | menu > $out"
+  foreach k $keys { send -- $k; sleep 0.1 }
+  expect eof
+  if {![file exists $out]} { return "" }
+  set f [open $out r]; set v [read $f]; close $f
+  return $v
+}
+
+puts ""
+puts "  The picker — arrow keys, and everything that used to work still does"
+puts ""
+
+# ------------------------------------------------------------------- arrow keys
+if {[pick "" [list "\033\[B" "\033\[B" "\r"]] eq "charlie"} {
+  ok "down twice and enter picks the third option"
+} else {
+  bad "down twice and enter" "did not land on charlie"
+}
+
+if {[pick "" [list "\r"]] eq "alpha"} {
+  ok "enter on arrival takes the first"
+} else {
+  bad "enter with no movement" "the highlight did not start at the top"
+}
+
+# Wrapping matters more here than it looks: the list is the whole choice, and a
+# developer who overshoots the bottom should not have to travel back up it.
+if {[pick "" [list "\033\[A" "\r"]] eq "delta"} {
+  ok "up from the top wraps to the bottom"
+} else {
+  bad "up from the top" "did not wrap to delta"
+}
+
+if {[pick "" [list "j" "\r"]] eq "bravo"} {
+  ok "j and k move too, for anyone who expects them to"
+} else {
+  bad "j moves down" "did not reach bravo"
+}
+
+# ------------------------------------------------------------------- the digits
+# The old form was numbered, and the number was in muscle memory and in every note
+# anybody wrote down. Typing it still works, so the two forms never disagree about
+# what you can press.
+if {[pick "" [list "3" "\r"]] eq "charlie"} {
+  ok "typing the number still selects it"
+} else {
+  bad "typing 3 then enter" "the number no longer reaches the third option"
+}
+
+# ---------------------------------------------------------------- cancelling
+set v [pick "" [list "q"]]
+if {$v eq ""} { ok "q cancels and chooses nothing" } else { bad "q cancels" "chose '$v'" }
+
+set v [pick "" [list "\033" "\033"]]
+if {$v eq ""} { ok "so does escape" } else { bad "escape cancels" "chose '$v'" }
+
+# A hidden cursor that is never restored outlives the process and leaves the
+# developer's own shell without one. Every exit path has to put it back.
+spawn bash -c "source bin/config.sh; printf 'alpha\\nbravo\\n' | menu > /dev/null"
+send -- "q"
+# -ex, not glob: expect reads `[?25h` as a character class and matches nothing useful.
+expect {
+  -ex "\033\[?25h" { ok "the cursor is restored on the way out" }
+  eof { bad "the cursor is restored" "no show-cursor sequence before exit" }
+  timeout { bad "the cursor is restored" "picker never exited" }
+}
+expect eof
+
+# ------------------------------------------------------------- the plain form
+# Still reachable on purpose: a terminal that eats escape sequences, a list taller
+# than the window, MENU_PLAIN=1. It is the form the expect suite for the wizard
+# drives, so it is not allowed to rot.
+set v [pick "export MENU_PLAIN=1;" [list "2\r"]]
+if {$v eq "bravo"} {
+  ok "the numbered form still answers when asked for"
+} else {
+  bad "MENU_PLAIN still works" "got '$v'"
+}
+
+file delete -force $out
+file delete -force $ws
+puts ""
+if {$failed} { puts "  FAILED"; exit 1 }
+puts "  All good — arrows, letters, digits and both cancels."

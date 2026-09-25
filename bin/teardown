@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# Removes only what this tool added: the service account, its role binding, its
+# keys, and the local artifacts. Never touches your Firebase project, your app,
+# or anything you had before.
+
+source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
+
+require_pid || exit 10
+
+echo
+echo "  Would remove from $(bold "$PID"):"
+echo "    · service account $SA_EMAIL (and all its keys)"
+echo "    · its $FCM_ROLE binding"
+echo "    · local files: $(wsp artifacts/)"
+echo
+echo "  Leaves untouched: the project, Firebase, your Android app, and any"
+echo "  credential you created yourself."
+echo
+
+if interactive; then
+  read -r -p "  Proceed? [y/N] " ans
+  [[ "$ans" == [yY]* ]] || { echo "  Nothing removed."; echo; exit 0; }
+elif [[ "${1:-}" != --yes ]]; then
+  echo "  Non-interactive: re-run with --yes to confirm."
+  exit 10
+fi
+
+echo
+
+# Signed out looks identical to already-torn-down from in here, and reading it the
+# second way let this script report "already gone" about an account it never managed
+# to ask about — then delete the local key, leaving a live credential nothing can see.
+if [[ -z "$(tok)" ]]; then
+  echo "  Not signed in to Google, so nothing here can be checked, let alone removed."
+  echo
+  echo "      $(bold "gcloud auth login")"
+  echo
+  echo "  Then run this again. Nothing was removed."
+  echo
+  exit 10
+fi
+
+out="$(sa_exists)"; rc=$?
+if ((rc == 0)); then
+  gcloud projects remove-iam-policy-binding "$PID" \
+    --member="serviceAccount:$SA_EMAIL" --role="$FCM_ROLE" --quiet >/dev/null 2>&1 \
+    && echo "  removed role binding"
+  # Deleting the account revokes its keys, so no separate key deletion is needed.
+  # Which is also why a failure here has to stop the script: the local key below is
+  # only safe to remove once the account it belongs to is gone.
+  if gcloud iam service-accounts delete "$SA_EMAIL" --quiet; then
+    echo "  deleted $SA_EMAIL"
+  else
+    echo
+    echo "  Could not delete $SA_EMAIL — nothing local was removed either, because"
+    echo "  the key on disk still opens an account that still exists."
+    echo
+    exit 1
+  fi
+elif ((rc == 1)); then
+  echo "  service account already gone"
+else
+  echo "  could not check $SA_EMAIL:"
+  printf '    %s\n' "$(cut -c1-160 <<< "$out")"
+  echo
+  echo "  Nothing was removed — the local key stays, because deleting it while the"
+  echo "  account may still exist would orphan a live credential."
+  echo
+  exit 1
+fi
+
+rm -rf "$ART" && echo "  removed local artifacts"
+rm -f "$WS/state.tsv"
+echo
+echo "  Done. Nothing here checked the result — run the ladder for that:"
+echo
+run_line gates
+echo

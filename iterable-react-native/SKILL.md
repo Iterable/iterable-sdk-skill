@@ -11,7 +11,11 @@ description: >-
   model's memory of Iterable APIs and over the Android/iOS skills: the JS
   surface is narrower than the native one, and native APIs are not reachable
   from JavaScript. Ships version-pinned snippets and known foot-guns that
-  silently break integrations.
+  silently break integrations. When a prerequisite is missing rather than
+  wrong — no `google-services.json`, no Iterable mobile API key, no
+  configured push integration — that is `iterable-provision`, which creates
+  and proves them; never fabricate one here. To prove a push actually reaches
+  a device, `iterable-verify` (Android target).
 ---
 
 # Iterable React Native SDK
@@ -64,9 +68,16 @@ multi-select question tool (in Claude Code, `AskUserQuestion` with
 use it and offer **at most 4 options**; otherwise ask in plain text:
 
 - Push notifications (FCM / APNs)
-- In-app messages
 - Event tracking + user identity
 - Other (inbox, embedded, deep links) — describe in the option
+
+**In-app messages are absent from that list on purpose.** By default the SDK
+displays every in-app message it receives and tracks the interactions
+(`in-app-messages`), so an initialized, identified app has them whether or not
+anybody asked. Say so when you hand over — they support in-app already, and will
+see nothing until an in-app campaign exists in Iterable — rather than offering it
+as a feature to opt into. Customizing the default (skipping, deferring, custom
+rendering) is scope; having it is not.
 
 **First check whether this is an upgrade, not a new integration.** If the
 project already depends on `@iterable/react-native-sdk` (and, on Expo,
@@ -101,6 +112,21 @@ Within the agreed scope, an integration is finished only when:
 Only genuinely developer-supplied inputs (API key, identity model, region,
 JWT, `google-services.json` / APNs key) are legitimate pauses.
 
+### When you hand over the diff, say what it is
+
+You wrote it, so you are the last one who should be vouching for it. Draw the line
+between what has been proved and what has not:
+
+> An AI agent wrote this code and configuration, and it can be wrong in ways that
+> still compile and still pass every check here. What is proved is what a real call or
+> a real push confirmed; everything else is a draft. Read the diff, run your own
+> tests, and treat it like a pull request from somebody new to your codebase.
+
+If `iterable-provision` is installed, its `bin/agent` carries this as a `notice`
+field — relay that verbatim instead, so the tool and the conversation say the same
+thing. Say it once, plainly, and never soften it into "I've double-checked
+everything".
+
 ---
 
 ## Preflight — STOP and gather these before writing any code
@@ -115,19 +141,51 @@ JWT, `google-services.json` / APNs key) are legitimate pauses.
 | **Identity model** — `setEmail` vs `setUserId`, and where the value comes from | Always | Ask. Never guess. |
 | **JWT?** — is the mobile key JWT-protected? | Always | Ask, and **assume yes until told otherwise** (it is on by default for client-side keys and is permanent). If yes, `authHandler` is mandatory (rule 1) **and the team needs a backend endpoint that mints the tokens** — if they don't have one, raise it as a blocker instead of signing in the app. |
 | **Data region** — US or EU | Always | Ask if their dashboard is `app.eu.iterable.com`. See pitfall #2. |
-| **`google-services.json`** (Firebase) | Android push (bare **or** Expo) | **STOP and ask.** You cannot generate it. Expo: path goes in `expo.android.googleServicesFile`, not a hand-edited `android/`. |
+| **`google-services.json`** (Firebase) | Android push (bare **or** Expo) | **Route into `iterable-provision`**, which downloads the real one; if it isn't installed, STOP and ask. Either way you cannot generate it. Expo: path goes in `expo.android.googleServicesFile`, not a hand-edited `android/`. |
 | **APNs key / capabilities** | Bare-workflow push on iOS | Ask. Follow `reference/push-notifications.md`. |
 | **Development build vs Expo Go** | Expo | Expo Go cannot run this SDK (pitfall #7). If they are in Expo Go, stop and move them to a development build before debugging JS. |
 
 **Never fabricate a prerequisite to make the build pass.** Do not invent an
 API key, a placeholder `google-services.json`, or a JWT signed in the client.
 
+**A green build is not the deliverable.** Seen live on the Android side: the Firebase
+project had no app registered, so there was no real `google-services.json`; the work
+carried on anyway, made it compile, and ended the turn without naming a way forward.
+So — a missing prerequisite stops the push work *before* the native edit, and you say
+which parts of the agreed scope you did not do and why. Then route into
+`iterable-provision` and conduct it here rather than handing over a command: its wizard
+offers to register the missing app, and `next.question` gives you each screen to put to
+the developer — the context, the two to four answers, the commands each one runs, and a
+free-text option for a value only they have. Present it, wait, run their choice, ask the
+next. "I'll run it in my own terminal" is one of the answers the first screen offers, so
+a relayed command and a stop answers that for them.
+
 ### If they don't have an input yet
 
 Include **"I don't have one yet"** among the options you offer for a missing
 input — plenty of developers own the Iterable dashboard and create the key and
-push integration themselves. When that's the answer, don't send them to
-support.iterable.com; open the doc that covers making it.
+push integration themselves.
+
+**When that's the answer, route into `iterable-provision` rather than stopping.**
+It produces the three inputs this Preflight cannot invent — a real
+`google-services.json`, the service-account key that Iterable's push integration
+asks you to upload, and the dashboard steps that have no API — and proves each
+one with a live call. Announce the handoff in one line and route. To check it
+is installed, walk up from this `SKILL.md` to the first directory containing a
+`bin/agent`; if there isn't one, this Preflight stops as written above.
+
+**Routing is not starting.** The first thing that skill does is run
+`<root>/bin/agent question opening` and put it to the developer before running anything
+else. Let it, and don't run `<root>/bin/agent` or `discover` yourself to save a step —
+deciding provisioning is needed is not permission to begin it.
+
+Once it reports `done`, **you own placing the file**: on bare RN copy
+`.iterable/artifacts/google-services.json` to `android/app/google-services.json`;
+on Expo put it where `expo.android.googleServicesFile` points, never by
+hand-editing `android/`. Show it as part of your one confirmed diff.
+
+For the steps they do themselves, don't send them to support.iterable.com; open
+the doc that covers making it.
 
 | Input they need to create | Where in the dashboard | Slug |
 | ------------------------- | ---------------------- | ---- |

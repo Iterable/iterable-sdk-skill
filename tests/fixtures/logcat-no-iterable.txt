@@ -1,0 +1,80 @@
+--------- beginning of system
+09-21 11:54:15.663   687  1872 I ActivityManager: Force stopping com.dogshelter appid=10215 user=0: from pid 11731
+09-21 11:54:15.665   687  1872 I ActivityManager: Killing 6641:com.dogshelter/u0a215 (adj 900): stop com.dogshelter due to from pid 11731
+09-21 11:54:15.673   687  1872 D ActivityManager: sync unfroze 8196 com.google.android.webview:sandboxed_process0:org.chromium.content.app.SandboxedProcessService0:0 for 5
+09-21 11:54:15.679   687  1872 W ActivityTaskManager: Force removing ActivityRecord{63781167 u0 com.dogshelter/.MainActivity t16 f}}: app died, no saved state
+09-21 11:54:15.684   687   803 W UsageStatsService: Unexpected activity event reported! (com.dogshelter/com.dogshelter.MainActivity event : 23 instanceId : 254270268)
+--------- beginning of main
+09-21 11:54:15.687  8196  8196 I cr_ChildProcessService: Destroying ChildProcessService pid=8196
+09-21 11:54:15.688   687  1872 W ActivityTaskManager: Force removing ActivityRecord{59960658 u0 com.dogshelter/.MainActivity t16 f}}: app died, no saved state
+09-21 11:54:15.690   687   803 W UsageStatsService: Unexpected activity event reported! (com.dogshelter/com.dogshelter.MainActivity event : 23 instanceId : 264683808)
+09-21 11:54:15.694  8196  8196 I ocessService0:0: System.exit called, status: 0
+09-21 11:54:15.694  8196  8196 I AndroidRuntime: VM exiting with result code 0, cleanup skipped.
+09-21 11:54:15.697  1102  1102 D RecentsView: onTaskRemoved: 16, not handling task stack changes
+09-21 11:54:15.698  1102  1102 D RecentsView: onTaskRemoved: 16, not handling task stack changes
+09-21 11:54:15.699   687  1872 I ActivityManager: Killing 8196:com.google.android.webview:sandboxed_process0:org.chromium.content.app.SandboxedProcessService0:0/u0a215i0 (adj 0): isolated not needed
+09-21 11:54:15.699   687   915 D BackgroundInstallControlService: Package event received: 0
+09-21 11:54:15.699   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.699   687   915 D BackgroundInstallControlService: Package event received: 0
+09-21 11:54:15.699   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.699   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.700   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.700   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.702   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.702   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.702   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.702   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.702   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.702   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.702   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.703   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.703   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.703   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.703   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.703   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.703   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.703   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.703   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.703   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.703   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.703   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.703   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.703   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.704   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.704   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.704   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.704   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.704   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.704   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.704   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.704   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.704   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.704   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.704   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.704   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.704   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.704   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.704   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.704   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.704   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.704   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.704   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.704   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.704   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.704   687  1872 W IPCThreadState: Sending oneway calls to frozen process.
+09-21 11:54:15.709   687  1872 I AppsFilter: interaction: PackageSetting{ed06c8a com.example.shopdemo/10217} -> PackageSetting{d2f171a com.dogshelter/10215} BLOCKED
+09-21 11:54:15.739   687   915 D BackgroundInstallControlService: Package event received: 0
+09-21 11:54:15.739   687   915 D BackgroundInstallControlService: Package event received: 0
+09-21 11:54:15.739   687   915 D BackgroundInstallControlService: Package event received: 0
+09-21 11:54:15.739   687   915 D BackgroundInstallControlService: Package event received: 0
+09-21 11:54:15.739   687   915 D BackgroundInstallControlService: Package event received: 0
+09-21 11:54:15.739   687   915 D BackgroundInstallControlService: Package event received: 0
+09-21 11:54:15.739   687   915 D BackgroundInstallControlService: Package event received: 0
+09-21 11:54:15.739   687   915 D BackgroundInstallControlService: Package event received: 0
+09-21 11:54:15.739   687   915 D BackgroundInstallControlService: Package event received: 0
+09-21 11:54:15.739   687   915 D BackgroundInstallControlService: Package event received: 0
+09-21 11:54:15.739   687   915 D BackgroundInstallControlService: Package event received: 0
+09-21 11:54:15.739   687   915 D BackgroundInstallControlService: Package event received: 0
+09-21 11:54:15.748   959  2719 D RingtonePlayer: stopAsync()
+09-21 11:54:15.748   959  2719 D RingtonePlayer: stop
+09-21 11:54:15.749  1100  1100 D CarrierSvcBindHelper: onHandleForceStop: [com.dogshelter]

@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Prints the block a developer follows in their own terminal, for an agent to relay
+# verbatim. The block itself lives in config.sh, next to the banner that enforces it,
+# so `next.kind == run_in_terminal` and this command cannot say different things.
+#
+#   bin/handoff        the block to relay
+
+source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
+
+# The block names the shim, so the shim has to exist before the block is printed. Same
+# reason the verifier does it: creating the workspace changes nothing in their project
+# that .gitignore does not already cover.
+ws_init
+
+# The header above, enforced instead of described. `next.kind` is never run_in_terminal
+# once DRIVER=agent is recorded, so printing the terminal block here would be this command
+# saying something the ladder does not — and being run anyway is not hypothetical: it is
+# named in `setup.handoff_command`, so it is the one command an agent can reach for at any
+# point in the run. At that point the honest block is the one that says where the run got
+# to and what the next part needs.
+if agent_driving_recorded; then
+  # Through next_action, like every other box: the part it names is then the part the
+  # ladder named, and the two cannot drift into describing different work.
+  IFS="$NEXT_SEP" read -r _ _ g _ _ <<< "$(next_action)"
+  next_part_banner "$(gate_name "$g")" "$(gate_detail "$g")"
+else
+  handoff_banner
+fi

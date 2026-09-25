@@ -1,0 +1,252 @@
+#!/usr/bin/env bash
+# Installs a branch of this repo as a real plugin, so a test run loads it the way a
+# client's host would rather than by cd'ing into the repo. Build-team tool: nothing
+# here ships, and nothing here is for a client to run.
+#
+#   tools/install-local ~/Desktop/SomeApp [--ref <branch>] [--force]
+#   tools/install-local --user            [--ref <branch>] [--force]
+#
+# One project or every project. --user is the scope the published plugin gets installed
+# at, so it is the honest rehearsal of a client's setup; a target project is the safer
+# one for a build under test, because it cannot follow you into unrelated work.
+#
+# Hand-doing this lost the marketplace-name patch once and shipped a test against a
+# build that was missing an uncommitted file. Both are checks below.
+
+set -uo pipefail
+
+MKT=iterable-local
+PLUGIN=iterable-sdk
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PLUGINS="$HOME/.claude/plugins"
+MKT_DIR="$PLUGINS/marketplaces/$MKT"
+CACHE_ROOT="$PLUGINS/cache/$MKT/$PLUGIN"
+KNOWN="$PLUGINS/known_marketplaces.json"
+INSTALLED="$PLUGINS/installed_plugins.json"
+
+bold() { printf '\033[1m%s\033[0m' "$1"; }
+dim()  { printf '\033[2m%s\033[0m' "$1"; }
+step() { printf '\n\033[1m▸ %s\033[0m\n' "$1"; }
+say()  { printf '  %s\n' "$1"; }
+die()  { printf '\n  \033[31m%s\033[0m\n\n' "$1" >&2; exit 1; }
+
+usage() {
+  cat <<EOF
+
+  usage: tools/install-local <target-project> [--ref <git-ref>] [--force]
+         tools/install-local --user         [--ref <git-ref>] [--force]
+
+    <target-project>  the app the next test runs against; the plugin is enabled
+                      for that project only, in .claude/settings.local.json
+    --user            enable it everywhere instead, in ~/.claude/settings.json
+    --ref             what to export (default HEAD)
+    --force           install over a version already installed from another
+                      commit, or export a dirty tree
+
+EOF
+}
+
+REF=HEAD; FORCE=0; TARGET=""; SCOPE=project
+while (($#)); do
+  case "$1" in
+    --ref)     REF="${2:-}"; [[ -n "$REF" ]] || die "--ref needs a value"; shift 2 ;;
+    --force)   FORCE=1; shift ;;
+    --user)    SCOPE=user; shift ;;
+    -h|--help) usage; exit 0 ;;
+    -*)        usage; die "unknown option $1" ;;
+    *)         TARGET="$1"; shift ;;
+  esac
+done
+
+if [[ "$SCOPE" == user ]]; then
+  # Refused rather than quietly ignored: a target named alongside --user is somebody
+  # asking for one project, and installing it in all of them instead is not close enough.
+  [[ -z "$TARGET" ]] || die "--user enables it in every project; drop the target, or drop --user."
+else
+  [[ -n "$TARGET" ]] || { usage; die "no target project — which app is the next test on? Or --user for all of them."; }
+  TARGET="$(cd "$TARGET" 2>/dev/null && pwd)" || die "no such directory: $TARGET"
+  [[ "$TARGET" == "$ROOT" ]] && die "that is this repo. The target is the app being integrated."
+fi
+
+command -v node >/dev/null || die "node is needed to edit the host's JSON safely"
+
+# ------------------------------------------------------------------- the version
+# One version, three manifests. A disagreement here means the dir name, the host's
+# record and the thing the host reads can all name different builds.
+step "Version"
+VERSION="$(node -e '
+  const fs = require("fs"), read = p => JSON.parse(fs.readFileSync(p, "utf8"));
+  const sites = [
+    ["claude plugin.json",     read(".claude-plugin/plugin.json").version],
+    ["cursor plugin.json",     read(".cursor-plugin/plugin.json").version],
+    ["cursor marketplace.json", read(".cursor-plugin/marketplace.json").metadata?.version],
+  ];
+  const bad = sites.filter(([, v]) => v !== sites[0][1]);
+  if (bad.length) {
+    console.error("the manifests disagree on the version:");
+    for (const [w, v] of sites) console.error("    " + w + ": " + (v || "(missing)"));
+    process.exit(1);
+  }
+  process.stdout.write(sites[0][1]);
+' 2>&1)" || die "$VERSION"
+say "$(bold "$VERSION") — agreed across all three manifests"
+
+# ----------------------------------------------------------------- what we export
+# git archive ships tracked files at a commit, with exec bits: the build gets what a
+# client gets, and a forgotten `git add` shows up as a missing file rather than as a
+# test that quietly passed against a working tree nobody else has.
+step "Source"
+DIRTY="$(git -C "$ROOT" status --porcelain 2>/dev/null)"
+if [[ -n "$DIRTY" && "$REF" == HEAD ]]; then
+  if ((FORCE)); then
+    say "$(dim "tree is dirty; --force given, so these are NOT in the build:")"
+    printf '%s\n' "$DIRTY" | sed 's/^/      /'
+  else
+    printf '\n  \033[31m%s\033[0m\n' "uncommitted changes would not reach the build"
+    printf '%s\n' "$DIRTY" | sed 's/^/      /'
+    die "commit them, or pass --force to test without them"
+  fi
+fi
+SHA="$(git -C "$ROOT" rev-parse "$REF" 2>/dev/null)" || die "no such ref: $REF"
+say "$(git -C "$ROOT" log -1 --format='%h %s' "$SHA")"
+
+# A version already installed from a different commit is the exact failure this whole
+# layout exists to prevent: the host keeps old version dirs, so a number that has
+# already been tested must not come to mean different code.
+PREV_SHA="$(node -e '
+  const fs = require("fs");
+  try {
+    const j = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    const e = (j.plugins?.[process.argv[2]] || []).find(e => e.version === process.argv[3]);
+    process.stdout.write(e?.gitCommitSha || "");
+  } catch { }
+' "$INSTALLED" "$PLUGIN@$MKT" "$VERSION" 2>/dev/null)"
+if [[ -d "$CACHE_ROOT/$VERSION" && -n "$PREV_SHA" && "$PREV_SHA" != "$SHA" ]] && ((!FORCE)); then
+  die "$VERSION is already installed, from ${PREV_SHA:0:9}. Bump the version in the three manifests so the last test and the next one cannot be confused — or --force."
+fi
+
+# ------------------------------------------------------------------- the two copies
+step "Export"
+DEST="$CACHE_ROOT/$VERSION"
+rm -rf "$DEST" "$MKT_DIR"
+mkdir -p "$DEST" "$MKT_DIR" || die "could not create the plugin directories"
+git -C "$ROOT" archive "$SHA" | tar -x -C "$DEST" || die "export to the cache failed"
+git -C "$ROOT" archive "$SHA" | tar -x -C "$MKT_DIR" || die "export to the marketplace failed"
+say "cache       ${DEST/#$HOME/~}"
+say "marketplace ${MKT_DIR/#$HOME/~}"
+
+# The patch that was forgotten when this was done by hand: the host expects a
+# marketplace's own `name` to match the key it is registered under, and the committed
+# one says `iterable` because that is the published marketplace.
+for m in "$MKT_DIR/.claude-plugin/marketplace.json" "$MKT_DIR/.cursor-plugin/marketplace.json"; do
+  [[ -f "$m" ]] || continue
+  node -e '
+    const fs = require("fs"), p = process.argv[1];
+    const j = JSON.parse(fs.readFileSync(p, "utf8"));
+    j.name = process.argv[2];
+    fs.writeFileSync(p, JSON.stringify(j, null, 2) + "\n");
+  ' "$m" "$MKT" || die "could not rename the marketplace in $m"
+done
+say "marketplace name patched to $(bold "$MKT") $(dim "(committed value is 'iterable')")"
+
+# Old version dirs under *this* key only. The published `iterable` cache is not ours
+# to prune, and a leftover local version is how a saved path runs last week's code.
+PRUNED=""
+for d in "$CACHE_ROOT"/*; do
+  [[ -d "$d" ]] || continue
+  [[ "$(basename "$d")" == "$VERSION" ]] && continue
+  rm -rf "$d" && PRUNED="$PRUNED $(basename "$d")"
+done
+[[ -n "$PRUNED" ]] && say "pruned stale local builds:$PRUNED"
+
+# ------------------------------------------------------------------- the host's books
+step "Register"
+node -e '
+  const fs = require("fs"), [known, mkt, dir] = process.argv.slice(1);
+  let j = {};
+  try { j = JSON.parse(fs.readFileSync(known, "utf8")); } catch { }
+  j[mkt] = { source: { source: "directory", path: dir }, installLocation: dir,
+             lastUpdated: new Date().toISOString() };
+  fs.writeFileSync(known, JSON.stringify(j, null, 2) + "\n");
+' "$KNOWN" "$MKT" "$MKT_DIR" || die "could not register the marketplace"
+say "marketplace registered as a directory source"
+
+node -e '
+  const fs = require("fs");
+  const [file, key, scope, target, installPath, version, sha] = process.argv.slice(1);
+  let j = { version: 2, plugins: {} };
+  try { j = JSON.parse(fs.readFileSync(file, "utf8")); } catch { }
+  j.plugins = j.plugins || {};
+  const now = new Date().toISOString();
+  const there = p => { try { return fs.existsSync(p); } catch { return false; } };
+  const keep = (j.plugins[key] || [])
+    // One entry per scope we are writing — this project, or the user, whatever scope a
+    // previous install used; and an entry pointing at a version dir we just pruned, or
+    // at a test project since deleted, is a dead record the host still tries to load.
+    .filter(e => scope === "user" ? (e.scope !== "user" && e.projectPath) : e.projectPath !== target)
+    .filter(e => there(e.installPath))
+    .filter(e => !e.projectPath || there(e.projectPath));
+  const entry = { scope, installPath, version, installedAt: now, lastUpdated: now, gitCommitSha: sha };
+  if (scope === "project") entry.projectPath = target;
+  keep.push(entry);
+  j.plugins[key] = keep;
+  fs.writeFileSync(file, JSON.stringify(j, null, 2) + "\n");
+' "$INSTALLED" "$PLUGIN@$MKT" "$SCOPE" "$TARGET" "$DEST" "$VERSION" "$SHA" \
+  || die "could not record the install"
+say "installed for $(bold "$([[ "$SCOPE" == user ]] && echo "every project" || echo "${TARGET/#$HOME/~}")") at commit ${SHA:0:9}"
+
+# settings.local.json, not settings.json, for a project: the latter is untracked-but-not-
+# ignored in most projects, so enabling there would dirty the test app's git status. At
+# user scope there is no repo to dirty, and settings.json is where the host's own
+# `claude plugin install` puts it.
+if [[ "$SCOPE" == user ]]; then
+  SET_DIR="$HOME/.claude"; SET="$SET_DIR/settings.json"
+else
+  SET_DIR="$TARGET/.claude"; SET="$SET_DIR/settings.local.json"
+fi
+mkdir -p "$SET_DIR" || die "could not create $SET_DIR"
+node -e '
+  const fs = require("fs"), [file, key] = process.argv.slice(1);
+  let j = {};
+  try { j = JSON.parse(fs.readFileSync(file, "utf8")); } catch { }
+  j.enabledPlugins = j.enabledPlugins || {};
+  j.enabledPlugins[key] = true;
+  fs.writeFileSync(file, JSON.stringify(j, null, 2) + "\n");
+' "$SET" "$PLUGIN@$MKT" || die "could not enable the plugin in $SET"
+say "enabled in ${SET/#$HOME/~}"
+
+# ------------------------------------------------------------------------- verify
+# Structural, not a claim that it works: whether the host loads it is the host's
+# answer, and `claude plugin details` below is where to get it.
+step "Verify the export"
+MISSING=""
+check() { [[ -e "$DEST/$1" ]] || MISSING="$MISSING $1"; }
+for s in iterable-provision iterable-android iterable-react-native iterable-verify; do
+  check "$s/SKILL.md"
+done
+check .claude-plugin/plugin.json
+check mcp.json
+check .mcp.json
+for c in onboard wizard gates agent provision teardown discover iterable-keys proof-push handoff config.sh; do
+  [[ -x "$DEST/bin/$c" || "$c" == config.sh ]] || MISSING="$MISSING bin/$c(not executable)"
+  check "bin/$c"
+done
+[[ -z "$MISSING" ]] || die "the build is missing:$MISSING"
+say "four skills, both MCP files, and every entry point present and executable"
+
+INSTALLED_NAME="$(node -e 'process.stdout.write(require(process.argv[1]).name)' "$MKT_DIR/.claude-plugin/marketplace.json")"
+[[ "$INSTALLED_NAME" == "$MKT" ]] || die "the marketplace still calls itself '$INSTALLED_NAME'"
+say "the marketplace copy agrees with the key it is registered under"
+
+cat <<EOF
+
+$(bold "  Next, from $([[ "$SCOPE" == user ]] && echo "any project" || echo "$TARGET"):")
+
+      claude plugin list
+      claude plugin details $PLUGIN@$MKT
+
+  $(dim "details prints the component inventory and the always-on token cost —")
+  $(dim "the fastest read on what a client actually gets. A session already running")
+  $(dim "keeps the build it loaded at startup, so start a new one to see this one.")
+
+EOF

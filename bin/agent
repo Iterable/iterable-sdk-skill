@@ -1,0 +1,316 @@
+#!/usr/bin/env bash
+# The machine-readable front door. Same ladder and same actions as bin/wizard —
+# only the conversation differs. This one prints one JSON object on stdout and
+# nothing else, so a model can branch on it instead of reading a table.
+#
+#   bin/agent                    run the ladder, report where things stand
+#   bin/agent discover           the Firebase projects and apps, as JSON
+#   bin/agent set K=V [K=V]      record a choice (project, package, device)
+#   bin/agent approve firebase   record the developer's yes to changing their project
+#   bin/agent set DRIVER=agent   they asked you to run the setup instead of the wizard
+#   bin/agent question K [N]     one question to put to the developer, as data
+#
+# `next.question` is how the wizard's screens reach a chat: the context to show, and the
+# two to four answers with the commands that enact each one. The words are the tool's
+# because a model composing its own consent screen writes a different one every run, and
+# the run where it drops "nothing has happened yet" still comes back "yes".
+#
+# Who runs the Google setup is the developer's to answer, and until they have, `next.kind`
+# comes back as choose_driver: the fork itself, with `agent question opening` to put it to
+# them. Not run_in_terminal — that is one of the two answers, and reporting it while the
+# question is open is answering it for them. Once answered, DRIVER=agent means you drive
+# the scripts and DRIVER=developer means the handoff block is the step.
+#
+# The human-facing ladder still goes to stderr: when a run surprises somebody, the
+# table is what explains it, and dropping it to keep stdout clean would mean the
+# agent path is the one path with no account of itself.
+#
+# What this deliberately does not do: provision, send, or grade. `next` names the
+# script for the next step and the caller runs it. A front end that both acts and
+# reports its own success is the false green the whole ladder exists to prevent.
+
+source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/questions.sh"
+
+# The clock, before this process does any work of its own. The approval dwell below is
+# measured against it, and ws_init alone — seven shim files — costs more than the whole
+# window: read any later and what gets measured is our own startup.
+NOW_MS="$(now_ms || echo 0)"
+
+# Before ws_init, and that ordering is the whole point of the opening question.
+#
+# `bin/agent question opening` is the first thing an agent is told to run, and it has to
+# be answerable without having done anything yet — no workspace in their repo, no gcloud,
+# no reads. Everything else here writes the shims first, and a status read runs the entire
+# ladder against their projects, which is why the question could not be delivered by it:
+# the answer would arrive after the work it was asking about.
+if [[ "${1:-}" == question ]]; then
+  shift
+  q="$(question_for "${1:-}" "${2:-}")" || {
+    printf '{"error":%s}\n' "$(jstr "no question for '${1:-}'; questions exist for opening, authenticate, choose_target, pick_project, pick_app, register_app, keep_target, pick_device, approve_firebase, iterable_keys, iterable_step 1-4 — and some refuse until there is something to ask about: pick_project needs a listing (run discover), pick_app and register_app need a project, keep_target needs both")"
+    exit 30; }
+  printf '%s\n' "$q"
+  # The screen is up as of here, not as of whenever inside the render its token was
+  # minted. Only choose_target has one; for everything else this finds no file and does
+  # nothing.
+  ask_stamp "${1:-}"
+  exit 0
+fi
+
+# So the shortcuts a developer gets handed exist from the first call, not from
+# whichever later one happened to run the verifier.
+ws_init
+
+CONTRACT=4
+
+case "${1:-status}" in
+  discover) exec "$BIN/discover" --json ;;
+  # Recorded, not remembered. The developer's yes has to outlive this turn of the
+  # conversation and be checkable by the script that spends it — and it is scoped to
+  # one project, so it cannot be carried over to the next one by accident.
+  approve)
+    shift
+    # Two scopes, never one: `create-app` adds something to the project that the stated
+    # limits promise never happens unless asked outright, so it is its own answer to its
+    # own question and the provisioning yes does not include it.
+    case "${1:-}" in
+      firebase|create-app|list) ;;
+      *) printf '{"error":%s}\n' "$(jstr "usage: agent approve list --asked <token> | agent approve firebase | agent approve create-app")"; exit 30 ;;
+    esac
+    SCOPE="$1"; shift
+    TOK=""
+    while (($#)); do
+      case "$1" in
+        --asked)   TOK="${2:-}"; shift; (($#)) && shift ;;
+        --asked=*) TOK="${1#--asked=}"; shift ;;
+        *) printf '{"error":%s}\n' "$(jstr "unknown option: $1")"; exit 30 ;;
+      esac
+    done
+    # Scoped to something, always. `list` names the account whose estate gets read; the
+    # other two name the project that gets changed. A yes that names neither would cover
+    # every account and every project this workspace is ever pointed at.
+    [[ -n "$(scope_target "$SCOPE")" ]] || {
+      if [[ "$SCOPE" == list ]]; then
+        printf '{"error":%s}\n' "$(jstr "gcloud reports no active account, so there is nothing to scope this yes to — they sign in first (gcloud auth login), then this is askable")"
+      else
+        printf '{"error":%s}\n' "$(jstr "no project chosen yet — agent set PID=… first, so the approval says what it covers")"
+      fi
+      exit 30; }
+    # The screen has to have been put up, and to have been up long enough to read. Only
+    # `list` for now: it is the yes whose question is rendered by this tool, and the other
+    # two get the same treatment when their screens move here. A tty skips it — the wizard
+    # asks in person, and may_list_projects lets a terminal through anyway.
+    #
+    # rc 10, not 30: nothing is broken, a human has not been asked yet. That is exactly
+    # what 10 means everywhere else in this tool.
+    if [[ "$SCOPE" == list && ! -t 0 && "${APPROVED:-0}" != 1 ]]; then
+      WHY="$(ask_spent choose_target "$TOK" "$NOW_MS")" || {
+        printf '{"error":%s}\n' "$(jstr "$WHY")"; exit 10; }
+    fi
+    approve "$SCOPE" || { printf '{"error":%s}\n' "$(jstr "could not record the approval in $WS")"; exit 30; }
+    printf '{"approved":true,"scope":%s,"recorded_in":%s}\n' \
+      "$(jstr "$(approval_scope "$SCOPE")")" "$(jstr "$APPROVALS")"
+    exit 0
+    ;;
+  set)
+    shift
+    [[ $# -gt 0 ]] || { echo '{"error":"set needs at least one KEY=VALUE"}'; exit 30; }
+    for kv in "$@"; do
+      [[ "$kv" == *=* ]] || { printf '{"error":%s}\n' "$(jstr "not KEY=VALUE: $kv")"; exit 30; }
+      k="${kv%%=*}"; v="${kv#*=}"
+      # Before any per-key check, because two of these land in a file that gets sourced:
+      # a line break in a pasted value is a second setting nobody asked for, and the one
+      # worth writing is APPROVED=1. Refused here as well as in save_resolved, so a new
+      # destination cannot inherit the hole by being added below.
+      [[ "$v" == *$'\n'* ]] && {
+        printf '{"error":%s}\n' "$(jstr "$k was not saved: the value spans more than one line, and a line break in a recorded choice would write a second setting nobody asked for")"
+        exit 30; }
+      # This is where a value typed into a chat enters the tool: the pickers offer a
+      # free-text option, so the developer pastes a project id and the agent relays it
+      # here. Untrusted input, and the one place to say so — the format check is what
+      # makes "paste it" a safe option to offer at all.
+      case "$k" in
+        PID)
+          [[ -z "$v" || "$v" =~ ^[a-z][a-z0-9-]{4,28}[a-z0-9]$ ]] || {
+            printf '{"error":%s}\n' "$(jstr "not a Google project id: '$v'. Ids are 6-30 characters, lowercase letters, digits and hyphens — it is the id, not the display name (which may have capitals and spaces).")"
+            exit 30; } ;;
+        PACKAGE)
+          [[ -z "$v" || "$v" =~ ^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$ ]] || {
+            printf '{"error":%s}\n' "$(jstr "not an Android package name: '$v'. Two or more dot-separated parts, each starting with a letter — the applicationId from build.gradle.")"
+            exit 30; } ;;
+        # A device can be an AVD name, a USB serial, or host:port for one over the
+        # network, so the colon belongs here.
+        TARGET_DEVICE|SA_ID|ITBL_CAMPAIGN_ID|ITBL_PUSH_INTEGRATION)
+          [[ -z "$v" || "$v" =~ ^[A-Za-z0-9._:-]+$ ]] || {
+            printf '{"error":%s}\n' "$(jstr "$k takes letters, digits, dot, dash, underscore and colon; got: '$v'")"
+            exit 30; } ;;
+        # Only the developer moves this off `developer`, and only by saying so. An
+        # agent that sets it because the handoff looked inconvenient has taken the
+        # decision the default exists to leave with them.
+        DRIVER)
+          [[ "$v" == developer || "$v" == agent ]] || {
+            printf '{"error":%s}\n' "$(jstr "DRIVER is 'developer' (they run the setup in their terminal) or 'agent' (you drive the scripts); got: $v")"
+            exit 30; } ;;
+        # The test identity, which is not a secret and is the one Iterable-side value a
+        # developer can safely just say out loud: it is the address their app signs in
+        # with, and it has to match or the proof push goes to a different user.
+        ITBL_EMAIL)
+          [[ -z "$v" || "$v" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[A-Za-z]{2,}$ ]] || {
+            printf '{"error":%s}\n' "$(jstr "not an email address: '$v'. This is the value the app passes to setEmail(), and it has to match character for character.")"
+            exit 30; } ;;
+        # An allowlist, not a format check, because this is where the server-side key gets
+        # spent: a hostname accepted from a chat is a hostname somebody's credential can be
+        # sent to. Iterable has two data centres and no third answer.
+        ITBL_BASE)
+          [[ "$v" == https://api.iterable.com || "$v" == https://api.eu.iterable.com ]] || {
+            printf '{"error":%s}\n' "$(jstr "ITBL_BASE is https://api.iterable.com (US) or https://api.eu.iterable.com (EU/EDC) — nothing else, because this is the host the server-side key is sent to; got: $v")"
+            exit 30; } ;;
+        *) printf '{"error":%s}\n' "$(jstr "$k is not settable here; export it instead")"; exit 30 ;;
+      esac
+      # Iterable-side settings go to the workspace .env, which is the file the wizard
+      # writes and the last one config.sh reads. Recorded in resolved.env instead, an
+      # answer given here would silently lose to an older one given in the terminal.
+      case "$k" in
+        ITBL_EMAIL|ITBL_BASE) DEST="$ITBL_ENV"; save_env "$k" "$v" ;;
+        *) DEST="$WS/resolved.env"; save_resolved "$k" "$v" ;;
+      esac || {
+        printf '{"error":%s}\n' "$(jstr "$k was not saved: could not write to $WS")"
+        exit 30; }
+      # Anything derived from the target dies with the target. A remembered APP_ID
+      # from the previous project is how a gate ends up green about an app nobody
+      # asked about.
+      [[ "$k" == PID || "$k" == PACKAGE ]] && save_resolved APP_ID ""
+    done
+    printf '{"saved":true,"file":%s}\n' "$(jstr "$DEST")"
+    exit 0
+    ;;
+  status) ;;
+  *) printf '{"error":%s}\n' "$(jstr "unknown command: $1")"; exit 30 ;;
+esac
+
+# ---------------------------------------------------------------------- the read
+QUIET_VERDICT=1 "$BIN/gates" >&2
+RC=$?
+
+MISSING="$(missing_tools)"
+
+declare -a ROWS=()
+NGREEN=0; NRED=0; NPENDING=0; NBLOCKED=0; NUNVERIFIABLE=0
+
+while IFS=$'\t' read -r id status owner name detail; do
+  [[ -n "$id" ]] || continue
+  case "$status" in
+    green)        ((NGREEN++)) ;;
+    red)          ((NRED++)) ;;
+    pending)      ((NPENDING++)) ;;
+    blocked)      ((NBLOCKED++)) ;;
+    unverifiable) ((NUNVERIFIABLE++)) ;;
+  esac
+  # Advice only where there is something to advise. "send the proof push" attached
+  # to a green G16 reads as work outstanding, which is the opposite of what it is.
+  advice=""
+  # Red too, not only pending: a gate that has actually failed is the one a caller most
+  # needs a next step for, and leaving it empty was how the states at the divergence
+  # point arrived carrying a diagnosis and no remedy.
+  [[ "$status" == pending || "$status" == red ]] && advice="$(advice_for "$id")"
+  ROWS+=("$(printf '{"id":%s,"name":%s,"status":%s,"owner":%s,"detail":%s,"advice":%s}' \
+    "$(jstr "$id")" "$(jstr "$name")" "$(jstr "$status")" "$(jstr "$owner")" \
+    "$(jstr "$(printf '%s' "$detail" | plain)")" "$(jstr "$advice")")")
+done < "$WS/state.tsv"
+
+case $RC in
+  0)  VERDICT=done ;;
+  10) VERDICT=blocked ;;
+  20) VERDICT=defect ;;
+  40) VERDICT=pending ;;
+  *)  VERDICT=tool_error ;;
+esac
+
+# Captured first, then split. Substituting inside the `read` would run next_action
+# with IFS already set to a tab, and anything in there that splits on spaces would
+# quietly get one word where it wanted four.
+NEXT="$(next_action)"
+IFS="$NEXT_SEP" read -r NEXT_OWNER NEXT_KIND NEXT_GATE NEXT_CMD NEXT_SUMMARY <<< "$NEXT"
+
+# The same step, in words a developer who has never read this repo can use. `gate`
+# stays because the state file and our own vocabulary are keyed on it, but an agent
+# that has only an id to quote says "G13" to somebody it means nothing to.
+NEXT_STEP="$(gate_name "$NEXT_GATE")"
+
+f_present() { [[ -f "$1" ]] && echo true || echo false; }
+
+printf '{'
+printf '"tool":"iterable-onboard","contract":%d,' "$CONTRACT"
+printf '"rc":%d,"verdict":%s,"push_proven":%s,' "$RC" "$(jstr "$VERDICT")" \
+  "$(push_proven && echo true || echo false)"
+printf '"workspace":%s,' "$(jstr "$WS")"
+printf '"missing_tools":['
+sep=""; while read -r t; do [[ -n "$t" ]] || continue; printf '%s%s' "$sep" "$(jstr "$t")"; sep=","; done <<< "$MISSING"
+printf '],'
+printf '"target":{"project":%s,"package":%s,"device":%s,"email":%s,"iterable_base":%s},' \
+  "$(jstr "$PID")" "$(jstr "$PACKAGE")" "$(jstr "${TARGET_DEVICE:-}")" \
+  "$(jstr "$ITBL_EMAIL")" "$(jstr "$ITBL_BASE")"
+# Paths, never values. The keys exist on disk at 0600 and that is the only place
+# they are ever named — a credential in a JSON report is a credential in a log.
+printf '"artifacts":{'
+printf '"google_services_json":{"path":%s,"present":%s},' "$(jstr "$GS_JSON")" "$(f_present "$GS_JSON")"
+printf '"service_account_key":{"path":%s,"present":%s},' "$(jstr "$SA_KEY")" "$(f_present "$SA_KEY")"
+printf '"iterable_env":{"path":%s,"present":%s,"keys_set":%s}' "$(jstr "$ITBL_ENV")" \
+  "$(f_present "$ITBL_ENV")" \
+  "$([[ -n "$ITBL_SERVER_KEY" && -n "$ITBL_MOBILE_KEY" ]] && echo true || echo false)"
+printf '},'
+# Whether the developer has said yes to changing their project, and what that yes
+# covers. In the report rather than only in `next` so an agent can see the ask is
+# still outstanding at any point in the run, not just on the turn it comes up.
+printf '"approval":{"scope":%s,"granted":%s,"plan":[' \
+  "$(jstr "$(approval_scope)")" "$(approved && echo true || echo false)"
+sep=""; while IFS= read -r l; do [[ -n "$l" ]] || continue; printf '%s%s' "$sep" "$(jstr "$l")"; sep=","; done <<< "$(firebase_plan)"
+printf '],"command":%s},' "$(jstr "$BIN/agent approve firebase")"
+# Relayed verbatim, once, by whoever is talking to the developer. An agent
+# paraphrasing this into "I've double-checked everything" is the failure it exists
+# to prevent, which is why the wording is the tool's and not the agent's.
+printf '"notice":%s,' "$(jstr "$(ai_notice)")"
+# Who runs the Google setup, and the command that hands it over. `recommended` follows the
+# record once there is one; until then it is `agent`, because every screen the terminal
+# shows exists here too and the terminal costs the developer a context switch to get the
+# same questions. `driver` still reads `developer` when nobody has answered — that is the
+# fallback the actor enforces, not a recommendation, and `driver_chosen` tells them apart.
+#
+# Both commands go `null` once they have answered "you drive it": a field an agent can see
+# is a field an agent can reach for, and a terminal block on offer at every read for the
+# rest of the run is how a developer who asked for the chat got handed a command to type.
+# One of them is then already answered and the other contradicts the answer.
+HANDOFF_CMD=null DRIVE_CMD=null
+if ! agent_driving_recorded; then
+  HANDOFF_CMD="$(jstr "$BIN/handoff")"
+  DRIVE_CMD="$(jstr "$BIN/agent set DRIVER=agent")"
+fi
+printf '"setup":{"driver":%s,"chosen":%s,"recommended":%s,"handoff_command":%s,"drive_it_yourself":%s},' \
+  "$(jstr "$DRIVER")" "$(driver_chosen && echo true || echo false)" \
+  "$(jstr "$(driver_chosen && printf '%s' "$DRIVER" || printf agent)")" \
+  "$HANDOFF_CMD" "$DRIVE_CMD"
+printf '"counts":{"green":%d,"red":%d,"pending":%d,"blocked":%d,"unverifiable":%d,"total":%d},' \
+  "$NGREEN" "$NRED" "$NPENDING" "$NBLOCKED" "$NUNVERIFIABLE" "${#ROWS[@]}"
+printf '"gates":['
+sep=""; for r in "${ROWS[@]}"; do printf '%s%s' "$sep" "$r"; sep=","; done
+printf '],'
+printf '"next":{"owner":%s,"kind":%s,"gate":%s,"step":%s,"command":%s,"summary":%s' \
+  "$(jstr "$NEXT_OWNER")" "$(jstr "$NEXT_KIND")" "$(jstr "$NEXT_GATE")" \
+  "$(jstr "$NEXT_STEP")" "$(jstr "$NEXT_CMD")" "$(jstr "$NEXT_SUMMARY")"
+# Present only where the next step is the developer's decision rather than their work.
+# Its presence is the whole instruction — one field an agent either has or has not, in
+# place of a mood it has to infer from `owner` and `summary`. Asked for permission in
+# prose, a model that is mid-task talks itself into having already been given it.
+if Q="$(question_for "$NEXT_KIND")"; then
+  printf ',"question":%s' "$Q"
+else
+  printf ',"question":null'
+fi
+printf '}}\n'
+
+# A status read carries the same screen in `next.question`, so it counts as having put it
+# up. Stamped after the write for the same reason as above: the developer cannot read a
+# question that has not been printed yet.
+ask_stamp choose_target
+
+exit "$RC"

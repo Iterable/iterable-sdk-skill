@@ -1,0 +1,1 @@
+{"account":"dev@example.com","projects":[{"id":"proof-project","name":"Proof project","apps":[{"package":"com.other.app","appId":"1:11:android:aaa"}]},{"id":"second-project","name":"Second project","apps":[]}]}

@@ -1,0 +1,155 @@
+#!/usr/bin/env bash
+# Actor for G2-G8. Idempotent throughout: re-running against existing state is a
+# no-op, not an error. Never asserts success — run `bin/gates` for that.
+
+source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
+
+step() { printf '\n\033[1m▸ %s\033[0m\n' "$1"; }
+skip() { printf '  already done: %s\n' "$1"; }
+
+ws_init; mkdir -p "$ART"
+require_pid || exit 10
+
+# Who runs this comes before whether it is allowed, because the terminal path asks
+# for consent in person: an agent that gets past the driver gate by collecting the
+# approval first has collected permission for work that was never its to do.
+if ! may_drive_setup; then
+  handoff_refusal
+  exit 10
+fi
+
+# The consent check, before the first call that changes anything. Deliberately here
+# and not only in the skills: prose asks an agent to ask, and an agent that skips it
+# would be the only thing standing between a client's cloud project and a script.
+# Exit 10 — blocked on a human — because that is exactly what this is.
+if ! approved; then
+  firebase_consent_banner
+  exit 10
+fi
+
+step "Project $PID"
+if gcloud projects describe "$PID" >/dev/null 2>&1; then
+  skip "project exists"
+elif [[ "$CREATE_PROJECT" == 1 ]]; then
+  gcloud projects create "$PID" --name="$APP_DISPLAY_NAME" || exit 1
+else
+  echo "  $PID does not exist, and creating projects is opt-in."
+  echo "  Re-run with CREATE_PROJECT=1 if that is really what you want."
+  exit 20
+fi
+
+step "Enable APIs"
+# Listed once rather than per API: five round trips to answer one question is slow,
+# and `cmd | grep -q` under pipefail can report failure when grep exits first and
+# the upstream command takes SIGPIPE.
+ENABLED="$(gcloud services list --enabled --project="$PID" --format='value(config.name)' 2>/dev/null)"
+# Order matters: serviceusage and cloudresourcemanager must land before the rest.
+for api in serviceusage.googleapis.com cloudresourcemanager.googleapis.com \
+           firebase.googleapis.com iam.googleapis.com fcm.googleapis.com; do
+  if grep -qx "$api" <<< "$ENABLED"; then
+    skip "$api"
+  else
+    printf '  enabling %s\n' "$api"
+    gcloud services enable "$api" --project="$PID" || exit 1
+  fi
+done
+
+step "Add Firebase to $PID"
+if api_get "https://firebase.googleapis.com/v1beta1/projects/$PID" >/dev/null 2>&1; then
+  skip "firebase already enabled"
+else
+  if ! out="$(api_post "https://firebase.googleapis.com/v1beta1/projects/$PID:addFirebase")"; then
+    printf '  could not add Firebase: %s\n' "$(api_err "$out")"
+    exit 1
+  fi
+fi
+
+step "Android app for $PACKAGE"
+if [[ -z "$PACKAGE" ]]; then
+  echo "  No PACKAGE set. List the apps, then record the one you mean:"
+  echo
+  run_line discover
+  run_line agent set PACKAGE='<package>'
+  exit 10
+fi
+APP_ID="$(app_id_for_package "$PACKAGE")"
+if [[ -n "$APP_ID" ]]; then
+  skip "app $APP_ID"
+elif may_create_app; then
+  if ! out="$(api_post "https://firebase.googleapis.com/v1beta1/projects/$PID/androidApps" \
+        "{\"packageName\":\"$PACKAGE\",\"displayName\":\"$APP_DISPLAY_NAME\"}")"; then
+    printf '  could not register %s: %s\n' "$PACKAGE" "$(api_err "$out")"
+    exit 1
+  fi
+  printf '  app creation is a long-running operation; waiting\n'
+  for _ in $(seq 1 20); do
+    sleep 3
+    APP_ID="$(app_id_for_package "$PACKAGE")"
+    [[ -n "$APP_ID" ]] && break
+  done
+  [[ -n "$APP_ID" ]] || { echo "  app did not appear"; exit 1; }
+  printf '  app id %s\n' "$APP_ID"
+else
+  echo "  No Android app for $PACKAGE in $PID, and registering one is opt-in."
+  echo "  Something has to say yes to it first: $BIN/agent question register_app asks,"
+  echo "  and the wizard asks in person. Or pick a package that exists:"
+  echo
+  run_line discover
+  exit 20
+fi
+save_resolved APP_ID "$APP_ID"
+
+step "Download google-services.json"
+fetch_gs_json "$APP_ID" || { echo "  config fetch failed"; exit 1; }
+printf '  wrote %s\n' "$(wsd "$GS_JSON")"
+
+step "Service account $SA_ID"
+if gcloud iam service-accounts describe "$SA_EMAIL" >/dev/null 2>&1; then
+  skip "$SA_EMAIL"
+else
+  gcloud iam service-accounts create "$SA_ID" \
+    --project="$PID" --display-name="FCM Sender (Iterable)" || exit 1
+fi
+
+step "Bind $FCM_ROLE"
+# add-iam-policy-binding is idempotent, so ask first only to know whether the
+# binding is new — a new one is not effective for ~75s and G9 has to wait for it.
+EXISTING_BINDING="$(gcloud projects get-iam-policy "$PID" --flatten='bindings[].members' \
+  --filter="bindings.members:$SA_EMAIL AND bindings.role:$FCM_ROLE" \
+  --format='value(bindings.role)' 2>/dev/null)"
+[[ -n "$EXISTING_BINDING" ]] || FRESH_GRANT=1
+gcloud projects add-iam-policy-binding "$PID" \
+  --member="serviceAccount:$SA_EMAIL" --role="$FCM_ROLE" \
+  --condition=None --quiet >/dev/null || exit 1
+printf '  bound (least privilege: this role grants cloudmessaging.messages.create, nothing more)\n'
+
+step "Create the JSON key"
+# A key file left over from a different project must not satisfy this step: the
+# gate checks the key against the current project, so skipping on mere existence
+# would leave the right key uncreated and blame the wrong thing.
+if [[ -f "$SA_KEY" ]] && ! node -e '
+      const k = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+      process.exit(k.project_id === process.argv[2] ? 0 : 1);
+    ' "$SA_KEY" "$PID" 2>/dev/null; then
+  printf '  %s belongs to another project — moving it aside\n' "$(wsd "$SA_KEY")"
+  mv "$SA_KEY" "$SA_KEY.$(date +%s).bak"
+fi
+if [[ -f "$SA_KEY" ]]; then
+  skip "$SA_KEY (delete it to rotate)"
+else
+  # umask so the key is never briefly world-readable between create and chmod.
+  ( umask 077 && gcloud iam service-accounts keys create "$SA_KEY" \
+      --iam-account="$SA_EMAIL" --project="$PID" ) || exit 1
+  chmod 600 "$SA_KEY"
+  FRESH_KEY=1
+fi
+printf '  %s (mode %s)\n' "$(wsd "$SA_KEY")" "$(stat -f '%Lp' "$SA_KEY")"
+
+if [[ "${FRESH_KEY:-0}" == 1 || "${FRESH_GRANT:-0}" == 1 ]]; then
+  printf '  A new key and a new role binding each take Google up to ~90s to take\n'
+  printf '  effect, so the check that spends the key may pause before it can prove\n'
+  printf '  anything.\n'
+fi
+
+printf '\nProvisioning done. Verifying independently:\n'
+exec "$(dirname "${BASH_SOURCE[0]}")/gates"

@@ -1,0 +1,134 @@
+#!/usr/bin/expect -f
+# The fork after the Google part: "walk me through Iterable now" or "hand back".
+#
+# This is the one place the flow used to lie by omission. Part 1 finished, the device
+# gates had nothing to look for because nobody had a mobile key yet, and the run ended by
+# telling the developer to re-run the whole thing — which could not have cleared anything,
+# because the four Iterable steps are in a browser and nobody had been shown them. So the
+# claims under test are: it offers, it offers only when there is something to offer, and
+# neither answer runs anything the developer did not pick.
+#
+# Driven through a pty against a fixture state.tsv: no Google project, no Iterable
+# account, no device. The walk itself is a child process, so "it started" is asserted by
+# its first prompt and then the run is killed — going further would ask for a real key.
+#
+# Asserted against the whole captured run for the same reason tests/gate-spinner.exp is:
+# the menu redraws in place, so a sequential expect consumes past what it is looking for.
+
+set timeout 8
+set failed 0
+
+set ws "/tmp/itbl-part.ws"
+set env(WS) $ws
+# The arrow-key form draws with escapes and redraws over itself; the numbered form is the
+# same decision in text a test can read. Both are shipped and digits work in both.
+set env(MENU_PLAIN) 1
+
+proc ok  {msg} { puts "  \033\[32mPASS\033\[0m $msg" }
+proc bad {msg why} { global failed; set failed 1; puts "  \033\[31mFAIL\033\[0m $msg — $why" }
+
+# state.tsv as the ladder would have left it: the Google part green, G10 whatever the
+# caller says, and the device rows waiting behind it.
+proc fixture {g10} {
+  global ws
+  file delete -force $ws
+  file mkdir $ws
+  set f [open "$ws/state.tsv" w]
+  foreach id {G0 G1 G2 G3 G4 G5 G6 G7 G8 G9} {
+    puts $f "$id\tgreen\ttool\tgate $id\tfine"
+  }
+  puts $f "G10\t$g10\thuman\tIterable API keys work\tno server key set"
+  puts $f "G13\tpending\thuman\tApp installed with the SDK\tnot installed"
+  close $f
+}
+
+# Runs iterable_part under a pty, sending keys, and returns everything it wrote.
+proc drive {keys} {
+  spawn -noecho bash -c {source bin/config.sh; iterable_part; echo "fork=$?"}
+  set out ""
+  foreach k $keys { send $k }
+  expect {
+    -re {.+} { append out $expect_out(buffer); exp_continue }
+    eof     {}
+    # Expected on the last case, not a failure: bin/iterable-keys is sitting on a prompt
+    # that wants a real API key. Closed rather than waited on — waiting on a child that
+    # is never going to answer is how this test hung the first time it ran.
+    timeout { catch { close }; catch { wait } ; return $out }
+  }
+  catch { wait }
+  return $out
+}
+
+puts ""
+puts "  The Iterable fork — offered, explained, and only when it is the next thing"
+puts ""
+
+# ------------------------------------------------- nothing to offer once it is done
+fixture green
+set run [drive {}]
+if {[string first "fork=1" $run] >= 0} {
+  ok "says nothing when part 2 is already green"
+} else {
+  bad "silent once Iterable is done" "expected fork=1, got: $run"
+}
+if {[string first "Part 2 of 3" $run] >= 0} {
+  bad "silent once Iterable is done" "it offered the walk to somebody who has finished it"
+}
+
+# ------------------------------------------------------------------ the two answers
+fixture pending
+
+# The explanation has to come before the choice, and it has to say the thing that stops a
+# developer reading the unfinished rows as a fault. This is the whole point of the fork:
+# the sentence, not the menu.
+set run [drive {"2\r"}]
+foreach want {"Part 2 of 3" "no API for creating an API key" "is a fault in your app"} {
+  if {[string first $want $run] >= 0} {
+    ok "explains before asking: \"$want\""
+  } else {
+    bad "explains before asking" "never said \"$want\""
+  }
+}
+set where_expl [string first "device checks have nothing to find" $run]
+set where_menu [string first "Choose 1-" $run]
+if {$where_expl >= 0 && $where_menu >= 0 && $where_expl < $where_menu} {
+  ok "and the reason arrives ahead of the question"
+} else {
+  bad "reason before question" "explanation at $where_expl, menu at $where_menu"
+}
+
+# Choosing to hand back must not start the walk. It is the answer an agent-driven
+# developer gives, and starting anyway would ask them for a key they came here to avoid.
+if {[string first "fork=2" $run] >= 0} {
+  ok "stopping here returns the handback answer"
+} else {
+  bad "stopping here hands back" "expected fork=2, got: $run"
+}
+if {[regexp {EU \(EDC} $run]} {
+  bad "stopping here hands back" "it started the walk anyway"
+} else {
+  ok "and starts nothing"
+}
+
+# ------------------------------------------------------------------------ the walk
+# Answering yes runs bin/iterable-keys, whose first question is the data centre. Killed
+# there: the next prompt reads a live API key, and a test has no business inventing one.
+fixture pending
+set run [drive {"1\r"}]
+if {[regexp {EU \(EDC} $run]} {
+  ok "choosing the walk starts the four steps"
+} else {
+  bad "the walk starts" "bin/iterable-keys never reached its first question: $run"
+}
+# The wizard prints the verdict itself at the end. Without this the developer got the
+# whole pending block twice — two identical boxes reading as two things to do.
+if {[string first "ITBL_INTRO_SHOWN=1 QUIET_VERDICT=1" [exec cat bin/config.sh]] >= 0} {
+  ok "and runs it quiet, so the ending is printed once"
+} else {
+  bad "the walk is quiet" "iterable-keys is invoked without QUIET_VERDICT — two endings"
+}
+
+file delete -force $ws
+puts ""
+if {$failed} { puts "  FAILED"; exit 1 }
+puts "  All good — the Iterable part is offered, not assumed, and never twice."

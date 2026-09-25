@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+# The front door. One command, run as many times as you like. It never prompts:
+# it tells you the single next thing to do and exits. That makes it safe to drive
+# from a loop, a CI job, or an agent, and it means a client is never stuck
+# staring at a prompt they don't understand.
+#
+#   bin/onboard           show where I am and what's next   (reads only)
+#   bin/onboard --apply   do the next thing that changes something
+
+source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
+
+ws_init
+
+APPLY=0
+[[ "${1:-}" == "--apply" ]] && APPLY=1
+
+# A human at a terminal gets the wizard; a script, CI job, or agent gets the
+# report-and-exit path. Same ladder and same actions underneath — only the
+# conversation differs. --apply forces the non-interactive path so an automated
+# caller is never ambushed by a prompt.
+if interactive && ((APPLY == 0)); then
+  exec "$BIN/wizard"
+fi
+
+cat <<EOF
+
+  $(bold "iterable-onboard") — gets Iterable push notifications working on your Android app,
+  and proves it by landing a real push on a device.
+
+  $(bold "What it does")
+    · reads your existing Firebase project and app config
+    · adds a service account scoped to sending push, and downloads its key
+    · walks you through the Iterable dashboard steps, then proves each one by API
+    · sends a real push and confirms the device received it
+
+  $(bold "What it will never do")
+    · ask for, store, or type your passwords — you sign in yourself
+    · change anything in your Google project before you have seen the list and said yes
+    · create a Firebase project or register an app unless you ask outright
+    · modify an app, integration, or credential you already have
+    · tell you something worked when it has not been verified
+EOF
+
+ai_notice_banner
+
+QUIET_VERDICT=1 "$BIN/gates"
+LADDER=$?
+
+cat <<'EOF'
+  Two steps are marked ~ — the mobile app in Iterable, and the push integration.
+  Iterable's public API has no endpoint that reads either one back, so nothing here
+  can honestly claim to have checked them. They are proved indirectly: if the push
+  lands on the device, both were right.
+
+EOF
+
+case $LADDER in
+  0)
+    echo "  $(bold "Done — a push reached the device.")"
+    echo
+    exit 0
+    ;;
+  40)
+    pending_tail
+    exit 40
+    ;;
+  10)
+    blocker_banner
+    echo "  Re-run this once it is dealt with — nothing already green gets redone."
+    echo "  $(dim "Also written to $(wsp ASK.md).")"
+    echo
+    exit 10
+    ;;
+esac
+
+# A gate failed that the tool itself can clear — and this runs against somebody's
+# real cloud project, so the list of changes comes before the changes. The banner is
+# shared with bin/provision's own refusal, so the dry run and the thing that enforces
+# it cannot describe different work.
+if [[ -z "$PID" ]]; then
+  echo "  $(bold "NEXT — pick a project first:")"
+  echo
+  run_line discover
+  echo
+  exit 20
+fi
+
+# Refused before the approval question rather than after it, so nobody is asked to
+# consent to work this caller is not the one who should be doing. The dry run stays
+# open to everybody: printing the plan changes nothing.
+if ((APPLY)) && ! may_drive_setup; then
+  handoff_refusal
+  exit 10
+fi
+
+if ! approved; then
+  firebase_consent_banner
+  exit 10
+fi
+
+echo "  $(bold "Approved for $PID.") What is left to do:"
+echo
+firebase_plan | plan_bulleted | sed 's/^/      /'
+echo
+
+if ((APPLY)); then
+  exec "$BIN/provision"
+fi
+
+echo "  This was a dry run. To go ahead:"
+echo
+run_line onboard --apply
+echo
+exit 20

@@ -1,0 +1,392 @@
+#!/usr/bin/env bash
+# Walks the Iterable dashboard steps that have no API, and captures what they
+# produce. The three creation steps genuinely cannot be automated: Iterable's
+# public API has no endpoint for creating an API key, creating a mobile app, or
+# configuring a push integration (checked against all 131 paths in
+# https://api.iterable.com/api-docs).
+#
+# So you click, and this proves the result. A key goes from the dashboard into the
+# workspace .env at mode 0600 — off the clipboard, or typed with the terminal echo
+# off — and is never printed back, logged, or passed as an argument.
+
+source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
+
+# The four steps, written once. Both front ends print exactly these — a second copy
+# of dashboard navigation is a second thing to get out of date, and the wrong FCM
+# type is the most expensive mistake in the whole flow.
+#
+# Numbered lines, and short. These get relayed into a chat as well as printed in a
+# terminal, and a step somebody has to read twice to find the click in is a step they
+# skim: what survives skimming is a numbered list and an arrow at the value that matters.
+# The two arrows are not decoration — JWT and the FCM type are the whole reason this walk
+# is narrated rather than linked.
+step_keys() {
+  cat <<EOF
+
+  $(bold "Step 1 of 4 — two API keys")
+
+    1. Open  $(bold "https://app.iterable.com/settings/apiKeys")
+    2. $(bold "New API Key") → type $(bold "Server-side") → copy it
+    3. $(bold "New API Key") → type $(bold "Mobile") → $(bold "Require JWT") off  ← leave it off
+       → copy it
+
+    JWT stays off until push works, so an SDK fault and a JWT fault cannot be
+    mistaken for each other. Each key is shown once; a lost one is cheap to replace.
+
+EOF
+}
+
+step_mobile_app() {
+  cat <<EOF
+
+  $(bold "Step 2 of 4 — the mobile app")
+
+    1. Open  $(bold "https://app.iterable.com/integrations/mobileApps/create")
+       (or $(bold "Settings › Apps and Websites") → $(bold "Add a new app or website"))
+    2. Platform      $(bold "Android")
+    3. Package name  $(bold "${PACKAGE:-<your package name>}")  ← character for character
+
+    Iterable files your device tokens under that string. A near miss fails
+    silently, much later.
+
+EOF
+}
+
+# The one path here that stays absolute: it goes into a browser file-upload dialog,
+# where a workspace-relative path is no use — the Finder sheet wants the whole thing.
+step_push_integration() {
+  cat <<EOF
+
+  $(bold "Step 3 of 4 — the Firebase push integration")
+
+    1. Same page → open the app you just made → $(bold "Push") → $(bold "Configure") on the Firebase row
+    2. FCM type   $(bold "Data notifications")  ← not "Notification messages"
+    3. Upload     $(bold "$SA_KEY")
+
+    With "Notification messages" the Firebase SDK swallows the push before
+    Iterable's SDK sees it: everything reads as configured and nothing arrives.
+
+EOF
+}
+
+step_identity() {
+  cat <<EOF
+
+  $(bold "Step 4 of 4 — the test identity")
+
+    The address your app signs in with — the value it passes to
+    $(bold "setEmail()"). It is the join key: if the app and Iterable disagree, the
+    token is filed under one identity and the proof push goes to the other,
+    which reads exactly like a broken integration and is not one.
+
+    Nobody signs in yet? Use something disposable and make the app use the same
+    value — it becomes a real user profile in this Iterable project.
+
+EOF
+}
+
+# Where the values go, printed with the step that produces them. A destination named in a
+# block at the end is a destination nobody reads until after they have already pasted the
+# key somewhere else — and on the agent path there is no end to put it at, because the
+# steps are handed over one at a time.
+#
+# The clipboard first because that is where the key already is: the dashboard shows it
+# once, behind a copy button. Editing a file is the fallback, not the instruction.
+where_keys() {
+  cat <<EOF
+  $(bold "Then hand each key over") — never into a chat, a log, or a command line:
+
+      $(bold "$(cmd_path iterable-keys) --take server")   ← reads it off your clipboard
+      $(bold "$(cmd_path iterable-keys) --take mobile")
+
+    Copy one, run its line, copy the other. Nothing prints the key back and the
+    clipboard is cleared afterwards. No clipboard? Put them on $(bold ITBL_SERVER_KEY)
+    and $(bold ITBL_MOBILE_KEY) in $(wsd "$ITBL_ENV") yourself (mode 0600, gitignored).
+
+EOF
+}
+
+where_identity() {
+  cat <<EOF
+  Not a secret, so it can just be said out loud:
+
+      $(bold "$(cmd_path agent) set ITBL_EMAIL=you@example.com")
+
+    Or put it on $(bold ITBL_EMAIL) in $(wsd "$ITBL_ENV").
+
+EOF
+}
+
+# The identity the app registered, if the device can tell us — scoped to the chosen
+# package, because another app's identity offered as this one's is worse than no
+# suggestion at all.
+offer_identity() {
+  local seen; seen="$(app_identity | head -3)"
+  [[ -n "$seen" ]] || return 0
+  echo "    ${PACKAGE:-The app} has already registered as:"
+  printf '      %s\n' $seen
+  echo
+}
+
+# The file the keys land in, created empty so there is somewhere to put one by hand.
+# Never written over one that already holds a value: re-reading the steps is normal, and
+# a key is shown once. Returns 1 if it left an existing file alone, so the caller can say
+# so in its own words.
+#
+# This used to be written as .env.template for the developer to rename. One more step to
+# forget, and forgetting it looked exactly like a wrong key — nothing reads a template, so
+# the keys were right and every check said otherwise.
+ensure_env() {
+  ws_init
+  grep -qE '^ITBL_[A-Z_]+=.+' "$ITBL_ENV" 2>/dev/null && return 1
+  ( umask 077 && cat > "$ITBL_ENV" <<'EOF'
+# Written by iterable-keys. Filled in by `iterable-keys --take server|mobile`, or by
+# hand — or exported in your shell, which wins over this file. Mode 0600, gitignored.
+ITBL_SERVER_KEY=
+ITBL_MOBILE_KEY=
+ITBL_EMAIL=
+# EU (EDC) projects only:
+# ITBL_BASE=https://api.eu.iterable.com
+EOF
+  )
+  chmod 600 "$ITBL_ENV"
+}
+
+# --------------------------------------------------------------- taking one key
+# The clipboard, because that is where the key already is: Iterable shows it once, behind
+# a copy button, so this is a shorter route to the file than opening an editor — and it is
+# not a route through the conversation. A key pasted into a chat is in a transcript, in
+# whatever stores that transcript, and in any log along the way; it cannot be taken back
+# out, and the only safe version of "just tell me the key" is one that never asks.
+#
+# So the value is read, checked, written and cleared inside this script. Nothing it prints
+# contains it, and it is never an argument — arguments are readable by every process on
+# the machine for as long as the command runs.
+clip_paste() {
+  if   command -v pbpaste  >/dev/null 2>&1; then pbpaste
+  elif command -v wl-paste >/dev/null 2>&1; then wl-paste --no-newline
+  elif command -v xclip    >/dev/null 2>&1; then xclip -o -selection clipboard
+  elif command -v xsel     >/dev/null 2>&1; then xsel -ob
+  else return 2; fi
+}
+
+# Emptied rather than left holding a live credential: the next paste anywhere — a commit
+# message, a chat, a ticket — is otherwise the key.
+clip_clear() {
+  if   command -v pbcopy  >/dev/null 2>&1; then printf '' | pbcopy
+  elif command -v wl-copy >/dev/null 2>&1; then printf '' | wl-copy
+  elif command -v xclip   >/dev/null 2>&1; then printf '' | xclip -selection clipboard
+  elif command -v xsel    >/dev/null 2>&1; then printf '' | xsel -ib
+  fi
+}
+
+# Why it was refused, in a form that names the mistake without quoting the value: "that
+# is a URL" is useful, and echoing what was on the clipboard to prove it would undo the
+# whole point of reading it here.
+clip_complaint() {
+  local v="$1"
+  if   [[ -z "$v" ]];              then printf 'your clipboard is empty'
+  elif [[ "$v" == *$'\n'* ]];      then printf 'that is more than one line — copy just the key'
+  elif [[ "$v" == *[[:space:]]* ]]; then printf 'that has a space in it, so it is not a key'
+  elif [[ "$v" == http* ]];        then printf 'that looks like a URL — the key is in the dialog that shows it once'
+  elif [[ "$v" == *@* ]];          then printf 'that looks like an email address'
+  elif ((${#v} < 20));             then printf 'that is %s characters, and an Iterable key is longer' "${#v}"
+  elif [[ ! "$v" =~ ^[A-Za-z0-9._~+/=-]+$ ]]; then printf 'that has characters no API key contains'
+  fi
+}
+
+if [[ "${1:-}" == "--take" ]]; then
+  case "${2:-}" in
+    server) TAKE_NAME=ITBL_SERVER_KEY; TAKE_WHAT="Server-side key" ;;
+    mobile) TAKE_NAME=ITBL_MOBILE_KEY; TAKE_WHAT="Mobile key" ;;
+    *) echo "usage: $(cmd_path iterable-keys) --take server|mobile" >&2; exit 30 ;;
+  esac
+  ensure_env || true
+  if ! CLIP="$(clip_paste 2>/dev/null)"; then
+    echo
+    echo "  No clipboard command here (pbpaste, wl-paste, xclip or xsel)."
+    echo "  Put it on $(bold "$TAKE_NAME") in $(wsd "$ITBL_ENV") instead — mode 0600, and"
+    echo "  nothing but the checks ever reads it."
+    echo
+    exit 10
+  fi
+  # Trimmed in the shell rather than by a pipeline, so the value stays inside this
+  # process. A copy button that grabs the trailing newline is normal and not a mistake.
+  V="${CLIP//$'\r'/}"
+  while [[ "$V" == [[:space:]]* ]]; do V="${V#?}"; done
+  while [[ "$V" == *[[:space:]] ]]; do V="${V%?}"; done
+  WHY="$(clip_complaint "$V")"
+  if [[ -n "$WHY" ]]; then
+    echo
+    echo "  Not stored: $WHY."
+    echo "  Nothing was written. Copy the $TAKE_WHAT, then:"
+    echo
+    run_line iterable-keys --take "$2"
+    echo
+    exit 10
+  fi
+  save_env "$TAKE_NAME" "$V"
+  clip_clear
+  echo "  $(green ✓) $TAKE_WHAT stored in $(wsp .env), mode 0600 — not printed, not logged"
+  echo "  $(green ✓) clipboard cleared"
+  exit 0
+fi
+
+# ITBL_INTRO_SHOWN is set by a caller that has already said all this and asked whether to
+# go on — the wizard has to explain part 2 *before* offering the choice, and hearing it
+# again immediately afterwards reads as two different pieces of work.
+banner() {
+  [[ "${ITBL_INTRO_SHOWN:-0}" == 1 ]] && return 0
+  part 2 "Iterable"
+  echo
+  echo "  Four things here have to be done by hand — Iterable has no API for any of"
+  echo "  them, so there is nothing to automate. Everything they produce gets proved"
+  echo "  by a real API call afterwards, so a wrong one surfaces in seconds, not days."
+  echo
+}
+
+# One step at a time, because that is how somebody clicking through a dashboard
+# experiences it. Four screens of instructions handed over at once is a document;
+# a developer who is on step 2 wants step 2.
+#
+# --relay prints the clicks and nothing around them, for a question to carry into a chat.
+# What it leaves out is everything that names a command: the screen it goes on already
+# has the two capture lines and the next step as options, and a command line printed
+# beside an option that runs it is the "type this yourself" the chat path exists to
+# replace. The clicks and the two arrows are identical either way — that is the point of
+# them living in one place.
+if [[ "${1:-}" == "--step" ]]; then
+  ensure_env || true
+  STEP_N="${2:-}"
+  RELAY=""
+  case "${3:-}" in
+    "") ;;
+    --relay) RELAY=1 ;;
+    *) echo "usage: $(cmd_path iterable-keys) --step 1|2|3|4 [--relay]" >&2; exit 30 ;;
+  esac
+  case "$STEP_N" in
+    1) [[ -n "$RELAY" ]] || banner ;;
+    2|3|4) ;;
+    *) echo "usage: $(cmd_path iterable-keys) --step 1|2|3|4 [--relay]" >&2; exit 30 ;;
+  esac
+  # Every step says where it is, not just the first: somebody who arrives at step 3 by
+  # following the one before it has no other way of knowing how much is left. In the
+  # heading rather than on a line of its own, so the inline walk gets it too.
+  case "$STEP_N" in
+    1) step_keys; [[ -n "$RELAY" ]] || where_keys ;;
+    2) step_mobile_app ;;
+    3) step_push_integration ;;
+    4) step_identity; [[ -n "$RELAY" ]] || { offer_identity; where_identity; } ;;
+  esac
+  # A walk has to name its own next step. Only the fourth knew it had a successor, so a
+  # developer handed step 1 — which is exactly what the pending ending hands them — did
+  # that one step and hit a dead end, with nothing on screen saying three more existed.
+  # It reads as a one-step job that silently failed.
+  if [[ -n "$RELAY" ]]; then
+    :
+  elif ((STEP_N < 4)); then
+    echo "  When that is done:"
+    echo
+    run_line iterable-keys --step $((STEP_N + 1))
+    echo
+  else
+    cat <<EOF
+    Then re-run the ladder: both keys get spent on a real call, and the test user
+    is looked up by name, so nothing here is taken on trust.
+
+EOF
+    run_line onboard
+    echo
+  fi
+  exit 0
+fi
+
+# Without a terminal this cannot prompt for a secret, and it must not try: the scripted
+# path is the one an agent drives, and an agent must never be the thing that handles the
+# key. So it prints the same four steps and stops. `--take` is how a key gets in from
+# here, which keeps the handling inside this script either way; the gates then prove the
+# keys by spending them, which is the only part that needs to read them.
+if ! interactive || [[ "${1:-}" == "--steps" ]]; then
+  ensure_env || KEPT=1
+  banner
+  step_keys
+  where_keys
+  step_mobile_app
+  step_push_integration
+  step_identity
+  offer_identity
+  where_identity
+  # Said after the steps rather than instead of them: a half-filled file is a normal
+  # place to arrive, and the steps still standing are the ones worth reading.
+  if [[ "${KEPT:-0}" == 1 ]]; then
+    echo "  $(wsd "$ITBL_ENV") already holds values and was left alone — a key is shown once."
+    echo
+  fi
+  exit 10
+fi
+
+ask_yn()  { local a; read -r -p "  $1 [y/N] " a; [[ "$a" == [yY]* ]]; }
+# Echo off, and the value never goes to stdout, a log, or the shell history.
+ask_secret() {
+  local v; read -r -s -p "  $1: " v < /dev/tty; echo >&2
+  printf '%s' "$v"
+}
+pause_enter() { read -r -p "  Press enter when that's done. " _ < /dev/tty; }
+
+banner
+
+# ------------------------------------------------------------------ data centre
+if ask_yn "Is this an EU (EDC-based) Iterable project?"; then
+  ITBL_BASE=https://api.eu.iterable.com
+  save_env ITBL_BASE "$ITBL_BASE"
+else
+  save_env ITBL_BASE ""    # fall back to the default rather than pinning it
+  ITBL_BASE=https://api.iterable.com
+fi
+echo "  $(green ✓) API base: $ITBL_BASE"
+
+# -------------------------------------------------------------- 1 & 2: the keys
+step_keys
+pause_enter
+
+SERVER="$(ask_secret "Paste the Server-side key")"
+[[ -n "$SERVER" ]] || { echo "  Nothing pasted."; exit 10; }
+MOBILE="$(ask_secret "Paste the Mobile key")"
+[[ -n "$MOBILE" ]] || { echo "  Nothing pasted."; exit 10; }
+
+save_env ITBL_SERVER_KEY "$SERVER"
+save_env ITBL_MOBILE_KEY "$MOBILE"
+echo "  $(green ✓) both keys stored in $(wsp .env) (mode 0600), not printed anywhere"
+
+# --------------------------------------------------------- 3: the mobile app
+step_mobile_app
+pause_enter
+
+# ------------------------------------------------- 4: the push integration
+step_push_integration
+pause_enter
+
+# ----------------------------------------------------------- the test user
+step_identity
+# The device already knows, if the app has run: the SDK logs the identity in the
+# body of its own registerDeviceToken call. Offered as a default rather than used
+# silently — it is still the developer's choice which user the proof goes to.
+SEEN="$(app_identity | head -3)"
+if [[ -n "$SEEN" ]]; then
+  echo "  The app on the device registered:"
+  printf '    %s\n' $SEEN
+  echo
+  DEFAULT="$(printf '%s\n' "$SEEN" | head -1)"
+  read -r -p "  Email the app signs in as [$DEFAULT]: " EMAIL < /dev/tty
+  EMAIL="${EMAIL:-$DEFAULT}"
+else
+  read -r -p "  Email the app signs in as: " EMAIL < /dev/tty
+fi
+[[ -n "$EMAIL" ]] || { echo "  No email given."; exit 10; }
+save_env ITBL_EMAIL "$EMAIL"
+echo "  $(green ✓) test user: $EMAIL"
+
+echo
+echo "  $(bold "Now proving it.")"
+echo
+exec "$(dirname "${BASH_SOURCE[0]}")/gates"

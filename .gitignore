@@ -21,3 +21,7 @@ eval/report/
 .cursor/
 .opencode/
 .pi/
+
+# The tool writes its workspace into the project being integrated. Present here
+# only when someone runs it against this repo; it holds a service-account key.
+.iterable/

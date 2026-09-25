@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+# Pure read. Lists your Firebase projects and the Android apps registered in each,
+# so you can point the walk at something that already exists. Changes nothing in
+# Google and nothing in your source tree; `--json` keeps its answer in the workspace
+# so the picker can be drawn from it without reading your account a second time.
+#
+# The wizard shows the same information as a menu; this exists for the
+# non-interactive path, where you have to put the answer in resolved.env yourself.
+#
+#   bin/discover          the table, for a human
+#   bin/discover --json   the same reads as one object, for an agent that has to
+#                         turn these into real options rather than scrape a table
+
+source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
+
+JSON=0
+[[ "${1:-}" == "--json" ]] && JSON=1
+
+fail() { # code, message — in whichever language the caller reads
+  if ((JSON)); then printf '{"error":%s}\n' "$(jstr "$2")"; else echo "  $2"; fi
+  exit "$1"
+}
+
+[[ -n "$(tok)" ]] || fail 10 "Not authenticated. Run: gcloud auth login"
+
+# Before the first read, and before the account is even named in the output. A signed-in
+# gcloud is a capability, not a permission — the question that turns one into the other is
+# `agent question choose_target`, and it has to have been asked.
+if ! may_list_projects; then
+  if ((JSON)); then
+    fail 10 "Not read: nobody has said yes to listing this account's Firebase projects. Ask it — $BIN/agent question choose_target — and run what the answer carries. Do not record the answer yourself: finding gcloud signed in is not consent."
+  else
+    echo; list_refusal; exit 10
+  fi
+fi
+
+if ((JSON == 0)); then
+  echo
+  echo "  Firebase projects visible to $(gcloud_account)"
+  echo
+fi
+
+PROJECTS="$(firebase_projects)" || fail 20 "Could not list Firebase projects."
+[[ -n "$PROJECTS" ]] || fail 20 "None. A project needs Firebase enabled before push can work."
+
+discover_json() {
+  printf '{"account":%s,"projects":[' "$(jstr "$(gcloud_account)")"
+  psep=""
+  while IFS=$'\t' read -r p name; do
+    [[ -n "$p" ]] || continue
+    printf '%s{"id":%s,"name":%s,"apps":[' "$psep" "$(jstr "$p")" "$(jstr "$name")"
+    asep=""
+    while IFS=$'\t' read -r pkg appid; do
+      [[ -n "$pkg" ]] || continue
+      printf '%s{"package":%s,"appId":%s}' "$asep" "$(jstr "$pkg")" "$(jstr "$appid")"
+      asep=","
+    done <<< "$(android_apps_of "$p" 2>/dev/null)"
+    printf ']}'
+    psep=","
+  done <<< "$PROJECTS"
+  printf ']}\n'
+}
+
+if ((JSON)); then
+  OUT="$(discover_json)"
+  printf '%s' "$OUT"
+  # Kept, so the picker the developer sees is a rendering of the read they agreed to
+  # rather than a second one. An agent with no list to show improvises a picker in its
+  # own words — observed live, and it is the screen this whole flow exists to avoid.
+  # Failing to cache is not a failure of the read: the picker says it has nothing yet.
+  if ws_init 2>/dev/null; then printf '%s' "$OUT" > "$WS/discovered.json" 2>/dev/null || true; fi
+  exit 0
+fi
+
+printf '  %-30s %-22s %s\n' PROJECT NAME "ANDROID APPS (package → appId)"
+printf '  %-30s %-22s %s\n' "------------------------------" "----------------------" "-----------------------------"
+
+FOUND=0
+while IFS=$'\t' read -r p name; do
+  [[ -n "$p" ]] || continue
+  apps="$(android_apps_of "$p" 2>/dev/null \
+    | awk -F'\t' -v pad="$(printf '%56s' '')" \
+        '{printf "%s%s → %s", (NR>1 ? "\n" pad : ""), $1, $2}')"
+  if [[ -n "$apps" ]]; then
+    printf '  %-30s %-22s %s\n' "$p" "${name:0:22}" "$apps"
+    FOUND=1
+  else
+    printf '  %-30s %-22s %s\n' "$p" "${name:0:22}" 'no Android app'
+  fi
+done <<< "$PROJECTS"
+
+echo
+if ((FOUND)); then
+  cat <<EOF
+  Pick a project that already has an Android app — that is the zero-mutation path:
+  everything on the Firebase side is then a pure read, and the only thing added is a
+  service account plus its key.
+
+      $BIN/agent set PID=<project-id> PACKAGE=<package-name>
+
+  Then:  $BIN/onboard
+EOF
+else
+  # The state that broke a demo, so it names the way through rather than a flag. No
+  # app means no google-services.json to download, and every remedy that isn't
+  # "register one" ends in a faked file.
+  cat <<EOF
+  None of your projects has an Android app registered yet, so there is no
+  google-services.json to download for any of them. One has to be registered first.
+
+      $BIN/onboard      offers to register it, and asks before it does
+
+  Driving the scripts yourself instead: CREATE_APP=1 is the explicit opt-in.
+EOF
+fi
+echo

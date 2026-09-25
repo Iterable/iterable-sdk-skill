@@ -1,0 +1,133 @@
+#!/usr/bin/expect -f
+# A slow gate has to look slow, not broken — and only on a terminal.
+#
+# Two claims, and neither can be checked offline any other way. The drawing only happens
+# when stdout is a tty, so a shell suite would test the wrong branch; and the reason the
+# tty branch is allowed to exist at all is that the piped branch emits byte-for-byte what
+# it always did, which is what bin/agent and every other suite here read.
+#
+# Asserted against the whole captured run rather than in sequence: these bytes arrive
+# interleaved on one line, and a sequential expect consumes past the one it is looking
+# for — the cursor-hide comes out ahead of the first frame, which is exactly how the
+# first version of this file failed while the code was correct.
+#
+# No network, no device: the gate bodies are sleeps.
+
+set timeout 60
+set failed 0
+
+# config.sh refuses to resolve a workspace inside the tool itself.
+set ws "/tmp/itbl-spinner.ws"
+file delete -force $ws
+file mkdir $ws
+set env(WS) $ws
+
+proc ok  {msg} { puts "  \033\[32mPASS\033\[0m $msg" }
+proc bad {msg why} { global failed; set failed 1; puts "  \033\[31mFAIL\033\[0m $msg — $why" }
+
+# Runs a script under a pty and returns everything it wrote.
+proc grab {script} {
+  spawn -noecho bash -c $script
+  set out ""
+  expect {
+    -re {.+} { append out $expect_out(buffer); exp_continue }
+    eof     {}
+    timeout { append out "<<TIMEOUT>>" }
+  }
+  catch { wait }
+  return $out
+}
+
+set src "source bin/config.sh;"
+set slow "slow() { sleep 3; echo the-body-ran; };"
+set fast "fast() { echo instant; };"
+set OUT "/tmp/itbl-spinner.out"
+
+puts ""
+puts "  The gate spinner — slow looks slow, and a pipe sees none of it"
+puts ""
+
+# ------------------------------------------------------------- on a terminal
+set run [grab "$src $slow run_spinner $OUT 'G13  App installed with the SDK  checking' slow; echo \"rc=\$?\"; cat $OUT"]
+
+# The elapsed count is the point: a spinner alone says "working", a number says how long,
+# which is the difference between deciding to wait and deciding something is wrong.
+if {[regexp {App installed with the SDK  checking [0-9]+s} $run]} {
+  ok "a slow gate marks time on its own row"
+} else {
+  bad "slow gate marks time" "no elapsed count appeared"
+}
+
+if {[string first "\033\[?25l" $run] >= 0} {
+  ok "and hides the cursor while it spins"
+} else {
+  bad "cursor hidden while spinning" "no hide-cursor sequence"
+}
+
+# Before the verdict, not merely somewhere: a restore that never runs leaves the
+# developer's own shell without a cursor after the script is gone.
+set show [string first "\033\[?25h" $run]
+set rc   [string first "rc=0" $run]
+if {$show >= 0 && $rc >= 0 && $show < $rc} {
+  ok "and puts it back before the verdict"
+} else {
+  bad "cursor restored before the verdict" "show at $show, verdict at $rc"
+}
+
+# The status has to survive being run in the background and waited on — it is what
+# decides green from red from not-yet, and a spinner that swallowed it would turn
+# every gate green.
+if {$rc >= 0} {
+  ok "the body's exit status survives the background run"
+} else {
+  bad "exit status survives" "rc=0 never printed"
+}
+if {[string first "the-body-ran" $run] >= 0} {
+  ok "and so does everything it printed"
+} else {
+  bad "output survives" "the body's stdout did not reach the file"
+}
+
+# A failing body has to come back failing, or a slow red gate reads as green.
+set red [grab "$src bad() { sleep 3; echo nope; return 1; }; run_spinner $OUT 'G14 checking' bad; echo \"rc=\$?\""]
+if {[string first "rc=1" $red] >= 0} {
+  ok "a body that fails still fails"
+} else {
+  bad "failure survives" "a non-zero gate came back as something else"
+}
+
+# ---------------------------------------------------------------- fast gates
+# Most rows answer inside a second. Hiding and restoring the cursor on every one of
+# eighteen is a visible flicker that buys nothing.
+set quick [grab "$src $fast run_spinner $OUT 'G0  Tooling present  checking' fast; echo end"]
+if {[string first "\033\[?25l" $quick] >= 0} {
+  bad "fast gate stays quiet" "it hid the cursor for a check that took no time"
+} else {
+  ok "a gate that answers at once draws nothing"
+}
+
+# ------------------------------------------------------------- through a pipe
+# The contract the rest of the tests rely on. Anything drawn here would land in
+# state.tsv readers, bin/agent's JSON, and every captured assertion in tests/.
+set piped [grab "$src $slow run_spinner $OUT 'G13 checking' slow | cat; echo end"]
+if {[regexp {checking [0-9]+s} $piped] || [string first "\033\[?25l" $piped] >= 0} {
+  bad "a pipe sees no drawing" "spinner bytes reached a non-terminal stdout"
+} else {
+  ok "a pipe gets byte-for-byte what it always did"
+}
+
+# --------------------------------------------------------- wired into the ladder
+# run_spinner is only worth anything if gate() actually goes through it. Checked as text
+# because driving the real ladder needs Google, a device, and both to be slow.
+set wired [grab "grep -c run_spinner bin/gates"]
+if {[regexp {[1-9]} $wired]} {
+  ok "bin/gates runs its gate bodies through it"
+} else {
+  bad "gate() uses run_spinner" "the ladder still blocks with a blank screen"
+}
+
+file delete -force $OUT
+file delete -force $ws
+puts ""
+if {$failed} { puts "  FAILED"; exit 1 }
+puts "  All good — visible when it is slow, invisible when it is piped."
