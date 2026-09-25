@@ -1364,6 +1364,27 @@ save_resolved() {
   return 0
 }
 
+# curl, with the headers that carry a credential handed over on stdin instead of in
+# the argument list. `ps` shows a full command line to every process on the machine,
+# and iterable-keys tells the developer in bold that a key never goes into one — so
+# `-H "Api-Key: $key"` made that sentence false. curl reads a config file from `-`
+# exactly as it reads one from disk, and its own docs name this as the way to keep a
+# credential out of a process list.
+#
+#   curl_auth "Authorization: Bearer $t" -- -sS -X POST -d "$data" "$url"
+#
+# stdin belongs to the config, so anything wanting `-d @-` cannot use this.
+curl_auth() {
+  local hdrs=() h
+  while (($#)) && [[ "$1" != -- ]]; do hdrs+=("$1"); shift; done
+  shift
+  { for h in "${hdrs[@]}"; do
+      h="${h//\\/\\\\}"; h="${h//\"/\\\"}"
+      printf 'header = "%s"\n' "$h"
+    done
+  } | curl -K - "$@"
+}
+
 # POST with the same auth and quota-project handling as api_get. Every call to
 # firebase.googleapis.com needs the quota header, not just the reads — leaving it
 # off the writes is exactly how the 403 came back after api_get was fixed.
@@ -1371,8 +1392,8 @@ api_post() {
   local url="$1" data="${2:-}" body code qp
   [[ -n "$data" ]] || data='{}'
   qp="$(quota_project)"
-  body="$(curl -sS -w $'\n%{http_code}' -X POST \
-    -H "Authorization: Bearer $(tok)" \
+  body="$(curl_auth "Authorization: Bearer $(tok)" -- \
+    -sS -w $'\n%{http_code}' -X POST \
     -H 'Content-Type: application/json' \
     ${qp:+-H "x-goog-user-project: $qp"} \
     -d "$data" "$url" 2>&1)"
@@ -1385,8 +1406,8 @@ api_post() {
 api_get() {
   local url="$1" body code qp
   qp="$(quota_project)"
-  body="$(curl -sS -w $'\n%{http_code}' \
-    -H "Authorization: Bearer $(tok)" \
+  body="$(curl_auth "Authorization: Bearer $(tok)" -- \
+    -sS -w $'\n%{http_code}' \
     ${qp:+-H "x-goog-user-project: $qp"} \
     "$url" 2>&1)"
   code="${body##*$'\n'}"
@@ -1638,8 +1659,10 @@ device_serial() {
 # "wrong key" from "key fine, request rejected".
 itbl_curl() {
   local method="$1" key="$2" path="$3" data="${4:-}"
-  curl -sS -w $'\n%{http_code}' -X "$method" \
-    -H "Api-Key: $key" -H 'Content-Type: application/json' \
+  # The Api-Key header goes in over stdin — see curl_auth.
+  curl_auth "Api-Key: $key" -- \
+    -sS -w $'\n%{http_code}' -X "$method" \
+    -H 'Content-Type: application/json' \
     ${data:+-d "$data"} "$ITBL_BASE$path" 2>&1
 }
 

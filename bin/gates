@@ -120,8 +120,8 @@ g1() {
   local t; t="$(tok)" || { echo "no token: run 'gcloud auth login'"; return 1; }
   [[ -n "$t" ]] || { echo "empty token: run 'gcloud auth login'"; return 1; }
   local code
-  code="$(curl -sS -o /dev/null -w '%{http_code}' \
-    -H "Authorization: Bearer $t" \
+  code="$(curl_auth "Authorization: Bearer $t" -- \
+    -sS -o /dev/null -w '%{http_code}' \
     'https://cloudresourcemanager.googleapis.com/v1/projects?pageSize=1')"
   [[ "$code" == 200 ]] || { echo "token rejected (HTTP $code): run 'gcloud auth login'"; return 1; }
   echo "$(gcloud config get-value account 2>/dev/null), token spendable"
@@ -236,8 +236,8 @@ g9_probe() {
       && { echo "key not usable yet (Invalid JWT Signature)"; return 2; }
     echo "could not mint SA token: $t"; return 1
   }
-  body="$(curl -sS -w $'\n%{http_code}' -X POST \
-    -H "Authorization: Bearer $t" -H 'Content-Type: application/json' \
+  body="$(curl_auth "Authorization: Bearer $t" -- \
+    -sS -w $'\n%{http_code}' -X POST -H 'Content-Type: application/json' \
     -d '{"validate_only":true,"message":{"token":"validate-only-placeholder","data":{"probe":"g9"}}}' \
     "https://fcm.googleapis.com/v1/projects/$PID/messages:send")"
   code="${body##*$'\n'}"; body="${body%$'\n'*}"

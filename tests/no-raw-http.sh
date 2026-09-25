@@ -50,6 +50,23 @@ else
   FAILED=1
 fi
 
+# And sends it on stdin. A header in argv is readable with `ps` by every process on
+# this machine, while iterable-keys tells the developer in bold that a key never
+# reaches an argument list — so `-H "Api-Key: …"` is the one form that makes the
+# tool's own promise false. Comments are skipped: the note in curl_auth quotes the
+# banned form on purpose.
+argv_creds() {
+  grep -rnE -- '-H +"?(Authorization|Api-Key):' bin/ 2>/dev/null \
+    | grep -vE ':[0-9]+: *#'
+}
+if [[ -n "$(argv_creds)" ]]; then
+  printf '  \033[31mFAIL\033[0m a credential is passed in argv, where ps can read it:\n    %s\n' \
+    "$(argv_creds | head -1)"
+  FAILED=1
+else
+  printf '  \033[32mPASS\033[0m no credential-bearing header is passed in argv\n'
+fi
+
 # A secret must never reach resolved.env, which is printed, diffed and read aloud.
 # workspace/.env is the only place keys go.
 #
