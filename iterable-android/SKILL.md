@@ -337,7 +337,7 @@ app already had. Full explanations and the remaining ~15 traps are in
    decisions — leave them alone; Iterable posts on its own channel. Confirm the
    result in the merged manifest
    (`app/build/intermediates/merged_manifests/.../AndroidManifest.xml`) rather
-   than assuming. See `setting-up-android-push-notifications` → `## Handling
+   than assuming. See `setting-up-android-push-notifications` → `#### Handling
    Firebase push messages and tokens`, and pitfall #23.
 
 ---
@@ -502,7 +502,7 @@ the version they're on.
 | Upgrading an existing integration from an older SDK version | `android-sdk` → `## Upgrading the SDK`. Entries run newest-first (`### Upgrading to 3.10.0` down to `3.2.0`); read every entry **newer than** the version they're on and stop there. Ask their current version first — don't guess it. |
 | Configuration deep-dive (every `IterableConfig` option, `setDataRegion`, allowed protocols, log level) | `configure-the-android-sdk` |
 | FCM push, notification channels, `POST_NOTIFICATIONS`, device registration | `setting-up-android-push-notifications` |
-| The app **already has** its own `FirebaseMessagingService`, or a second push provider (OneSignal, Braze, a home-grown one) | `setting-up-android-push-notifications` → `## Handling Firebase push messages and tokens`. Forward, don't replace — rule 8 and pitfall #23. |
+| The app **already has** its own `FirebaseMessagingService`, or a second push provider (OneSignal, Braze, a home-grown one) | `setting-up-android-push-notifications` → `#### Handling Firebase push messages and tokens`. Forward, don't replace — rule 8 and pitfall #23. |
 | Push behavior overview (silent push, foreground vs background, deep link from notification) | `push-notification-overview` |
 | Modal / banner / fullscreen in-app messages, `InAppHandler`, display intervals | `in-app-messages-on-android` |
 | Mobile inbox UI, `IterableInboxFragment`, default rendering | `setting-up-mobile-inbox-on-android` |

@@ -1,7 +1,7 @@
 # Iterable Android SDK — Agent Pitfalls
 
 Silent failures, foot-guns, and "looks fine but is broken" patterns the agent
-will hit if it relies on generic SDK intuition. The five in `SKILL.md` are the
+will hit if it relies on generic SDK intuition. The eight in `SKILL.md` are the
 hot-path subset; the full list lives here and is loaded on demand.
 
 > Format: each pitfall has **Symptom** (what the developer sees), **Cause**
@@ -280,8 +280,9 @@ hot-path subset; the full list lives here and is loaded on demand.
   already holds `ITERABLE_API_KEY`, do **not** assume it is the right one.
   It may belong to a different Iterable project, or be a rotated key. Show the
   developer the value you found and ask them to confirm it against the key
-  they gave you. A rotated or deleted key surfaces later as a 401 with no
-  obvious cause. A key from a **different Iterable project** is worse and has
+  they gave you. A rotated or deleted key answers 401, but the body naming it
+  (`Invalid API Key`) logs at **VERBOSE** only — at the default log level even
+  that surfaces as nothing. A key from a **different Iterable project** is worse and has
   no error signal at all: it authenticates, every request returns 200, and the
   token, the profile and every event land in that other project. The only
   symptom is that none of it appears in **their** dashboard — so confirm the
@@ -487,8 +488,10 @@ hot-path subset; the full list lives here and is loaded on demand.
   channels, grouping and importance alone — those are product decisions (a
   deliberately silent deals channel is not a bug), and Iterable posts on its own
   channel anyway. Verify in the merged manifest under
-  `app/build/intermediates/merged_manifests/` that their service is still the
-  priority-0 entry; don't assume it from the source manifest.
+  `app/build/intermediates/merged_manifests/` that both services survived the
+  merge and that the `-1` sits on Iterable's `MESSAGING_EVENT` **intent-filter**.
+  Theirs declares no priority at all — that default of 0 is what makes it win —
+  so don't go hunting a literal `priority="0"`.
 
   Same rule for a second vendor SDK (OneSignal, Braze, a home-grown service):
   one service owns the callback and forwards to every provider. If **they**
