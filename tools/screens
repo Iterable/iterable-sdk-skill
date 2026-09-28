@@ -139,7 +139,7 @@ one() { # <kind> [arg]
 
 # The addresses without the text. Rendering every screen is ten seconds of node; finding
 # where each one is written is instant, and it is the half that can go wrong quietly — a
-# screen this cannot place sends its reader nowhere. tests/screens-resolve.sh reads this.
+# screen this cannot place sends its reader nowhere. tests/text-surface.sh reads this.
 # One line per kind, tab-separated: where() indents a second function onto its own line for
 # reading, and a line-per-screen is what a caller can count.
 if [[ "${1:-}" == --where ]]; then

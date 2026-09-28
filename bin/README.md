@@ -48,6 +48,52 @@ All three share one verdict and one set of actions. What differs is the conversa
 the wizard asks with menus, `bin/agent` hands the same questions to the host's own question UI.
 Neither invents a gate, and neither decides anything the other wouldn't.
 
+## Where the words are
+
+Everything a developer reads is written in the program, not in a copy layer beside it. Four places
+hold nearly all of it:
+
+| What they read | Written in |
+|---|---|
+| The questions — every prompt, the options, what each option says it will do | `bin/questions.sh`, one `q_*` function per screen |
+| Gate names and verdicts — "FCM token obtained", "key hasn't propagated yet" | `bin/gates`, `bin/gates-device.sh`, `bin/gates-iterable.sh` |
+| Banners, the summaries an agent relays, the endings, the ladder's headings | `bin/config.sh` |
+| The four Iterable dashboard steps, click by click | `bin/iterable-keys` |
+
+What is left over is a short tail, and it is deliberate: the seven moments `bin/wizard` still words
+itself, each for a reason and counted in `tests/agent-questions.sh` so an eighth fails the suite;
+and the refusals in `bin/agent`, which are addressed to the calling model rather than to a person.
+
+To see the questions as a developer gets them, without running anything through Google or a
+device:
+
+```
+make screens                    every screen, headed by the file and line its words are on
+make screens KIND=pick_device   one of them, while you iterate
+```
+
+It renders live from `bin/questions.sh` every time, so there is nothing to keep in step — read it,
+change the line it names, run it again. Nothing is stored on purpose: a checked-in dump of the
+wording would be a second copy to keep true, and the day it fell behind it would be showing text
+with the wrong address attached.
+
+A question changed in `bin/questions.sh` changes in both front ends at once — the wizard renders
+these same objects rather than carrying its own wording, and `tests/agent-questions.sh` fails if it
+stops printing what a chat is handed. So rewording a screen is a one-place edit, and `make test`
+says whether it stayed one.
+
+Two limits the text itself doesn't tell you about, both held by `make test`:
+
+- **A gate name has a 34-column budget.** It is printed into a fixed field, so a longer one shoves
+  that row's verdict right while every other row stays put (`tests/text-surface.sh`).
+- **Nothing printed may tell somebody to run a bare `bin/…` path.** Installed as a plugin, the tool
+  runs from the developer's own project, where that path does not resolve. `run_line` and
+  `cmd_path` print the form that does (`tests/no-bare-commands.sh`).
+
+This section says where the words currently are. It does not say what the path is —
+[`INTENDED-FLOW.md`](../INTENDED-FLOW.md) is the only contract for that, and a second document
+claiming the flow is how the sixteen-versus-eighteen-gates rot started.
+
 ## The `next` protocol
 
 `next` is the whole contract: `{owner, kind, gate, step, command, summary}`.
@@ -149,7 +195,9 @@ nobody pastes a key into a conversation, and the gates prove the keys by spendin
 | Suite | What it holds still |
 |---|---|
 | `tests/agent-next-action.sh` | Every ladder state → one owner and one action, against fixture state files. The agent path has no human to notice a mis-route |
-| `tests/agent-questions.sh` | The chat and the terminal show the same screens |
+| `tests/agent-questions.sh` | The chat and the terminal show the same screens, in the same words — every paragraph a chat is handed is printed by the wizard too |
+| `tests/ask-question.exp` | The other half of that, through a pty: the option a person picks is the option that comes back, and declining comes back as declining |
+| `tests/text-surface.sh` | `make screens` can place every screen in the file, and no gate name outgrows the column it prints into |
 | `tests/key-propagation.sh` | G9 tells "key hasn't propagated yet" apart from "key is broken" |
 | `tests/fcm-classify.sh` | The FCM verdict, against recorded bodies — the two 403s that mean opposite things |
 | `tests/itbl-classify.sh` | The Iterable verdict: a wrong key stays distinguishable from a wrong request |

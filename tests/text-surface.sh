@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# The words as a surface someone edits: that they can be found, and that they fit where they
+# are printed. Whether they are the *right* words is not a thing a test can hold.
+#
 # tools/screens is what a docs editor reads: every screen's current wording, each headed by
 # the file and line it is written on. Two ways it can fail without looking broken, and both
 # leave someone with text and nowhere to type:
@@ -9,7 +12,8 @@
 #                           cannot place is headed "no q_ function", which is a dead end.
 #
 # The wording itself is checked in agent-questions.sh, against the JSON the chat is handed.
-# This is only about the pointer being a real one.
+# Here, the pointer being a real one — and the one limit a person editing a gate name cannot
+# see from the text they are editing.
 
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -19,7 +23,7 @@ ok()  { printf '  \033[32mPASS\033[0m %s\n' "$1"; }
 bad() { printf '  \033[31mFAIL\033[0m %s\n' "$1"; FAILED=1; }
 
 echo
-echo "  tools/screens — every screen has an address, and the address is real"
+echo "  The words — findable, and inside the space they are printed in"
 echo
 
 # --where rather than the whole thing: the render is ten seconds of node per pass, and it is
@@ -80,6 +84,25 @@ LEFT=$(ls -d /tmp/iterable-screens.* 2>/dev/null | wc -l | tr -d ' ')
 ((LEFT == 0)) && ok "the sample workspace goes away with the process" \
               || bad "$LEFT sample workspaces left in /tmp — the cleanup trap is not firing"
 
+# Gate names print into a fixed column — `%-4s %-34s` in bin/gates — and the verdict starts
+# where that column ends. A name one character over does not wrap; it shoves that gate's
+# verdict right while every other row stays put, and the ladder stops reading as a list.
+# Nothing about the sentence tells you that, which is why it is here and not a comment.
+NAMES="$(grep -hoE '^(gate|note) G[0-9]+ +"[^"]*"' bin/gates bin/gates-*.sh \
+         | sed 's/.*"\(.*\)"/\1/')"
+WIDE="$(awk 'length > 34 { print length ": " $0 }' <<< "$NAMES")"
+COUNT=$(grep -c . <<< "$NAMES")
+if ((COUNT < 10)); then
+  # Otherwise the check passes by finding nothing, which is what it would do the day the
+  # ladder is declared some other way.
+  bad "only $COUNT gate names found — this is not reading the ladder any more"
+elif [[ -z "$WIDE" ]]; then
+  ok "all $COUNT gate names fit the 34-column field bin/gates prints them in"
+else
+  bad "a gate name is wider than its column — the verdict beside it gets pushed out of line:"
+  printf '%s\n' "$WIDE" | sed 's/^/        /'
+fi
+
 echo
 ((FAILED)) && { echo "  FAILED"; exit 1; }
-echo "  All good — the wording has an address, and it is where it says."
+echo "  All good — the wording has an address, and it fits."

@@ -213,6 +213,11 @@ error · `40` nothing broken, nothing proven yet.
 [`INTENDED-FLOW.md`](INTENDED-FLOW.md) is the contract for the path a run takes, and
 it changes before the code does.
 
+Everything a developer is *asked* or *told* is written in the program itself, and
+`make screens` prints all of it — every question, with the file and line its wording
+lives on. [Where the words are](bin/README.md#where-the-words-are) is the map, for
+anyone editing the language rather than the behaviour.
+
 ### The agents
 
 Four subagents carry the parts of the work that need their own narrow permissions:
@@ -348,6 +353,7 @@ bin/                     the program the two new skills drive — see bin/README
 agents/                  the four subagents the skills delegate to
 INTENDED-FLOW.md         the contract for the path a run takes
 tests/                   offline suites over bin/ — `make test`
+tools/                   maintainer commands, in no skill's path — `make screens`, install-local
 pipeline/                refresh tooling + validation gates, CI-run
 eval/                    scenario definitions for scoring skill vs. no-skill answers
 docs/onboard/            templates: inputs.yml, env.example
