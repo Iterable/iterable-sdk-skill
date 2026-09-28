@@ -177,19 +177,23 @@ q_choose_target() {
 # opens a browser and holds the session, and the whole promise of this tool is that the
 # password happens between the developer and Google with nothing in between.
 q_sign_in() {
-  local relay="Show me the command to run"
+  # Labelled for what it does, not for who does it, because both front ends show this
+  # screen and only one of them can host gcloud: a chat hands over the command, the
+  # wizard runs it in the terminal it already has. What varies goes in the option's
+  # description, which the chat shows and the terminal menu does not.
+  local go="Sign in with gcloud"
   printf '{"header":"Sign in","prompt":%s,' "$(jstr "Ready to sign in to Google?")"
   printf '"context":%s,' "$(q_arr <<'EOF'
 Nothing here can read your Google projects until gcloud has a session, and that sign-in is yours: it opens your own browser, and neither this tool nor I ever see the password.
 
-One command in your terminal, then come back and say so. If you are already signed in as the right account, take the second option and I will check rather than ask again.
+If you are already signed in as the right account, take the second option and I will check rather than ask again.
 EOF
 )"
   printf '"requires":[],'
-  printf '"recommended":%s,' "$(jstr "$relay")"
+  printf '"recommended":%s,' "$(jstr "$go")"
   printf '"options":['
-  q_opt "$relay" \
-    "You run it, your browser handles it. Come back when it says you are signed in." \
+  q_opt "$go" \
+    "One command in your own terminal. You run it, your browser handles it — come back when it says you are signed in." \
     "nothing changed; waiting for you to sign in" "gcloud auth login"
   printf ','
   q_opt "I'm already signed in — check again" \
@@ -878,6 +882,77 @@ q_iterable_step() {
   # browser is inviting the one answer it cannot check. Where the answer is mechanical —
   # take this key, use this address — saying so is help rather than a nudge.
   printf ',"recommended":%s}' "$([[ "$rec" == null ]] && printf null || jstr "$rec")"
+}
+
+# ------------------------------------------------------ the same words, in a terminal
+#
+# bin/wizard used to carry its own wording for every one of these moments, so each screen
+# existed twice with nothing keeping the two in step. The sign-in moment said "I never see
+# your password — gcloud opens your browser and handles it" in the terminal and "You run
+# it, your browser handles it" in a chat, and neither was the other's source. One set of
+# words now, two renderers: an agent gets the JSON, a person gets this.
+#
+# Words and labels only. The options' `commands` stay the caller's to run, exactly as they
+# are on the agent path — running them in here would move consent recording into a
+# renderer, and the renderer is the one place in this tool with no business deciding
+# anything.
+#
+# q_render <question-json> — the words, and nothing that waits for an answer.
+#
+# Separate from ask_question so "the terminal prints what the chat is handed" is an offline
+# assertion. Joined to the menu it would need a pty, and a test that needs a pty to check a
+# sentence is a test that ends up skipped — which is how the wording drifted unnoticed.
+q_render() {
+  local q="$1" prompt
+  # Paragraphs arrive unwrapped on purpose — a chat window reflows them anyway — so the
+  # width belongs to whoever is drawing. Wrapped here rather than with fold, which would
+  # lose the indent on every continuation line.
+  prompt="$(printf '%s' "$q" | jqn 'process.stdout.write(j.prompt||"")')"
+  echo
+  [[ -n "$prompt" ]] && printf '  %s\n\n' "$(bold "$prompt")"
+  printf '%s' "$q" | jqn '
+    const W = 76, pad = "  ", out = [];
+    const wrap = s => {
+      if (!s) { out.push(""); return; }
+      let cur = "";
+      for (const word of s.split(" ")) {
+        if (cur && (cur + " " + word).length > W) { out.push(pad + cur); cur = word; }
+        else cur = cur ? cur + " " + word : word;
+      }
+      if (cur) out.push(pad + cur);
+    };
+    (j.context  || []).forEach(wrap);
+    (j.requires || []).forEach(s => { out.push(""); wrap(s); });
+    process.stdout.write(out.join("\n") + "\n\n");
+  '
+}
+
+# ask_question <kind> [arg] — draw a screen, return which option came back.
+# Sets ASK_LABEL and ASK_INDEX (1-based, in the order the screen lists them).
+#   0  something was chosen     1  cancelled     2  no screen for that kind
+ask_question() {
+  local q l i=0
+  # Cleared before anything can fail, because the caller reads them on every return and
+  # config.sh runs under `set -u`: a return 2 that left them unset would take the wizard
+  # down with it rather than letting it fall back to its own prompt.
+  ASK_LABEL=""; ASK_INDEX=0
+  q="$(question_for "$1" "${2:-}")" || return 2
+
+  # Everything a person reads goes to stderr, because stdout is the answer — the same
+  # split menu() keeps, and what lets a caller capture one without the other.
+  q_render "$q" >&2
+
+  local labels chosen
+  labels="$(printf '%s' "$q" | jqn \
+    'process.stdout.write((j.options||[]).map(o=>o.label).join("\n"))')"
+  [[ -n "$labels" ]] || return 1
+  chosen="$(printf '%s\n' "$labels" | menu)" || return 1
+
+  while IFS= read -r l; do
+    i=$((i + 1))
+    [[ "$l" == "$chosen" ]] && { ASK_INDEX=$i; ASK_LABEL="$l"; return 0; }
+  done <<< "$labels"
+  return 1
 }
 
 # question_for <kind> [arg] — one question object on stdout, or rc 1 and nothing at all

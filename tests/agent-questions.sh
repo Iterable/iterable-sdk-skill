@@ -710,6 +710,104 @@ grep -qF 'set ITBL_EMAIL={{answer}}' <<< "$app" \
   || bad "no way to say which identity the app really uses"
 
 echo
+echo "  One set of words — the terminal prints what the chat is handed"
+echo
+
+# The drift this closes: bin/wizard carried its own wording for the same moments, so the
+# sign-in screen said "I never see your password — gcloud opens your browser and handles
+# it" in a terminal and "You run it, your browser handles it" in a chat. Neither was the
+# other's source, and nothing here noticed, because this suite asserted which screens
+# exist and never which words they use.
+#
+# q_render is what the wizard now prints. So: every sentence the chat is handed has to
+# come out of the renderer, or there is a second wording again.
+#
+# Split from ask_question precisely so this can be checked without a pty. A parity test
+# that needs one is a test that ends up skipped, which is how the drift lasted this long.
+prender() { WS="$DISC" PID=proj-number-8 PACKAGE="" PATH="$TOOLS:$PATH" bash -c \
+  'source bin/config.sh >/dev/null 2>&1; source bin/questions.sh
+   q_render "$(question_for "$1")"' _ "$1"; }
+
+# Every screen, not a chosen few: the list is the ladder's own kinds, derived the same way
+# as above, so a screen written tomorrow is covered the day it is written.
+for k in $(grep -o 'a_kind=[a-z_]*' bin/config.sh | cut -d= -f2 | sort -u); do
+  case "$k" in
+    install_tools|project_unreachable|provision|enable_firebase|investigate|\
+    campaign_send|done|run_ladder|unknown|send_proof) continue ;;
+  esac
+  json="$(qdp "$k" 2>/dev/null)" || continue
+  # Compared after unwrapping: the renderer picks the width, so a line break it inserted is
+  # not a difference in wording. Anything else is. Option labels belong to menu, and
+  # printing them here as well would show every choice twice.
+  report="$(printf '%s' "$json" | MSHOWN="$(prender "$k")" node -e '
+    let d=""; process.stdin.on("data",c=>d+=c).on("end",()=>{
+      const j = JSON.parse(d);
+      const flat = s => s.replace(/\[[0-9;]*m/g,"").replace(/\s+/g," ").trim();
+      const shown = flat(process.env.MSHOWN), out = [];
+      for (const s of [j.prompt, ...(j.context||[]), ...(j.requires||[])])
+        if (s && s.trim() && !shown.includes(flat(s)))
+          out.push("not printed: " + flat(s).slice(0,58));
+      for (const o of j.options||[])
+        if (o.label && shown.includes(flat(o.label)))
+          out.push("printed twice, menu draws it: " + flat(o.label).slice(0,40));
+      process.stdout.write(out.join("\n"));
+    })')"
+  if [[ -z "$report" ]]; then
+    ok "$k reads the same in both front ends"
+  else
+    bad "$k does not render what the chat is handed:"
+    printf '%s\n' "$report" | sed 's/^/        /'
+  fi
+done
+
+# ---------------------------------------------------------- and the terminal asks through it
+# A screen only stops drifting once the wizard is actually rendering it, so: the kinds it
+# asks for have to exist, and the prompts it still words itself have to be the known ones.
+grep -q 'source.*questions.sh' bin/wizard \
+  && ok "the wizard renders the screens rather than carrying its own" \
+  || bad "bin/wizard does not source questions.sh — its wording is its own again"
+
+# Both halves on record, because the wizard reaches these with a project and a package
+# already chosen — keep_target exists only in that state. question_for as well as
+# ask_question: the device step draws its own menu and renders the screen's words only, so
+# that site names a kind too.
+for k in $(grep -oE '(ask_question|question_for) [a-z_]*' bin/wizard \
+           | awk '{print $2}' | sort -u); do
+  qd "$k" proj-number-8 >/dev/null 2>&1 \
+    && ok "the wizard asks for $k, and there is a screen for it" \
+    || bad "the wizard asks for $k and question_for has no screen for it"
+done
+
+# The moments the terminal still words itself. Not a to-do list: each asks about something
+# the two front ends reach differently, and a shared screen would say something untrue in
+# one of them until that stops being so.
+#
+#   the project and app pickers   the chat draws them from discovered.json, which the wizard
+#                                 does not write — it lists live, one project's apps only
+#   the typed package name        free text, not a pick
+#   "Register ...?", twice        the screen's wording turns on whether a listing happened,
+#                                 which on this path it has, uncached
+#   "Delete the local key now?"   no screen: bin/agent has no verb that deletes it, so a yes
+#                                 on the chat path would have nothing behind it
+#   "Go ahead?"                   the block above it is firebase_consent_banner, already
+#                                 shared with both other front ends; only the yes/no is local
+#
+# Counted, so a prompt written straight into the wizard fails here until it is either a
+# screen or a line above. The device menu is not among them: it draws its own rows, all of
+# them rather than a chat's four, but the sentences over it are the screen's.
+grep -qF 'q_render "$(question_for pick_device)"' bin/wizard \
+  && ok "the device menu is the wizard's, and the words above it are the screen's" \
+  || bad "the wizard's device step words itself again"
+
+OWN=$(( $(grep -c 'ask_yn "' bin/wizard) + $(grep -c 'bold "Pick the' bin/wizard) \
+      + $(grep -c 'read -r -p "  Android package' bin/wizard) ))
+if ((OWN == 7)); then
+  ok "the 7 moments the terminal still words itself are the 7 with a reason written down"
+else
+  bad "the wizard words $OWN moments itself, not 7 — migrate it to a screen, or say why not"
+fi
+
+echo
 echo "  The contract"
 echo
 
