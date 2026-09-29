@@ -104,7 +104,7 @@ SW="$(mktemp -d)/proj"; mkdir -p "$SW"
 ( cd "$SW" && WS="$SW/.iterable" bash -c "source '$ROOT/bin/config.sh'; ws_init" ) >/dev/null 2>&1
 
 missing=""
-for c in onboard teardown discover gates agent iterable-keys proof-push; do
+for c in onboard teardown discover gates agent iterable-keys proof-push launch-app; do
   [[ -x "$SW/.iterable/$c" ]] || missing="$missing $c"
 done
 [[ -z "$missing" ]] && ok "every entry point a developer is told to run gets one" \

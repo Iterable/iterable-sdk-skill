@@ -46,7 +46,7 @@ ws_init() {
 
 # The entry points a developer is ever told to run. The rest of bin/ is internal —
 # wizard and provision are dispatched to, never typed.
-SHIM_CMDS="onboard teardown discover gates agent iterable-keys proof-push"
+SHIM_CMDS="onboard teardown discover gates agent iterable-keys proof-push launch-app"
 
 # A host installs a plugin into a version-numbered cache directory, which is both too
 # long to type and not stable: old version directories stay on disk, so a path a

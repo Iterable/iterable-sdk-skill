@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Opens the selected app's launcher activity on the selected Android device.
+#
+# This is deliberately the whole extent of the device automation: no taps, text,
+# key events, sign-in, or permission grants. The person still answers everything
+# inside their app; this actor only saves them from finding and opening it after
+# an install.
+
+source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
+
+[[ -n "$PACKAGE" ]] || {
+  echo "no package selected yet — choose the Android app before trying to launch it" >&2
+  exit 10
+}
+
+d="$(device_serial)" || {
+  echo "$d" >&2
+  exit 10
+}
+
+adb -s "$d" shell pm path "$PACKAGE" 2>/dev/null | grep -q '^package:' || {
+  echo "$PACKAGE is not installed on $d — build and install it before trying to launch it" >&2
+  exit 20
+}
+
+out="$(adb -s "$d" shell am start -W \
+  -a android.intent.action.MAIN \
+  -c android.intent.category.LAUNCHER \
+  -p "$PACKAGE" 2>&1)"
+rc=$?
+
+if ((rc != 0)) || grep -qiE '(^|[[:space:]])(error|exception):|unable to resolve|does not exist' <<< "$out"; then
+  echo "could not open $PACKAGE on $d:" >&2
+  printf '%s\n' "$out" >&2
+  exit 20
+fi
+
+echo "Opened $PACKAGE on $d."
