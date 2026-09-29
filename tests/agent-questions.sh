@@ -464,11 +464,13 @@ echo
 DISC="$TMP/disc"; mkdir -p "$DISC"
 node -e '
 const projects = [];
-for (let i = 1; i <= 12; i++) projects.push({ id: `proj-number-${i}`, name: `Project ${i}`, apps: [] });
-projects[4].apps  = [{ package: "com.other.thing", appId: "1:5:android:aaa" }];
-projects[7].apps  = [{ package: "com.dogshelter", appId: "1:8:android:bbb" }];
-projects[10].apps = [{ package: "com.dogshelter", appId: "1:11:android:ccc" },
-                     { package: "com.dogshelter.dev", appId: "1:11:android:ddd" }];
+for (let i = 12; i >= 1; i--) projects.push({ id: `proj-number-${i}`, name: `Project ${i}`, apps: [] });
+projects.find(p => p.id === "proj-number-5").apps = [{ package: "com.other.thing", appId: "1:5:android:aaa" }];
+projects.find(p => p.id === "proj-number-8").apps = [{ package: "com.dogshelter", appId: "1:8:android:bbb" }];
+projects.find(p => p.id === "proj-number-11").apps = [
+  { package: "com.dogshelter", appId: "1:11:android:ccc" },
+  { package: "com.dogshelter.dev", appId: "1:11:android:ddd" },
+];
 process.stdout.write(JSON.stringify({ account: "dev@example.com", projects }));
 ' > "$DISC/discovered.json"
 
@@ -498,9 +500,9 @@ proj="$(qd pick_project)"
 # design: a developer whose answer is on page two will type it, and one whose answer is
 # ranked first will click it.
 labels="$(node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>JSON.parse(s).options.forEach(o=>console.log(o.label)))' <<< "$proj")"
-[[ "$(head -1 <<< "$labels")" == proj-number-8 || "$(head -1 <<< "$labels")" == proj-number-11 ]] \
-  && ok "a project that already has the package is offered first — the path that creates nothing" \
-  || bad "the zero-mutation project is not first: $(tr '\n' ' ' <<< "$labels")"
+[[ "$(sed -n '1,3p' <<< "$labels")" == $'proj-number-11\nproj-number-8\nproj-number-12' ]] \
+  && ok "package matches come first, then projects are newest first" \
+  || bad "the project order is not package match then recency: $(tr '\n' ' ' <<< "$labels")"
 grep -qF "9 more not shown" <<< "$proj" \
   && ok "and it admits how many it left out, rather than implying that was all of them" \
   || bad "twelve projects, three shown, and nothing says so"

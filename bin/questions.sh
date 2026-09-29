@@ -258,18 +258,19 @@ EOF
 # and a picker that re-reads their account is a second helping of a one-time yes.
 
 # id \t display name \t app count \t carries our package \t packages — best first.
-# Ranked so the zero-mutation answer is the first thing read: a project that already has
-# this package needs nothing created in it at all.
+# Exact package matches are the zero-mutation answer, so they come first. Discovery
+# already returns projects newest first, and the stable tie-break keeps that order
+# within the matching and non-matching groups.
 ranked_projects() {
   [[ -s "$WS/discovered.json" ]] || return 1
   PKG="${PACKAGE:-}" node -e '
     let s=""; process.stdin.on("data", d => s += d).on("end", () => {
       const want = process.env.PKG || "", d = JSON.parse(s);
-      const tier = p => (p.apps || []).some(a => a.package === want) ? 0 : ((p.apps || []).length ? 1 : 2);
-      (d.projects || []).map((p, i) => ({ p, i, t: tier(p) }))
-        .sort((a, b) => a.t - b.t || a.i - b.i)
-        .forEach(({ p, t }) => console.log([
-          p.id, p.name || "", (p.apps || []).length, t === 0 ? 1 : 0,
+      const matches = p => !!want && (p.apps || []).some(a => a.package === want);
+      (d.projects || []).map((p, i) => ({ p, i, match: matches(p) }))
+        .sort((a, b) => Number(b.match) - Number(a.match) || a.i - b.i)
+        .forEach(({ p, match }) => console.log([
+          p.id, p.name || "", (p.apps || []).length, match ? 1 : 0,
           (p.apps || []).map(a => a.package).join(", "),
         ].join("\t")));
     });' < "$WS/discovered.json" 2>/dev/null

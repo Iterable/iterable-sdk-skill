@@ -294,6 +294,30 @@ rc=$?
 (( $(http_calls "$WS12") == 0 )) && ok "and made no call while refusing" \
   || bad "firebase_projects reached the network before refusing"
 
+PAGED="$TMP/paged-projects"; mkdir -p "$PAGED"
+projects="$(WS="$PAGED" APPROVED=1 bash -c '
+  source bin/config.sh >/dev/null 2>&1
+  may_list_projects() { return 0; }
+  cloud_projects() {
+    printf "%s\n" \
+      $'"'"'new-project\t2026-09-29T10:00:00Z'"'"' \
+      $'"'"'old-project\t2025-01-10T10:00:00Z'"'"'
+  }
+  quota_candidates() { echo quota-project; }
+  api_get() {
+    case "$1" in
+      *pageToken=*)
+        printf "%s" '"'"'{"results":[{"projectId":"new-project","displayName":"New project","state":"ACTIVE"}]}'"'"' ;;
+      *)
+        printf "%s" '"'"'{"results":[{"projectId":"old-project","displayName":"Old project","state":"ACTIVE"}],"nextPageToken":"second page"}'"'"' ;;
+    esac
+  }
+  firebase_projects
+' < /dev/null)"
+[[ "$projects" == $'new-project\tNew project\nold-project\tOld project' ]] \
+  && ok "firebase_projects reads every page and returns newest projects first" \
+  || bad "firebase_projects lost a page or did not sort by creation time: $(tr '\n' ' ' <<< "$projects")"
+
 echo
 echo "  A pasted value cannot grant its own consent"
 echo
