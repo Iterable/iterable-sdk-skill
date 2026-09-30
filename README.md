@@ -213,10 +213,9 @@ error · `40` nothing broken, nothing proven yet.
 [`INTENDED-FLOW.md`](INTENDED-FLOW.md) is the contract for the path a run takes, and
 it changes before the code does.
 
-Everything a developer is *asked* or *told* is written in the program itself, and
-`make screens` prints all of it — every question, with the file and line its wording
-lives on. [Where the words are](bin/README.md#where-the-words-are) is the map, for
-anyone editing the language rather than the behaviour.
+Repository contributors can preview and review user-facing questions without credentials
+or a device. See [Contributing](CONTRIBUTING.md#reviewing-user-facing-copy); these
+maintainer tools are not part of the installed-user workflow.
 
 ### The agents
 
