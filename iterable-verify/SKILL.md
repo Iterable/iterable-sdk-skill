@@ -6,8 +6,9 @@ description: >-
   Use when a push is not arriving, when a developer wants proof the integration
   works, or right after `iterable-android` / `iterable-react-native` writes the
   integration — including "why isn't my push arriving?", "is the token registered?",
-  "prove this works", "test push notifications". Reads only; it never provisions,
-  never edits the app, and never re-sends to manufacture a pass.
+  "prove this works", "test push notifications". Its gates read only; it never
+  provisions, edits the app, or re-sends to manufacture a pass. After installation,
+  it may open the selected app while leaving every in-app action to the developer.
 ---
 
 # Proving Iterable push on a device
@@ -16,19 +17,18 @@ Eighteen checks, of which the last five are the device half. One of them is the 
 that matters — *push arrives on device*: an Iterable push, sent on purpose and
 carrying a marker, found in the device's own notification records.
 
-**This skill writes nothing and sends nothing on its own.** The verifier does not
-trigger the thing it verifies — a checker that sends its own push can only ever
-agree with itself. Sending is `<root>/bin/proof-push`, run as a separate, announced step.
+**The verification gates write nothing and send nothing.** They do not trigger the
+thing they verify — a checker that sends its own push can only ever agree with itself.
+Sending is `<root>/bin/proof-push`, run as a separate, announced step.
 
-**And it reads the device without operating it.** `adb shell dumpsys`, `logcat`, `pm
-path` — yes. `adb shell input` (tap, text, keyevent), `am start`, `monkey`, `pm grant`,
-or any other way of working their app for them — no, at any point, including when it
-would be quicker. Three reasons, and each is sufficient: you cannot see their login
-screen, so every field is a guess and a wrong guess looks exactly like a slow screen;
-it costs minutes per attempt and often does not work; and the notification permission
-is a question Android asks *the person*, so a tool that taps Allow has answered it on
-their behalf and then reports the answer as evidence. When the device needs a human,
-the tool says so in a question — relay it and wait.
+**The gates read the device without operating it.** `adb shell dumpsys`, `logcat`, `pm
+path` — yes. One separate actor, `<root>/bin/launch-app`, may start the selected
+package's launcher activity after installation. That is the boundary: `adb shell
+input` (tap, text, keyevent), `monkey`, `pm grant`, or any other way of working their
+app for them — no, at any point. You cannot see their login screen, so every field is
+a guess; and the notification permission is a question Android asks *the person*, so
+a tool that taps Allow has answered it on their behalf and then reports the answer as
+evidence. Open the app, relay the human question, and wait.
 
 ## Finding the scripts
 
@@ -81,8 +81,8 @@ that is still wrong.
 
 | `next.kind` | What you do |
 |---|---|
-| `install_app` | Their app is not on the device, or the installed APK does not carry the SDK. Build and install, then re-run. The check reads `dumpsys package` for the Iterable messaging service, so it catches "integrated the SDK, forgot to reinstall" — invisible to anything that only reads the repo. |
-| `run_app` | Their hands, not yours. Relay `next.question` — it asks them to sign in as `target.email` and allow notifications, and one of its options re-runs the checks. Do not launch the app, drive the UI, or answer the permission dialog (see below). |
+| `install_app` | Their app is not on the device, or the installed APK does not carry the SDK. Build and install it, run `<root>/bin/launch-app`, then re-run the agent. The check reads `dumpsys package` for the Iterable messaging service, so it catches "integrated the SDK, forgot to reinstall" — invisible to anything that only reads the repo. |
+| `run_app` | Run `<root>/bin/launch-app` first, then relay `next.question`. It asks them to sign in as `target.email` and allow notifications, and one option re-runs the checks. Opening the launcher activity is yours; driving the UI or answering the permission dialog is never yours. |
 | `send_proof` | Announce it, then run `<root>/bin/proof-push`. It sends one marked push and deliberately does not check whether it arrived. Then re-run `<root>/bin/agent`. |
 | `campaign_send` | Server-side corroboration needs `ITBL_CAMPAIGN_ID`; without it there is nothing to read. Optional. |
 | `iterable_keys`, `provision`, `choose_target`, … | Not this skill's half — hand back to `iterable-provision`. |

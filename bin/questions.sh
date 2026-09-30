@@ -262,18 +262,19 @@ EOF
 # and a picker that re-reads their account is a second helping of a one-time yes.
 
 # id \t display name \t app count \t carries our package \t packages — best first.
-# Ranked so the zero-mutation answer is the first thing read: a project that already has
-# this package needs nothing created in it at all.
+# Exact package matches are the zero-mutation answer, so they come first. Discovery
+# already returns projects newest first, and the stable tie-break keeps that order
+# within the matching and non-matching groups.
 ranked_projects() {
   [[ -s "$WS/discovered.json" ]] || return 1
   PKG="${PACKAGE:-}" node -e '
     let s=""; process.stdin.on("data", d => s += d).on("end", () => {
       const want = process.env.PKG || "", d = JSON.parse(s);
-      const tier = p => (p.apps || []).some(a => a.package === want) ? 0 : ((p.apps || []).length ? 1 : 2);
-      (d.projects || []).map((p, i) => ({ p, i, t: tier(p) }))
-        .sort((a, b) => a.t - b.t || a.i - b.i)
-        .forEach(({ p, t }) => console.log([
-          p.id, p.name || "", (p.apps || []).length, t === 0 ? 1 : 0,
+      const matches = p => !!want && (p.apps || []).some(a => a.package === want);
+      (d.projects || []).map((p, i) => ({ p, i, match: matches(p) }))
+        .sort((a, b) => Number(b.match) - Number(a.match) || a.i - b.i)
+        .forEach(({ p, match }) => console.log([
+          p.id, p.name || "", (p.apps || []).length, match ? 1 : 0,
           (p.apps || []).map(a => a.package).join(", "),
         ].join("\t")));
     });' < "$WS/discovered.json" 2>/dev/null
@@ -552,10 +553,10 @@ q_pick_device() {
 
 # ------------------------------------------------------ part 3: the app's own turn
 #
-# Signing in and answering the notification dialog happen inside the developer's app,
-# behind whatever login it has. Neither is work an agent can do honestly: it has to guess
-# which field is which, a wrong guess is indistinguishable from a screen that was slow,
-# and every attempt costs minutes of tapping over adb against a UI nothing here has seen.
+# The verifier opens the selected app, but signing in and answering the notification
+# dialog happen inside it, behind whatever login it has. Neither is work an agent can do
+# honestly: it has to guess which field is which, and a wrong guess is indistinguishable
+# from a screen that was slow.
 # The permission dialog is worse than slow — it is a question Android asks *the person*,
 # and a tool that taps Allow has answered it on their behalf.
 #
@@ -574,7 +575,7 @@ q_run_app_context() {
   fi
   echo "  2. Allow notifications when Android asks"
   echo ""
-  echo "Neither is mine to do. Everything from here only reads the device, and nothing here taps, types or launches anything on it: a tap I guessed at looks exactly like a screen that was slow, and Allow is yours to give."
+  echo "I open the selected app and stop there. Nothing here taps, types, signs in or grants permission: a tap I guessed at looks exactly like a screen that was slow, and Allow is yours to give."
   echo ""
   echo "Then say so below, and every device check runs again."
 }

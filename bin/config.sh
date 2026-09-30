@@ -46,7 +46,7 @@ ws_init() {
 
 # The entry points a developer is ever told to run. The rest of bin/ is internal —
 # wizard and provision are dispatched to, never typed.
-SHIM_CMDS="onboard teardown discover gates agent iterable-keys proof-push"
+SHIM_CMDS="onboard teardown discover gates agent iterable-keys proof-push launch-app"
 
 # A host installs a plugin into a version-numbered cache directory, which is both too
 # long to type and not stable: old version directories stay on disk, so a path a
@@ -1335,16 +1335,27 @@ quota_project() {
   node -e 'try{process.stdout.write(require(process.env.HOME+"/.config/gcloud/application_default_credentials.json").quota_project_id||"")}catch(e){}' 2>/dev/null
 }
 
+# Cloud Resource Manager carries the creation time that FirebaseProject omits.
+# Newest first also makes a recently created Firebase project a useful quota
+# candidate instead of letting an arbitrary API order hide it beyond the limit.
+cloud_projects() {
+  gcloud projects list --format='value(projectId,createTime)' \
+    --sort-by='~createTime' --limit="${LIMIT:-50}" 2>/dev/null
+}
+
 # Quota-project candidates for the project *list*, which runs before any project
-# is chosen. Best guess first; duplicates dropped.
+# is chosen. Best guess first; duplicates dropped. firebase_projects passes the
+# Cloud Resource Manager listing it already fetched so this does not read twice.
 quota_candidates() {
+  local projects
+  if (($#)); then projects="${1-}"; else projects="$(cloud_projects)"; fi
   {
     [[ -s "$WS/.quota" ]] && { tr -d '\n' < "$WS/.quota"; echo; }
     local p
     p="$(gcloud config get-value project 2>/dev/null)"
     [[ -n "$p" && "$p" != "(unset)" ]] && echo "$p"
     node -e 'try{const q=require(process.env.HOME+"/.config/gcloud/application_default_credentials.json").quota_project_id;if(q)console.log(q)}catch(e){}' 2>/dev/null
-    gcloud projects list --format='value(projectId)' --limit="${LIMIT:-50}" 2>/dev/null
+    printf '%s\n' "$projects" | cut -f1
   } | awk 'NF && !seen[$0]++'
 }
 
@@ -1753,15 +1764,44 @@ firebase_projects() {
   # instead of having to remember it. rc 10 is "a human is needed", which is what an
   # unasked question is — and it is not rc 1, so nothing reads it as "Google said no".
   may_list_projects || return 10
-  local url='https://firebase.googleapis.com/v1beta1/projects?pageSize=100' body p
+  local base='https://firebase.googleapis.com/v1beta1/projects?pageSize=100'
+  local body cloud page page_token p projects url
+  cloud="$(cloud_projects)" || cloud=""
   while read -r p; do
-    body="$(QP="$p" api_get "$url" 2>/dev/null)" || continue
+    projects=""; page_token=""
+    while :; do
+      url="$base"
+      [[ -n "$page_token" ]] && url="$url&pageToken=$(urlenc "$page_token")"
+      body="$(QP="$p" api_get "$url" 2>/dev/null)" || { projects=""; break; }
+      page="$(printf '%s' "$body" | jqn 'process.stdout.write((j.results||[])
+        .filter(p=>!p.state||p.state==="ACTIVE")
+        .map(p=>[p.projectId,p.displayName||""].join("\t")).join("\n"))')"
+      [[ -n "$page" ]] && projects="${projects}${projects:+$'\n'}${page}"
+      page_token="$(printf '%s' "$body" | jqn 'process.stdout.write(j.nextPageToken||"")')"
+      [[ -n "$page_token" ]] || break
+    done
+    [[ -n "$projects" ]] || continue
     ws_init; printf '%s' "$p" > "$WS/.quota"
-    printf '%s' "$body" | jqn 'process.stdout.write((j.results||[])
-      .filter(p=>!p.state||p.state==="ACTIVE")
-      .map(p=>[p.projectId,p.displayName||""].join("\t")).join("\n"))'
+    {
+      printf '%s\n' "$cloud"
+      printf '\036\n'
+      printf '%s\n' "$projects"
+    } | node -e '
+      let s = ""; process.stdin.on("data", d => s += d).on("end", () => {
+        const [cloud = "", firebase = ""] = s.split("\n\u001e\n");
+        const created = new Map(cloud.split("\n").filter(Boolean).map(line => {
+          const [id, time = ""] = line.split("\t"); return [id, time];
+        }));
+        firebase.split("\n").filter(Boolean)
+          .map((line, i) => {
+            const [id] = line.split("\t");
+            return { line, i, time: created.get(id) || "" };
+          })
+          .sort((a, b) => b.time.localeCompare(a.time) || a.i - b.i)
+          .forEach(({ line }) => console.log(line));
+      });'
     return 0
-  done <<< "$(quota_candidates)"
+  done <<< "$(quota_candidates "$cloud")"
   return 1
 }
 

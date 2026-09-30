@@ -113,13 +113,13 @@ so `bin/agent` provisions nothing and sends nothing. It names the script; the ca
 
 Every screen the wizard shows has a twin in `next.question`, including registering a missing
 Android app and picking the device by name, so the chat is the whole walk rather than a router to
-the terminal. `run_app` keeps its question even after the device is settled: signing in and
-answering Android's notification dialog happen inside the developer's app, so the tool asks and
-waits.
+the terminal. `run_app` keeps its question even after the device is settled: `bin/launch-app` opens
+the selected package, then signing in and answering Android's notification dialog happen inside
+the developer's app, so the tool asks and waits.
 
-**Nothing in here ever works the developer's device.** The gates read `dumpsys` and `logcat` and
-never tap, type or launch — a guessed tap is indistinguishable from a slow screen, and a permission
-the tool granted itself is not evidence of anything.
+The gates still only read `dumpsys` and `logcat`. The one device actor, `bin/launch-app`, starts the
+selected package's launcher activity and stops there: it never taps, types, signs in, or grants a
+permission. A permission the tool granted itself would not be evidence of anything.
 
 ### Who drives the Google setup stays open until the developer answers
 
@@ -177,6 +177,7 @@ The split is structural rather than conventional.
 | `bin/agent` | **Reporter.** Runs the verifier and serialises its state; provisions nothing, sends nothing |
 | `bin/provision` | **Actor.** Idempotent; ends by handing off to `bin/gates` to be judged |
 | `bin/proof-push` | **Actor.** Sends the one push the ladder exists to prove, and records the marker it sent. Never checks whether it arrived |
+| `bin/launch-app` | **Actor.** Opens the selected package's launcher activity on the selected device. Never taps, types, signs in, or grants permission |
 | `bin/discover` | Read-only list of the developer's Firebase projects and their Android apps |
 | `bin/iterable-keys` | Walks the four Iterable dashboard steps that have no API, captures the keys, then hands off to `bin/gates`. Offers the identity the app already registered, read from the device |
 | `bin/handoff` | Prints the block that sends a developer to their own terminal, for an agent to relay verbatim. Changes nothing |

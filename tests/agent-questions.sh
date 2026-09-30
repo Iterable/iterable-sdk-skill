@@ -464,11 +464,13 @@ echo
 DISC="$TMP/disc"; mkdir -p "$DISC"
 node -e '
 const projects = [];
-for (let i = 1; i <= 12; i++) projects.push({ id: `proj-number-${i}`, name: `Project ${i}`, apps: [] });
-projects[4].apps  = [{ package: "com.other.thing", appId: "1:5:android:aaa" }];
-projects[7].apps  = [{ package: "com.dogshelter", appId: "1:8:android:bbb" }];
-projects[10].apps = [{ package: "com.dogshelter", appId: "1:11:android:ccc" },
-                     { package: "com.dogshelter.dev", appId: "1:11:android:ddd" }];
+for (let i = 12; i >= 1; i--) projects.push({ id: `proj-number-${i}`, name: `Project ${i}`, apps: [] });
+projects.find(p => p.id === "proj-number-5").apps = [{ package: "com.other.thing", appId: "1:5:android:aaa" }];
+projects.find(p => p.id === "proj-number-8").apps = [{ package: "com.dogshelter", appId: "1:8:android:bbb" }];
+projects.find(p => p.id === "proj-number-11").apps = [
+  { package: "com.dogshelter", appId: "1:11:android:ccc" },
+  { package: "com.dogshelter.dev", appId: "1:11:android:ddd" },
+];
 process.stdout.write(JSON.stringify({ account: "dev@example.com", projects }));
 ' > "$DISC/discovered.json"
 
@@ -498,9 +500,9 @@ proj="$(qd pick_project)"
 # design: a developer whose answer is on page two will type it, and one whose answer is
 # ranked first will click it.
 labels="$(node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>JSON.parse(s).options.forEach(o=>console.log(o.label)))' <<< "$proj")"
-[[ "$(head -1 <<< "$labels")" == proj-number-8 || "$(head -1 <<< "$labels")" == proj-number-11 ]] \
-  && ok "a project that already has the package is offered first — the path that creates nothing" \
-  || bad "the zero-mutation project is not first: $(tr '\n' ' ' <<< "$labels")"
+[[ "$(sed -n '1,3p' <<< "$labels")" == $'proj-number-11\nproj-number-8\nproj-number-12' ]] \
+  && ok "package matches come first, then projects are newest first" \
+  || bad "the project order is not package match then recency: $(tr '\n' ' ' <<< "$labels")"
 grep -qF "9 more not shown" <<< "$proj" \
   && ok "and it admits how many it left out, rather than implying that was all of them" \
   || bad "twelve projects, three shown, and nothing says so"
@@ -685,21 +687,21 @@ grep -qF "Which device" <<< "$(qdev run_app Pixel_9_Pro)" \
   && bad "asked which device again when one is already on record" \
   || ok "a recorded device is not re-asked: that part is settled"
 
-# What replaced it. With the device settled, run_app is still a question, because signing
-# in and answering the permission dialog happen inside the developer's app. Left silent,
-# an agent filled the gap by driving the emulator over adb: minutes of guessed taps per
-# attempt, and Android's permission question answered by a tool on the person's behalf.
+# What replaced it. With the device settled, the verifier opens the app, but run_app is
+# still a question because signing in and answering the permission dialog happen inside
+# it. Left silent, an agent filled the gap by driving the UI over adb: guessed taps and
+# Android's permission question answered by a tool on the person's behalf.
 app="$(qdev run_app Pixel_9_Pro)"
-out="$(node "$TMP/shape.js" <<< "$app")" && ok "the run-it-yourself screen — $out" || bad "the run-it-yourself screen — $out"
+out="$(node "$TMP/shape.js" <<< "$app")" && ok "the finish-in-app screen — $out" || bad "the finish-in-app screen — $out"
 grep -qiF "allow notifications" <<< "$app" \
   && ok "it asks them to allow notifications rather than doing it for them" \
   || bad "nothing on the screen asks for the notification permission"
 grep -qF "Sign in" <<< "$app" \
   && ok "and to sign in, which is what makes a token exist" \
   || bad "the screen never mentions signing in"
-grep -qE "only reads the device|never.*taps|nothing here taps" <<< "$app" \
-  && ok "and says outright that nothing here touches the device" \
-  || bad "the screen does not rule out the tool working the app itself"
+grep -qE "open the selected app.*stop there" <<< "$app" \
+  && ok "and says the tool opens the app but stops before interacting with it" \
+  || bad "the screen does not explain the launch-only boundary"
 grep -q '"commands":\["[^"]*/bin/agent"\]' <<< "$app" \
   && ok "one option re-runs the checks, so proceeding is a choice on the list" \
   || bad "no option re-reads the device — the developer has nothing to proceed with"
