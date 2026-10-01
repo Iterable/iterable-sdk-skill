@@ -18,7 +18,8 @@
 set timeout 8
 set failed 0
 
-set ws "/tmp/itbl-part.ws"
+set tag [pid]
+set ws "/tmp/itbl-part-$tag.ws"
 set env(WS) $ws
 # The arrow-key form draws with escapes and redraws over itself; the numbered form is the
 # same decision in text a test can read. Both are shipped and digits work in both.
@@ -46,6 +47,13 @@ proc fixture {g10} {
 proc drive {keys} {
   spawn -noecho bash -c {source bin/config.sh; iterable_part; echo "fork=$?"}
   set out ""
+  if {[llength $keys]} {
+    expect {
+      -re {Choose 1-} { append out $expect_out(buffer) }
+      eof { append out $expect_out(buffer); catch { wait }; return $out }
+      timeout { catch { close }; catch { wait }; return $out }
+    }
+  }
   foreach k $keys { send $k }
   expect {
     -re {.+} { append out $expect_out(buffer); exp_continue }
@@ -122,7 +130,10 @@ if {[regexp {EU \(EDC} $run]} {
 }
 # The wizard prints the verdict itself at the end. Without this the developer got the
 # whole pending block twice — two identical boxes reading as two things to do.
-if {[string first "ITBL_INTRO_SHOWN=1 QUIET_VERDICT=1" [exec cat bin/config.sh]] >= 0} {
+set config_file [open "bin/config.sh" r]
+set config_text [read $config_file]
+close $config_file
+if {[string first "ITBL_INTRO_SHOWN=1 QUIET_VERDICT=1" $config_text] >= 0} {
   ok "and runs it quiet, so the ending is printed once"
 } else {
   bad "the walk is quiet" "iterable-keys is invoked without QUIET_VERDICT — two endings"

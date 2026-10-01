@@ -16,6 +16,8 @@
 # conversation: it becomes a record on disk that the gate spending it can check. That
 # is the whole reason consent survives being asked in a chat window.
 
+source "$(dirname "${BASH_SOURCE[0]}")/screen-copy.sh"
+
 # Lines on stdin, blanks included, as a JSON array. The blanks are paragraph breaks —
 # dropping them turns nine lines of context into one wall of text.
 q_arr() {
@@ -74,47 +76,49 @@ q_free_text() {
 # workspace, and names the shape of the whole job rather than the next step of it —
 # because what is being agreed to here is the job.
 q_opening_context() {
-  echo "You need a google-services.json and the Iterable side set up. Neither can be invented, so this is the part that produces them — and none of it starts until you say so."
-  echo ""
-  part_map | plain | sed 's/^  //' | sed '/^$/d'
-  echo ""
-  echo "What it reads: your Firebase projects and the Android apps in each, your app's build files, and a connected device or emulator. Reading happens with the gcloud account you are already signed in as."
-  echo ""
-  echo "What it changes in your Google project: nothing yet. When it gets there you are asked again, on a screen that lists every change by name, and no is a complete answer to it."
-  echo ""
-  echo "What it never does: ask for a password, take an API key through this conversation, or write a placeholder google-services.json to make a build go green. If something is missing it says so and stops."
-  echo ""
-  echo "Part 2 is yours because Iterable has no API for it — no endpoint creates an API key, a mobile app, or a push integration. I walk you through those four steps and check what each one produced."
+  local line
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ "$line" == "{{part_map}}" ]]; then
+      part_map | plain | sed 's/^  //' | sed '/^$/d'
+    else
+      printf '%s\n' "$line"
+    fi
+  done < <(screen_copy_section opening Context)
 }
 
 q_opening() {
-  local here="Yes — set it up with me here"
-  printf '{"header":"Setup","prompt":%s,' \
-    "$(jstr "Do you wish to proceed?")"
+  local id label description sep="" here
+  screen_copy_validate opening "agent terminal stop" "part_map" || return 1
+  here="$(screen_copy_option_scalar opening agent Label)"
+  printf '{"header":%s,"prompt":%s,' \
+    "$(jstr "$(screen_copy_scalar opening Header)")" \
+    "$(jstr "$(screen_copy_scalar opening Prompt)")"
   printf '"context":%s,' "$(q_opening_context | q_arr)"
-  printf '"requires":%s,' "$(q_arr <<'EOF'
-You sign in to Google yourself. If 'gcloud auth login' has not been run in your terminal, that is the first thing you do, and neither this tool nor the agent ever sees your password.
-EOF
-)"
+  printf '"requires":%s,' "$(screen_copy_section opening Requirements | q_arr)"
   printf '"recommended":%s,' "$(jstr "$here")"
   printf '"options":['
-  # Records the driver, and that is not bookkeeping. A chat has no tty, so provisioning
-  # refuses to run from one unless the choice is on disk — say yes here without recording
-  # it and the run walks up to the first change and hands the developer a terminal block,
-  # which is the answer they just declined.
-  q_opt "$here" \
-    "I conduct the whole thing here: every screen the terminal wizard shows, as a question in this conversation. Nothing changes without its own yes first, and the two Iterable API keys go from your clipboard into a 0600 file without passing through this conversation — I never see one." \
-    "DRIVER=agent recorded; ladder read; nothing changed" "" \
-    "$BIN/agent set DRIVER=agent" "$BIN/agent"
-  printf ','
-  q_opt "I'd rather run the whole setup in my own terminal" \
-    "Fallback, and a real one: the same work and the same questions as a terminal menu, with the Google sign-in hosted in the same session and every prompt answered by arrow keys instead of by relaying. Worth it if you would rather these choices were not in a chat at all." \
-    "DRIVER=developer recorded; the block to follow is printed" "" \
-    "$BIN/agent set DRIVER=developer" "$BIN/handoff"
-  printf ','
-  q_opt "No — stop here" \
-    "Nothing runs, nothing is read, and nothing is written — not even a workspace directory in your repository." \
-    "nothing read; nothing written" ""
+  # Markdown controls labels, descriptions and their order. Stable ids connect each
+  # option to behavior here, so rewording or moving one cannot attach another option's
+  # command to it.
+  while IFS= read -r id; do
+    label="$(screen_copy_option_scalar opening "$id" Label)"
+    description="$(screen_copy_option_scalar opening "$id" Description)"
+    printf '%s' "$sep"; sep=","
+    case "$id" in
+      # Records the driver, and that is not bookkeeping. A chat has no tty, so
+      # provisioning refuses to run from one unless the choice is on disk.
+      agent)
+        q_opt "$label" "$description" \
+          "DRIVER=agent recorded; ladder read; nothing changed" "" \
+          "$BIN/agent set DRIVER=agent" "$BIN/agent" ;;
+      terminal)
+        q_opt "$label" "$description" \
+          "DRIVER=developer recorded; the block to follow is printed" "" \
+          "$BIN/agent set DRIVER=developer" "$BIN/handoff" ;;
+      stop)
+        q_opt "$label" "$description" "nothing read; nothing written" "" ;;
+    esac
+  done < <(screen_copy_option_ids opening)
   printf ']}'
 }
 

@@ -6,13 +6,14 @@
 # No network, no credentials, no device — only config.sh's menu functions.
 
 set timeout 20
-set out "/tmp/itbl-menu-pick.out"
+set tag [pid]
+set out "/tmp/itbl-menu-pick-$tag.out"
 set failed 0
 
 # config.sh refuses to resolve a workspace inside the tool itself, which is where a
 # run from the repo would land. Without this the source fails, the menu never opens,
 # and the cancel cases pass for the wrong reason — they did, before this line existed.
-set ws "/tmp/itbl-menu-pick.ws"
+set ws "/tmp/itbl-menu-pick-$tag.ws"
 file delete -force $ws
 file mkdir $ws
 set env(WS) $ws
@@ -27,8 +28,19 @@ proc pick {pre keys} {
   global out
   file delete -force $out
   spawn bash -c "$pre source bin/config.sh; printf 'alpha\\nbravo\\ncharlie\\ndelta\\n' | menu > $out"
+  expect {
+    -re {enter choose|Choose 1-} {}
+    eof { return "" }
+    timeout {
+      catch { close }; catch { wait }
+      return ""
+    }
+  }
   foreach k $keys { send -- $k; sleep 0.1 }
-  expect eof
+  expect {
+    eof {}
+    timeout { catch { close }; catch { wait }; return "" }
+  }
   if {![file exists $out]} { return "" }
   set f [open $out r]; set v [read $f]; close $f
   return $v
@@ -76,7 +88,7 @@ if {[pick "" [list "3" "\r"]] eq "charlie"} {
 }
 
 # ---------------------------------------------------------------- cancelling
-set v [pick "" [list "q"]]
+set v [pick "" [list "q\r"]]
 if {$v eq ""} { ok "q cancels and chooses nothing" } else { bad "q cancels" "chose '$v'" }
 
 set v [pick "" [list "\033" "\033"]]
@@ -85,7 +97,12 @@ if {$v eq ""} { ok "so does escape" } else { bad "escape cancels" "chose '$v'" }
 # A hidden cursor that is never restored outlives the process and leaves the
 # developer's own shell without one. Every exit path has to put it back.
 spawn bash -c "source bin/config.sh; printf 'alpha\\nbravo\\n' | menu > /dev/null"
-send -- "q"
+expect {
+  -ex "enter choose" {}
+  eof { bad "the cursor is restored" "picker exited before drawing" }
+  timeout { bad "the cursor is restored" "picker never became ready" }
+}
+send -- "q\r"
 # -ex, not glob: expect reads `[?25h` as a character class and matches nothing useful.
 expect {
   -ex "\033\[?25h" { ok "the cursor is restored on the way out" }

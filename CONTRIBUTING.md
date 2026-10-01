@@ -1,23 +1,34 @@
 # Contributing to the Iterable SDK skills
 
-This guide is for Iterable contributors working on the skills, their prompts, and the
-onboarding program. The commands below are maintainer tools; they are not part of the
-workflow installed users follow.
+This guide is for Iterable engineers and Docs team members reviewing the
+plugin's developer-facing and model-facing content.
 
-## Reviewing user-facing copy
+The commands in this file are repository-maintenance tools. Developers who
+install the plugin do not run them.
+
+## Copy-review quick start
 
 From the repository root:
 
 ```bash
+make screens-help
 make screens
 ```
 
-This renders every onboarding question as a developer sees it, using sample projects and
-devices. Each screen is headed by its scenario name and the file and line where its words
-live. It does not use Google or Iterable credentials, make network requests, or require a
-connected device.
+`make screens-help` lists the available scenarios and their source files.
+`make screens` renders every shared onboarding question with sample Firebase
+projects and Android devices.
 
-To review one screen:
+The preview requires Node.js. It does not require credentials, network access,
+an Iterable or Firebase project, or a connected device.
+
+For a more comfortable full review:
+
+```bash
+make screens | less -R
+```
+
+To review one scenario:
 
 ```bash
 make screens KIND=opening
@@ -25,67 +36,117 @@ make screens KIND=pick_device
 make screens KIND="iterable_step 3"
 ```
 
-Run `make screens` once to see every available scenario name.
+The heading above each rendered question identifies the source responsible for
+its words and the shell function responsible for its behavior.
 
-### Editing a screen
+## Where screen copy lives
+
+Screen copy is being moved from shell into writer-facing Markdown one screen at
+a time:
+
+- `copy/screens/*.md` contains the words for migrated screens.
+- `bin/questions.sh` contains behavior for every screen and the words for
+  screens that have not yet moved.
+- Stable option IDs connect a Markdown label and description to the relevant
+  shell behavior.
+
+Only `copy/screens/opening.md` has moved so far. See
+[`copy/screens/README.md`](copy/screens/README.md) for its format, supported
+sections, and placeholders.
+
+### Editing a migrated screen
 
 1. Run `make screens KIND=<scenario>`.
-2. Edit the source named above the rendered screen.
-3. Render that scenario again.
-4. Run `make test` before opening or updating the pull request.
+2. Edit the `copy/screens/*.md` file listed above the preview.
+3. Do not rename or remove an `Option:` ID.
+4. Render the scenario again.
+5. Run `make test`.
 
-Question copy currently lives with its behavior in `bin/questions.sh`. Labels and
-descriptions may be reworded, but commands, option effects, consent boundaries, and state
-transitions are behavior changes rather than copy changes. Pair with an engineer when an
-edit needs to change those.
+Labels, descriptions, paragraph structure, and option order are copy. Option
+IDs, commands, consent records, state changes, and the effect of selecting an
+option are behavior.
 
-### Other text surfaces
+### Editing an unmigrated screen
 
-`make screens` covers questions and their options. Other developer-facing text lives in:
+Unmigrated copy still lives inside `bin/questions.sh`. Docs reviewers can
+propose wording there, but should pair with an engineer before changing the
+shell source. The engineer should confirm that the edit does not change option
+effects, commands, consent boundaries, or state transitions.
 
-| Text | Source |
+When practical, move the screen into `copy/screens/` as a separate engineering
+change instead of expanding the mixture of prose and behavior in shell.
+
+## Other developer-facing text
+
+`make screens` covers the shared questions and options supplied to the terminal
+wizard and coding-agent conversation. It does not render every user-facing
+string in the onboarding program.
+
+| Surface | Source |
 |---|---|
+| Shared onboarding questions | `copy/screens/*.md` and `bin/questions.sh` |
 | Gate names and verdicts | `bin/gates`, `bin/gates-device.sh`, `bin/gates-iterable.sh` |
-| Banners, summaries, and ladder headings | `bin/config.sh` |
+| Banners, summaries, endings, and ladder headings | `bin/config.sh` |
 | Iterable dashboard instructions | `bin/iterable-keys` |
-| Instructions read by the coding agent | each skill's `SKILL.md`, `PITFALLS.md`, and `reference/` files |
+| Terminal-only interaction text | `bin/wizard` |
+| Coding-agent protocol and refusals | `bin/agent` |
+| Installed-user documentation | `README.md` |
+| Model-facing skill instructions | each skill's `SKILL.md`, `PITFALLS.md`, and `reference/` files |
 
-The shell program's deeper maintainer map is in
-[`bin/README.md`](bin/README.md#where-the-words-are).
+The engineering map for these surfaces is in
+[`bin/README.md`](bin/README.md).
 
-## Writing skill and prompt instructions
+## Model-facing instructions
 
-Follow Iterable's
-[System Prompt Design Guide](https://github.com/Iterable/Iterable/blob/master/iterable-agents/src/mastra/prompts/PROMPT_GUIDE.md)
-when changing model-facing instructions:
+Human-facing copy and model-facing instructions are separate review surfaces.
+`make screens` previews what a developer reads; it does not preview the complete
+context supplied to a coding agent.
 
-- Include Iterable-specific knowledge and behavior the model cannot infer.
-- State the behavior to follow directly and positively.
-- Keep each rule concise enough to retain attention.
-- Put a rule in one authoritative place and link to it instead of duplicating it.
-- Keep tool mechanics in scripts and descriptions; use skill instructions for routing,
-  policy, and boundaries.
-- Add or update a test when a rule addresses a concrete failure mode.
+When changing a `SKILL.md`, agent definition, or other model-facing instruction,
+follow Iterable's
+[System Prompt Design Guide](https://github.com/Iterable/Iterable/blob/master/iterable-agents/src/mastra/prompts/PROMPT_GUIDE.md).
+Keep the guide authoritative instead of reproducing its rules here.
 
-Copy for a person and instructions for a model are different surfaces. `make screens`
-previews what the developer reads; it does not preview the full `SKILL.md` context supplied
-to an agent.
+Local instructions should explain Iterable-specific routing, policy, and
+boundaries. Executable mechanics belong in scripts and tool descriptions.
+Update or add a test when an instruction addresses a concrete failure mode.
 
 ## Validation
 
-For a copy-only change:
+For a copy-only screen change:
 
 ```bash
 make screens KIND=<scenario>
 make test
 ```
 
-Use `make test-all` only when the network-backed published-spec check is intentionally in
-scope.
+For onboarding behavior or shell changes:
+
+```bash
+make test
+```
+
+Use `make test-all` only when the network-backed published-spec check is
+intentionally in scope.
+
+For generated SDK reference or pipeline changes, follow [`REVIEW.md`](REVIEW.md)
+and run:
+
+```bash
+cd pipeline
+pnpm check:all
+```
+
+## Pull-request handoff
 
 In the pull request, state:
 
 - which developer-facing or model-facing surface changed;
-- which scenario or failure mode motivated it;
-- what command you used to preview it;
+- which scenario, reader problem, or failure mode motivated the change;
+- whether the change affects words, behavior, or both;
+- which command you used to preview it;
 - which tests you ran.
+
+For a Docs review, include the relevant `make screens KIND=...` commands so the
+reviewer can reproduce the rendered questions without setting up Firebase,
+Iterable, or an Android device.

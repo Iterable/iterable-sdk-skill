@@ -21,10 +21,93 @@ cd "$(dirname "$0")/.."
 FAILED=0
 ok()  { printf '  \033[32mPASS\033[0m %s\n' "$1"; }
 bad() { printf '  \033[31mFAIL\033[0m %s\n' "$1"; FAILED=1; }
+COPY_TMP="$(mktemp -d)"; trap 'rm -rf "$COPY_TMP"' EXIT
 
 echo
 echo "  The words — findable, and inside the space they are printed in"
 echo
+
+# The editor-facing entry point has to explain itself without requiring node or rendering a
+# ten-second conversation. The names come from the same dispatch as the renderer, so help is
+# discovery rather than another screen list to maintain.
+HELP="$(tools/screens --help)" || { bad "tools/screens --help did not run"; echo "  FAILED"; exit 1; }
+if grep -qF 'make screens KIND=SCENARIO' <<< "$HELP" \
+   && grep -qE '^  pick_device[[:space:]]+bin/questions.sh:' <<< "$HELP" \
+   && grep -qE '^  iterable_step 4[[:space:]]+bin/questions.sh:' <<< "$HELP"; then
+  ok "screens help shows how to render one scenario and lists every kind of selector"
+else
+  bad "screens help does not make the available scenarios discoverable"
+fi
+
+LIST="$(tools/screens --list)"
+if grep -qxF 'pick_device' <<< "$LIST" \
+   && grep -qxF 'iterable_step 1' <<< "$LIST" \
+   && grep -qxF 'iterable_step 4' <<< "$LIST"; then
+  ok "the plain scenario list includes ordinary and argument-taking screens"
+else
+  bad "tools/screens --list omitted a screen scenario"
+fi
+
+# The first writer-facing screen: prose in Markdown, actions still in shell. Validate the
+# live file, then prove the stable option ids connect each editable label to the right
+# command even though those ids never have to become developer-visible.
+# shellcheck source=bin/screen-copy.sh
+. bin/screen-copy.sh
+if screen_copy_validate opening "agent terminal stop" "part_map"; then
+  ok "the opening Markdown has every required section, option id and placeholder"
+else
+  bad "copy/screens/opening.md does not satisfy the writer-facing format"
+fi
+
+OPENING="$(WS="$COPY_TMP/ws" bash bin/agent question opening)"
+AGENT_LABEL="$(screen_copy_option_scalar opening agent Label)"
+TERMINAL_LABEL="$(screen_copy_option_scalar opening terminal Label)"
+STOP_LABEL="$(screen_copy_option_scalar opening stop Label)"
+if printf '%s' "$OPENING" | AGENT_LABEL="$AGENT_LABEL" TERMINAL_LABEL="$TERMINAL_LABEL" \
+   STOP_LABEL="$STOP_LABEL" node -e '
+     let s=""; process.stdin.on("data",d=>s+=d).on("end",()=>{
+       const q=JSON.parse(s), byLabel=l=>q.options.find(o=>o.label===l);
+       const a=byLabel(process.env.AGENT_LABEL), t=byLabel(process.env.TERMINAL_LABEL);
+       const stop=byLabel(process.env.STOP_LABEL);
+       if (!a || !a.commands.some(c=>c.includes("DRIVER=agent"))) process.exit(1);
+       if (!t || !t.commands.some(c=>c.includes("DRIVER=developer"))) process.exit(1);
+       if (!stop || stop.commands.length) process.exit(1);
+     })'; then
+  ok "editable option labels remain attached to behavior by stable ids"
+else
+  bad "an opening option inherited another option's behavior"
+fi
+
+# Writer mistakes should point at the copy, not fail later as malformed JSON. Each fixture
+# breaks one rule and asks only for the useful part of the resulting message.
+cp copy/screens/opening.md "$COPY_TMP/opening.md"
+sed -i.bak 's/{{part_map}}/{{part_maps}}/' "$COPY_TMP/opening.md"
+ERR="$(SCREEN_COPY_ROOT="$COPY_TMP" bash -c \
+  'source bin/screen-copy.sh; screen_copy_validate opening "agent terminal stop" part_map' 2>&1)" || true
+if grep -qF 'unknown placeholder {{part_maps}}' <<< "$ERR"; then
+  ok "a placeholder typo names the file, line and unknown placeholder"
+else
+  bad "an unknown Markdown placeholder did not produce a useful error"
+fi
+
+sed '/^## Option: stop/,$d' copy/screens/opening.md > "$COPY_TMP/opening.md"
+ERR="$(SCREEN_COPY_ROOT="$COPY_TMP" bash -c \
+  'source bin/screen-copy.sh; screen_copy_validate opening "agent terminal stop" part_map' 2>&1)" || true
+if grep -qF 'missing option "stop"' <<< "$ERR"; then
+  ok "removing a behavior-backed option says which stable id is missing"
+else
+  bad "a missing Markdown option did not name its stable id"
+fi
+
+cp copy/screens/opening.md "$COPY_TMP/opening.md"
+printf '\n## Prompt\n\nAnother question?\n' >> "$COPY_TMP/opening.md"
+ERR="$(SCREEN_COPY_ROOT="$COPY_TMP" bash -c \
+  'source bin/screen-copy.sh; screen_copy_validate opening "agent terminal stop" part_map' 2>&1)" || true
+if grep -qF 'duplicate "Prompt" section' <<< "$ERR"; then
+  ok "duplicating a fixed section says which heading must be removed"
+else
+  bad "a duplicate Markdown section did not produce a useful error"
+fi
 
 # --where rather than the whole thing: the render is ten seconds of node per pass, and it is
 # not what is fragile here.
