@@ -1,136 +1,124 @@
-# iterable-sdk-skill
+# Iterable SDK skills
 
-> **Beta.** Iterable's mobile SDK skills are currently in private beta. By signing
-> up to use them during this period, you agree to our
-> [Beta Terms](https://iterable.com/legal/beta-terms/).
->
-> This document describes how to use the beta version of the plugin. Iterable
-> reserves the right to change, update, and add or remove content. This
-> documentation may contain errors and/or inaccuracies and is provided "as is,"
-> without warranties of any kind.
->
-> This documentation is confidential and may not be shared outside of your
-> organization.
->
-> Current functionality is subject to change.
+> **Private beta.** Use of these skills is subject to Iterable's
+> [Beta Terms](https://iterable.com/legal/beta-terms/). This documentation is
+> confidential, may contain inaccuracies, and may change during the beta.
 
-Point your AI coding assistant at your Android or React Native app and this
-plugin takes it from nothing to **a push notification proven to have arrived on a
-real device** — creating the Firebase prerequisites, writing the integration
-against version-pinned docs, and then reading the device's own notification
-service to confirm delivery.
+Use these skills with Claude Code, Cursor, or Codex to integrate Iterable's
+Android or React Native SDK. For Android push integrations, the workflow can
+also create the required Firebase resources and verify that a real push
+notification reaches your device.
 
-The plugin ships **skills, agents, and shell scripts only**. Everything runs on
-your machine, under your assistant, with your approval. No source code, no
-credential, and no key ever leaves your machine.
+The plugin runs under your coding assistant. The provisioning workflow asks
+before reading or changing scoped cloud resources.
 
----
+## Included skills
 
-## What's in the box: four skills
+| Skill | Purpose |
+|---|---|
+| `iterable-provision` | Creates and verifies Firebase prerequisites, then guides and checks the required Iterable setup. |
+| `iterable-android` | Integrates and troubleshoots Iterable's native Android SDK using version-pinned documentation. |
+| `iterable-react-native` | Integrates and troubleshoots `@iterable/react-native-sdk`, including Expo projects. |
+| `iterable-verify` | Verifies an Android push integration by confirming that a real notification reached a selected device. |
 
-The skills form a funnel — each stage hands off to the next — and any one can be
-used on its own.
+The skills can work independently. For a new Android push integration, the
+usual sequence is:
 
-| # | Skill | What it does |
-|---|-------|--------------|
-| 1 | **iterable-provision** | Produces the prerequisites nobody can invent: a Firebase Android app and its real `google-services.json`, a service account scoped to sending push plus its JSON key, and the Iterable dashboard steps (two API keys, the mobile app, the Firebase push integration, the test identity). Then it **proves each one worked**. |
-| 2 | **iterable-android** / **iterable-react-native** | Writes and debugs the integration itself, against Iterable's documentation bundled inside the skill. React Native covers both bare workflow and Expo (`@iterable/expo-plugin`). |
-| 3 | **iterable-verify** | Sends a real push and reads the device's notification service to confirm it arrived. Read-only: it never provisions, never edits your app, and never re-sends to manufacture a pass. |
+`iterable-provision` → `iterable-android` or `iterable-react-native` → `iterable-verify`
 
-**The path:** `iterable-provision → iterable-android` (or `iterable-react-native`)
-`→ iterable-verify`. The integration skills used to stop when Preflight reached an
-input nobody had — a `google-services.json`, a mobile API key, a configured push
-integration. Now they route to `iterable-provision` instead of stopping, and hand
-to `iterable-verify` once the code is written.
+Skills are model-invoked. Describe the outcome you want rather than running a
+skill by name. For example:
 
-> Skills are **model-invoked**. You don't type a command — describe what you want
-> ("set up Iterable push in this app", "why isn't my push arriving?", "prove this
-> works") and your assistant picks the right skill.
+- "Set up Iterable push notifications in this app."
+- "Integrate Iterable's React Native SDK."
+- "Why isn't my push notification arriving?"
+- "Verify that this integration works on my emulator."
 
----
+## Supported workflows
 
-## Prerequisites
+- Native Android SDK integration.
+- React Native integration for Android and iOS, including Expo.
+- Firebase provisioning and device-side push verification for Android.
+- Push notifications, in-app messages, mobile inbox, embedded messaging, deep
+  links, JWT authentication, event tracking, and user profiles.
+- Unknown user activation for native Android.
+
+Native iOS and web skills are not included. Provisioning and device-side proof
+are Android-first; the React Native skill can integrate the iOS SDK, but it does
+not provision or verify APNs.
+
+## Requirements
 
 ### Accounts
 
-- An **Iterable project**, and an [API key](https://support.iterable.com/hc/en-us/articles/360043464871)
-  — or let `iterable-provision` walk you through creating the keys.
-- A **Google account** that can create or access a Firebase project.
+- An Iterable project. The provisioning skill can guide you through creating
+  the required Iterable API keys and mobile configuration.
+- A Google account with access to a Firebase project, or permission to create
+  one, when setting up Android push.
 
-You sign in to both yourself. The plugin never asks for, receives, or handles
-your passwords — see [Security](#security).
+You authenticate with Google and Iterable yourself. The plugin does not ask for
+or handle your account passwords.
 
 ### Command-line tools
 
-`iterable-provision` and `iterable-verify` drive real tools on your machine. Check
-what you have:
+The provisioning and verification workflows require these non-standard tools:
 
 ```bash
-node --version && gcloud --version && adb --version
+node --version
+gcloud --version
+adb --version
 ```
 
-| Tool | Needed for | Install |
-|------|-----------|---------|
-| **`gcloud`** | the entire Google half — project, Firebase, service account, IAM, key | [Google Cloud CLI](https://cloud.google.com/sdk/docs/install), or `brew install --cask gcloud-cli` |
-| **`adb`** | the device half — reading the installed app, its FCM token, and the arriving push | Android Studio's SDK Manager (platform-tools), or `brew install --cask android-platform-tools` |
-| **`node`** | parsing API responses | [nodejs.org](https://nodejs.org), or `brew install node` |
+| Tool | Used for | Installation |
+|---|---|---|
+| `gcloud` | Google authentication, Firebase projects, service accounts, IAM, and key creation | [Google Cloud CLI](https://cloud.google.com/sdk/docs/install) or `brew install --cask gcloud-cli` |
+| `adb` | Selecting an Android device and reading the installed app, SDK registration, and arriving notification | Android Studio's SDK Manager or `brew install --cask android-platform-tools` |
+| Node.js | Parsing command and API output | [nodejs.org](https://nodejs.org) or `brew install node` |
 
-Those three and nothing else: you build and install your own app, so your JDK and
-Gradle are yours and the plugin never invokes them.
+The scripts also use Bash, `curl`, and standard Unix utilities. They do not
+install or modify your JDK, Gradle, Android SDK, or Node.js toolchain. During
+integration, your coding assistant may run your project's existing build and
+install commands with your approval.
 
-**If one is missing, nothing is guessed.** Gate `G0 Tooling present` goes red, every
-gate below it reports `waiting on Tooling present` rather than failing, and the run
-stops with exit `10` — *blocked on you*, not *broken*. You are told exactly which
-binaries are absent and what each one unlocks. The plugin will not install them for
-you: changing your toolchain is your decision, not your assistant's.
+If a required tool is missing, the workflow reports which tool is needed and
+stops without attempting to install it.
 
-### A device
+### Android device
 
-`iterable-verify` needs a real Android device or a running emulator **with Google
-Play services** — FCM cannot deliver to an emulator image without them. A push
-proven on one is the only evidence this plugin accepts that the integration works.
+Device-side verification requires a connected Android device or a running
+emulator with Google Play services. You select the target device, even when
+only one is connected, so the proof is performed on the device you intend to
+test.
 
----
-
-## Supported agents
-
-Cursor, Claude Code, and Codex. Each has an install path below.
-
-## Install
+## Installation
 
 ### Claude Code
 
-```
+```text
 /plugin marketplace add Iterable/iterable-sdk-skill
 /plugin install iterable-sdk@iterable
 ```
 
-This installs all four skills in one step. Start a new Claude Code session —
-skills load at session start.
+Start a new Claude Code session after installation. Skills are loaded when a
+session starts.
 
-Then turn on auto-update, so corpus refreshes reach you without you asking:
-`/plugin` → **Marketplaces** → **iterable** → **Enable auto-update**. Claude
-Code disables auto-update by default for third-party marketplaces, so without
-this you stay on the version you first installed until you update by hand. See
-[Staying current](#staying-current).
+To receive updates automatically, open `/plugin`, select **Marketplaces**,
+select **iterable**, and enable auto-update.
 
 ### Cursor
 
-Requires [Cursor 3.9+](https://cursor.com). Clone this repo, then symlink the
-skill directories into `~/.cursor/skills/` (not `~/.cursor/plugins/local/` —
-that path alone does not load the skill):
+Cursor requires version 3.9 or later. Clone the repository and link the skill
+directories:
 
 ```bash
 git clone --depth 1 https://github.com/Iterable/iterable-sdk-skill.git ~/iterable-skills
 mkdir -p ~/.cursor/skills
-for s in iterable-provision iterable-android iterable-react-native iterable-verify; do
-  ln -sfn ~/iterable-skills/$s ~/.cursor/skills/$s
+for skill in iterable-provision iterable-android iterable-react-native iterable-verify; do
+  ln -sfn ~/iterable-skills/$skill ~/.cursor/skills/$skill
 done
 ```
 
-Reload Cursor (`Cmd+Shift+P` → **Developer: Reload Window**), then start a
-**new Agent chat**. Skills load at session start — an existing chat won't pick
-this up.
+Run **Developer: Reload Window**, then start a new Agent chat.
 
 ### Codex
 
@@ -139,220 +127,100 @@ codex plugin marketplace add Iterable/iterable-sdk-skill
 codex plugin add iterable-sdk@iterable
 ```
 
-Then start a new Codex session. To verify: `codex plugin list`.
+Start a new Codex session, then use `codex plugin list` to confirm that the
+plugin is installed.
 
-For local development on this repo, add the checkout as the marketplace source
-instead of GitHub:
+For local development, use the repository checkout as the marketplace source:
 
 ```bash
 codex plugin marketplace add .
 codex plugin add iterable-sdk@iterable
 ```
 
-If you only need the raw skill folders and do not want the plugin marketplace
-flow, symlink them directly:
+## What happens during Android push setup
 
-```bash
-mkdir -p ~/.codex/skills
-for s in iterable-provision iterable-android iterable-react-native iterable-verify; do
-  ln -sfn ~/iterable-skills/$s ~/.codex/skills/$s
-done
-```
+1. The integration skill inspects the application and adds the required SDK
+   configuration.
+2. If Firebase or Iterable prerequisites are missing, the provisioning skill
+   explains what it needs to read and asks for permission before continuing.
+3. The workflow creates or selects the Firebase resources and service account.
+4. It guides you through the Iterable dashboard actions that do not have a
+   public API: API keys, the mobile app, and the Firebase push integration.
+5. Your coding assistant builds and installs the application using the
+   project's existing toolchain.
+6. The workflow opens the selected application's launcher activity. You sign in
+   as the test user and respond to any Android permission prompts.
+7. The verification skill sends a proof notification and checks Android's
+   notification service to confirm that it arrived.
 
-Start a new Codex session after the symlink; skills are loaded at session start.
+The component that performs an action does not verify its own result. For
+example, the sender records which proof notification it sent, while a separate
+read-only verifier checks the device for that notification.
 
----
+## Security and data handling
 
-## How it works
+- The repository's scripts run locally and make authenticated HTTPS requests
+  to Google, Firebase, and Iterable.
+- You authenticate in your own browser or `gcloud` session. The scripts do not
+  collect account passwords or attempt to bypass sign-in, CAPTCHA, or
+  terms-of-service screens.
+- Secrets are designed to move through protected files, environment variables,
+  or the local clipboard workflow rather than through chat, logs, or command
+  arguments.
+- The generated `.iterable/` workspace is kept inside your project and
+  gitignores itself. It can contain credentials and should be treated as
+  sensitive.
+- The verification gates only read application and notification state. A
+  separate actor can open the selected app's launcher activity, but it does not
+  tap, type, sign in, or answer permission prompts.
 
-### The reference half
+Your coding assistant runs with your local privileges. Its handling of source
+code and conversation data is governed by the assistant provider and your
+organization's configuration. Install plugins only from sources you trust.
 
-`iterable-android` and `iterable-react-native` each carry a copy of Iterable's
-documentation inside them (`iterable-android/reference/`,
-`iterable-react-native/reference/`), so your assistant has the docs on hand even
-offline. That bundled copy is the authoritative source — there is nothing to fetch
-at runtime. The skill routes each task to the right doc slug, pitfalls file, and
-integration checklist in
-[`iterable-android/SKILL.md`](iterable-android/SKILL.md) or
-[`iterable-react-native/SKILL.md`](iterable-react-native/SKILL.md).
+## Current limitations
 
-When Iterable's source documentation changes, an automated workflow refreshes the
-corpus — see [Staying current](#staying-current).
+- Firebase provisioning and device-side proof support Android only.
+- Creating Iterable API keys, mobile apps, and push integrations requires
+  dashboard interaction because these actions do not have public APIs.
+- JWT-enabled mobile API keys are recognized but are not currently supported by
+  the verification workflow.
+- Some bundled source articles cover multiple mobile platforms and may include
+  snippets that are not relevant to the current application.
+- These skills focus on SDK integration. To work with campaign or user data,
+  use Nova Agent in Iterable or
+  [Iterable's MCP Server](https://support.iterable.com/hc/articles/42936800222612).
 
-### The provisioning and proof half
+## Updating
 
-`iterable-provision` and `iterable-verify` drive a program in [`bin/`](bin/README.md)
-built on one rule:
+For Claude Code, update the marketplace before updating the plugin:
 
-> **The actor never grades its own work.**
-
-`bin/provision` and `bin/proof-push` *do* things. `bin/gates` *judges* them and can
-do nothing at all — it is a read-only verifier over eighteen gates, `G0`–`G17`,
-covering tooling, Google auth, the Firebase project and app, `google-services.json`,
-the service account and its key, the Iterable keys and dashboard steps, the installed
-APK, the FCM token, and the push itself.
-
-Two of those gates cannot be faked:
-
-- **`G9 Key actually works`** mints a real OAuth token from the service-account key
-  and makes FCM accept it. A key file that merely parses does not pass.
-- **`G16 Push arrives on device`** finds the push in the device's own
-  `dumpsys notification` output, matched by the marker the send wrote. Not a log
-  line claiming success — the notification itself.
-
-**It says "unproven" rather than guessing.** Three Iterable dashboard steps have no
-public API to read back — checked path by path against the published spec, not
-assumed. Those gates print `~ unverifiable` instead of a tick, and exit code `40`
-exists so that *"nothing is broken and nothing is proven"* is a thing the tool can
-actually say. A gate that reads a local file to decide a remote step happened is
-precisely the false pass this design exists to prevent.
-
-Exit codes: `0` all green · `10` blocked on you · `20` a gate failed · `30` tool
-error · `40` nothing broken, nothing proven yet.
-
-[`INTENDED-FLOW.md`](INTENDED-FLOW.md) is the contract for the path a run takes, and
-it changes before the code does.
-
-### The agents
-
-Four subagents carry the parts of the work that need their own narrow permissions:
-
-| Agent | Role |
-|-------|------|
-| `gcp-provisioner` | the Google side — Firebase, service accounts, IAM, keys (`G1`–`G9`) |
-| `iterable-api-client` | Iterable's REST API and the verification loop (`G10`, `G14`–`G17`) |
-| `web-operator` | the **only** agent with browser access, origin-confined to the Firebase, Google Cloud, and Iterable consoles |
-| `gate-auditor` | adversarial re-derivation of whether a gate is truly green — read-only, and never audits its own gate |
-
----
-
-## What it covers
-
-Push notifications, in-app messages, mobile inbox, embedded messaging, deep
-linking, JWT authentication, event tracking, and user profiles (plus unknown-user
-activation on Android). Snippets are version-pinned to the SDK release each was
-validated against. Android and React Native today; iOS and Web are coming.
-
-Provisioning and device-side proof are **Android-first**. React Native apps get the
-same provisioning and, for their Android target, the same proof; iOS/APNs is not
-covered yet.
-
----
-
-## Security
-
-- **The plugin never handles your passwords.** You authenticate in your own browser
-  and your own `gcloud`; the assistant attaches to the session you already have. It
-  will never defeat a CAPTCHA, a bot check, or a terms-of-service acceptance on your
-  behalf.
-- **Secrets are never pasted into chat.** Keys are referenced by file path and
-  environment variable. The service-account key and API keys are written mode `0600`
-  into a workspace that gitignores itself, never echoed to a log, a report, or a
-  trace, and never passed as a command-line argument — argv is readable by any other
-  process. Deletion of the key is offered once it has been uploaded.
-- **Nothing about your app is invented.** No placeholder `google-services.json`, no
-  fabricated API key, no commenting out a plugin to make a build pass. A missing
-  prerequisite is reported as missing.
-- **The verifier can only read.** `bin/gates` performs no provisioning, and
-  `iterable-verify` never edits your app and never re-sends to turn a red gate green.
-- **Least privilege.** The service account it creates is scoped to sending push.
-  `roles/firebase.admin` is never used.
-- **Browser access is confined.** `web-operator` is the only agent that can drive a
-  browser, and only against `console.firebase.google.com`,
-  `console.cloud.google.com`, and `app.iterable.com`.
-- **No telemetry.** Nothing is reported anywhere. The workspace stays in your project
-  and is gitignored, because it holds live session cookies and a downloaded key.
-
-Note that plugins and marketplaces run with your privileges — install only from
-sources you trust. This is a general caution, not specific to Iterable.
-
----
-
-## Known limitations
-
-- **Mobile SDK integration only.** To query campaigns or user data in your
-  Iterable project, use the Nova Agent in the Iterable app.
-- **Separate from [Iterable's MCP Server](https://support.iterable.com/hc/articles/42936800222612).**
-  The MCP Server connects your assistant to Iterable's APIs for campaign and
-  user data tasks. Use these skills when you're writing, provisioning, or
-  debugging mobile app code; use the MCP Server when you need to query or act on
-  data in your Iterable project.
-- **Three Iterable dashboard steps are yours to click.** They have no public API.
-  The plugin tells you exactly what to click and then proves the result.
-- **JWT-enabled mobile keys are recognised, not supported.** The tool names the
-  failure rather than guessing. Use a non-JWT key to get push working, then switch.
-- **Some docs carry foreign snippets.** A few articles come from shared
-  "Mobile SDKs" pages and still contain iOS/JS code an Android agent must ignore.
-
----
-
-## Staying current
-
-When Iterable's docs change, a workflow rebuilds **every** configured platform's
-corpus in one pass (`pnpm refresh:docs`), validates it, and commits to `main`
-naming the platforms that actually changed — so the corpus tracks the docs without
-waiting on a review. A maintainer audits refreshes after the fact; see
-[`REVIEW.md`](REVIEW.md).
-
-### How a refresh reaches you
-
-Claude Code and Codex decide whether to update by comparing the version in
-`.claude-plugin/plugin.json` against the version you have installed, and skip
-the plugin when they match. So every refresh that changes the corpus also bumps
-that version — otherwise new docs would sit on `main` and never reach a single
-installed plugin.
-
-Versions are calendar-based, `YY.M.PATCH`: `26.9.0-beta` is the first release of
-September 2026, `26.9.1-beta` the next, and the patch resets when the month rolls
-over. The `-beta` suffix stays on every release while the plugin is in private
-beta. The number says *when*, not how much changed — for that, read the commit
-the version came from:
-
-```bash
-git log --oneline main --grep '^docs refresh:'
-```
-
-With auto-update enabled, Claude Code refreshes shortly after a session starts
-(after a random delay of up to ten minutes) and prompts you to run
-`/reload-plugins`; the session you are in keeps what it loaded at launch.
-
-To update by hand, refresh the marketplace first, then the plugin:
-
-```
+```text
 /plugin marketplace update iterable
 /plugin update iterable-sdk@iterable
 ```
 
-`/plugin update` reads your local copy of the marketplace catalogue and does not
-refresh it, so on its own it reports `already at the latest version` however far
-behind you are.
+Start a new session after updating. With auto-update enabled, Claude Code may
+ask you to reload plugins after a newer version is downloaded.
 
-Cursor's install above is a clone and symlink rather than a plugin, so there it
-is `git pull` in your clone and a **Developer: Reload Window**.
+For Cursor's clone-and-link installation:
 
-Maintainers: `cd pipeline && pnpm refresh:docs` refreshes Android and React
-Native together. Pass a platform name (`pnpm refresh:docs -- android`) to
-limit the run. Refresh needs `gh` authenticated against private
-`Iterable/iterable-docs` (`DOCS_READ_TOKEN` / `GH_TOKEN`).
-
----
-
-## Repo layout
-
+```bash
+cd ~/iterable-skills
+git pull
 ```
-iterable-provision/      Provisioning skill — SKILL.md
-iterable-android/        Android skill — SKILL.md + PITFALLS.md + reference/
-iterable-react-native/   React Native skill — same shape
-iterable-verify/         Proof skill — SKILL.md
-bin/                     the program the two new skills drive — see bin/README.md
-agents/                  the four subagents the skills delegate to
-INTENDED-FLOW.md         the contract for the path a run takes
-tests/                   offline suites over bin/ — `make test`
-pipeline/                refresh tooling + validation gates, CI-run
-eval/                    scenario definitions for scoring skill vs. no-skill answers
-docs/onboard/            templates: inputs.yml, env.example
-.claude-plugin/          Claude Code + Codex plugin + marketplace manifests
-.cursor-plugin/          Cursor plugin + marketplace manifests
-context7.json            Context7 indexing manifest
-mcp.json / .mcp.json     Context7 MCP server config (Cursor / Claude Code discovery)
-```
+
+Then reload the Cursor window and start a new Agent chat.
+
+## Contributing and architecture
+
+Repository-maintenance commands are documented in
+[`CONTRIBUTING.md`](CONTRIBUTING.md). In particular, Docs team members can use
+the copy-review workflow there to render onboarding questions without
+credentials, network access, or a connected device.
+
+Engineering references:
+
+- [`bin/README.md`](bin/README.md) — onboarding program architecture.
+- [`INTENDED-FLOW.md`](INTENDED-FLOW.md) — authoritative onboarding sequence.
+- [`REVIEW.md`](REVIEW.md) — generated SDK documentation review.

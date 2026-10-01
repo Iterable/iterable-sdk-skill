@@ -1,4 +1,4 @@
-.PHONY: link-agents unlink-agents test test-all
+.PHONY: link-agents unlink-agents test test-all screens screens-help
 
 AGENT_DIR := $(HOME)/.claude/agents
 
@@ -27,3 +27,12 @@ test:
 # Plus the ones that reach Iterable's published spec.
 test-all:
 	@tests/run-all.sh --all
+
+# Every screen a developer can be shown, with the line its words live on. For reading and
+# changing the wording: `make screens | less -R`, or `make screens KIND=pick_device` for one.
+screens:
+	@tools/screens $(KIND)
+
+# Usage and the complete list of scenario names accepted by `make screens KIND=...`.
+screens-help:
+	@tools/screens --help

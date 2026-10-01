@@ -1,0 +1,131 @@
+#!/usr/bin/expect -f
+# ask_question is what makes the wizard and a chat read the same: one set of words in
+# bin/questions.sh, rendered two ways. agent-questions.sh checks the words offline. This
+# checks the other half — that the answer a person gives comes back as the option they
+# picked, and that declining comes back as declining rather than as the first option.
+#
+# Needs a pty: the picker only draws its arrow-key form when stderr is a terminal, and the
+# keys are escape sequences a pipe never delivers.
+#
+# No network, no credentials, no device. gcloud and adb are stubs that fail if called.
+
+set timeout 20
+set repo [file normalize [file dirname [info script]]/..]
+set tag [pid]
+set out "/tmp/itbl-ask-question-$tag.out"
+set failed 0
+
+# config.sh refuses a workspace inside the tool itself, which is where a run from the repo
+# would land — and then the source fails, no menu opens, and every cancel case passes for
+# the wrong reason.
+set ws "/tmp/itbl-ask-question-$tag.ws"
+file delete -force $ws
+file mkdir $ws/tools
+set env(WS) $ws
+
+proc ok  {msg} { puts "  \033\[32mPASS\033\[0m $msg" }
+proc bad {msg why} { global failed; set failed 1; puts "  \033\[31mFAIL\033\[0m $msg — $why" }
+
+# Returns "rc|index|label". The three are written together because they are one answer:
+# an index without its return code cannot tell a choice from a cancel.
+proc ask {kind keys} {
+  global out repo ws
+  file delete -force $out
+  spawn bash -c "cd $repo; . tests/lib/stub-toolchain.sh; stub_toolchain $ws/tools; \
+    export PATH=$ws/tools:\$PATH; source bin/config.sh >/dev/null 2>&1; \
+    source bin/questions.sh; ask_question $kind; rc=\$?; \
+    printf '%s|%s|%s' \$rc \$ASK_INDEX \"\$ASK_LABEL\" > $out"
+  # Input sent while the pty is still in its original canonical mode can be swallowed
+  # when menu_keys changes modes. Wait for the menu itself, not an arbitrary sleep.
+  if {[llength $keys] && [lindex $keys 0] ne ""} {
+    expect {
+      -ex "enter choose" {}
+      eof { return "" }
+      timeout {
+        catch { close }; catch { wait }
+        return ""
+      }
+    }
+  }
+  foreach k $keys { send -- $k; sleep 0.1 }
+  expect {
+    eof {}
+    timeout { catch { close }; catch { wait }; return "" }
+  }
+  if {![file exists $out]} { return "" }
+  set f [open $out r]; set v [read $f]; close $f
+  return $v
+}
+
+puts ""
+puts "  The screen in a terminal — the words, and the answer coming back"
+puts ""
+
+# The sign-in screen: reachable from an empty workspace, so nothing has to be discovered
+# or provisioned first.
+set v [ask authenticate [list "\r"]]
+if {$v eq "0|1|Sign in with gcloud"} {
+  ok "enter on arrival answers with the first option the screen lists"
+} else {
+  bad "enter takes the first option" "got '$v'"
+}
+
+if {[string match "0|2|*" [ask authenticate [list "\033\[B" "\r"]]]} {
+  ok "down then enter answers with the second"
+} else {
+  bad "down then enter" "did not come back as option 2"
+}
+
+# Nothing chosen has to be distinguishable from the first option chosen. It is the
+# difference between a developer who declined and one who agreed to sign in.
+set v [ask authenticate [list "q\r"]]
+if {$v eq "1|0|"} {
+  ok "cancelling reports no answer, not the first one"
+} else {
+  bad "cancelling reports no answer" "got '$v'"
+}
+
+# A kind with no screen is a caller's bug, and the caller needs to be able to tell it
+# apart from a cancel so it can fall back to its own prompt instead of proceeding.
+set v [ask no_such_screen_here {}]
+if {$v eq "2|0|"} {
+  ok "a kind with no screen is its own answer, distinct from a cancel"
+} else {
+  bad "unknown kind returns 2" "got '$v'"
+}
+
+# ------------------------------------------- and the words actually reach the terminal
+# The offline check proves q_render prints them. This proves ask_question is what the
+# terminal runs, so a wizard that stopped calling it would show here.
+spawn bash -c "cd $repo; . tests/lib/stub-toolchain.sh; stub_toolchain $ws/tools; \
+  export PATH=$ws/tools:\$PATH; source bin/config.sh >/dev/null 2>&1; \
+  source bin/questions.sh; ask_question authenticate >/dev/null"
+expect {
+  -ex "Ready to sign in to Google?" {
+    ok "the prompt a chat would be handed is the prompt printed here"
+  }
+  eof     { bad "the prompt is printed" "the screen never appeared" }
+  timeout { bad "the prompt is printed" "nothing was drawn" }
+}
+# A fragment short enough to survive wrapping: the renderer breaks paragraphs to the
+# terminal's width, so a sentence long enough to wrap never matches as one string.
+expect {
+  -ex "it opens your own browser" {
+    ok "and so is the paragraph under it"
+  }
+  eof     { bad "the context is printed" "the explanation was dropped" }
+  timeout { bad "the context is printed" "nothing further was drawn" }
+}
+expect {
+  -ex "enter choose" {}
+  eof     { bad "the menu is ready" "the process exited before drawing it" }
+  timeout { bad "the menu is ready" "the question appeared but its options did not" }
+}
+send -- "q\r"
+expect eof
+
+file delete -force $out
+file delete -force $ws
+puts ""
+if {$failed} { puts "  FAILED"; exit 1 }
+puts "  All good — one set of words, and the answer that comes back is the one given."

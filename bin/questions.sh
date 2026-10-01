@@ -16,6 +16,8 @@
 # conversation: it becomes a record on disk that the gate spending it can check. That
 # is the whole reason consent survives being asked in a chat window.
 
+source "$(dirname "${BASH_SOURCE[0]}")/screen-copy.sh"
+
 # Lines on stdin, blanks included, as a JSON array. The blanks are paragraph breaks —
 # dropping them turns nine lines of context into one wall of text.
 q_arr() {
@@ -74,47 +76,49 @@ q_free_text() {
 # workspace, and names the shape of the whole job rather than the next step of it —
 # because what is being agreed to here is the job.
 q_opening_context() {
-  echo "You need a google-services.json and the Iterable side set up. Neither can be invented, so this is the part that produces them — and none of it starts until you say so."
-  echo ""
-  part_map | plain | sed 's/^  //' | sed '/^$/d'
-  echo ""
-  echo "What it reads: your Firebase projects and the Android apps in each, your app's build files, and a connected device or emulator. Reading happens with the gcloud account you are already signed in as."
-  echo ""
-  echo "What it changes in your Google project: nothing yet. When it gets there you are asked again, on a screen that lists every change by name, and no is a complete answer to it."
-  echo ""
-  echo "What it never does: ask for a password, take an API key through this conversation, or write a placeholder google-services.json to make a build go green. If something is missing it says so and stops."
-  echo ""
-  echo "Part 2 is yours because Iterable has no API for it — no endpoint creates an API key, a mobile app, or a push integration. I walk you through those four steps and check what each one produced."
+  local line
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ "$line" == "{{part_map}}" ]]; then
+      part_map | plain | sed 's/^  //' | sed '/^$/d'
+    else
+      printf '%s\n' "$line"
+    fi
+  done < <(screen_copy_section opening Context)
 }
 
 q_opening() {
-  local here="Yes — set it up with me here"
-  printf '{"header":"Setup","prompt":%s,' \
-    "$(jstr "Do you wish to proceed?")"
+  local id label description sep="" here
+  screen_copy_validate opening "agent terminal stop" "part_map" || return 1
+  here="$(screen_copy_option_scalar opening agent Label)"
+  printf '{"header":%s,"prompt":%s,' \
+    "$(jstr "$(screen_copy_scalar opening Header)")" \
+    "$(jstr "$(screen_copy_scalar opening Prompt)")"
   printf '"context":%s,' "$(q_opening_context | q_arr)"
-  printf '"requires":%s,' "$(q_arr <<'EOF'
-You sign in to Google yourself. If 'gcloud auth login' has not been run in your terminal, that is the first thing you do, and neither this tool nor the agent ever sees your password.
-EOF
-)"
+  printf '"requires":%s,' "$(screen_copy_section opening Requirements | q_arr)"
   printf '"recommended":%s,' "$(jstr "$here")"
   printf '"options":['
-  # Records the driver, and that is not bookkeeping. A chat has no tty, so provisioning
-  # refuses to run from one unless the choice is on disk — say yes here without recording
-  # it and the run walks up to the first change and hands the developer a terminal block,
-  # which is the answer they just declined.
-  q_opt "$here" \
-    "I conduct the whole thing here: every screen the terminal wizard shows, as a question in this conversation. Nothing changes without its own yes first, and the two Iterable API keys go from your clipboard into a 0600 file without passing through this conversation — I never see one." \
-    "DRIVER=agent recorded; ladder read; nothing changed" "" \
-    "$BIN/agent set DRIVER=agent" "$BIN/agent"
-  printf ','
-  q_opt "I'd rather run the whole setup in my own terminal" \
-    "Fallback, and a real one: the same work and the same questions as a terminal menu, with the Google sign-in hosted in the same session and every prompt answered by arrow keys instead of by relaying. Worth it if you would rather these choices were not in a chat at all." \
-    "DRIVER=developer recorded; the block to follow is printed" "" \
-    "$BIN/agent set DRIVER=developer" "$BIN/handoff"
-  printf ','
-  q_opt "No — stop here" \
-    "Nothing runs, nothing is read, and nothing is written — not even a workspace directory in your repository." \
-    "nothing read; nothing written" ""
+  # Markdown controls labels, descriptions and their order. Stable ids connect each
+  # option to behavior here, so rewording or moving one cannot attach another option's
+  # command to it.
+  while IFS= read -r id; do
+    label="$(screen_copy_option_scalar opening "$id" Label)"
+    description="$(screen_copy_option_scalar opening "$id" Description)"
+    printf '%s' "$sep"; sep=","
+    case "$id" in
+      # Records the driver, and that is not bookkeeping. A chat has no tty, so
+      # provisioning refuses to run from one unless the choice is on disk.
+      agent)
+        q_opt "$label" "$description" \
+          "DRIVER=agent recorded; ladder read; nothing changed" "" \
+          "$BIN/agent set DRIVER=agent" "$BIN/agent" ;;
+      terminal)
+        q_opt "$label" "$description" \
+          "DRIVER=developer recorded; the block to follow is printed" "" \
+          "$BIN/agent set DRIVER=developer" "$BIN/handoff" ;;
+      stop)
+        q_opt "$label" "$description" "nothing read; nothing written" "" ;;
+    esac
+  done < <(screen_copy_option_ids opening)
   printf ']}'
 }
 
@@ -177,19 +181,23 @@ q_choose_target() {
 # opens a browser and holds the session, and the whole promise of this tool is that the
 # password happens between the developer and Google with nothing in between.
 q_sign_in() {
-  local relay="Show me the command to run"
+  # Labelled for what it does, not for who does it, because both front ends show this
+  # screen and only one of them can host gcloud: a chat hands over the command, the
+  # wizard runs it in the terminal it already has. What varies goes in the option's
+  # description, which the chat shows and the terminal menu does not.
+  local go="Sign in with gcloud"
   printf '{"header":"Sign in","prompt":%s,' "$(jstr "Ready to sign in to Google?")"
   printf '"context":%s,' "$(q_arr <<'EOF'
 Nothing here can read your Google projects until gcloud has a session, and that sign-in is yours: it opens your own browser, and neither this tool nor I ever see the password.
 
-One command in your terminal, then come back and say so. If you are already signed in as the right account, take the second option and I will check rather than ask again.
+If you are already signed in as the right account, take the second option and I will check rather than ask again.
 EOF
 )"
   printf '"requires":[],'
-  printf '"recommended":%s,' "$(jstr "$relay")"
+  printf '"recommended":%s,' "$(jstr "$go")"
   printf '"options":['
-  q_opt "$relay" \
-    "You run it, your browser handles it. Come back when it says you are signed in." \
+  q_opt "$go" \
+    "One command in your own terminal. You run it, your browser handles it — come back when it says you are signed in." \
     "nothing changed; waiting for you to sign in" "gcloud auth login"
   printf ','
   q_opt "I'm already signed in — check again" \
@@ -549,10 +557,10 @@ q_pick_device() {
 
 # ------------------------------------------------------ part 3: the app's own turn
 #
-# Signing in and answering the notification dialog happen inside the developer's app,
-# behind whatever login it has. Neither is work an agent can do honestly: it has to guess
-# which field is which, a wrong guess is indistinguishable from a screen that was slow,
-# and every attempt costs minutes of tapping over adb against a UI nothing here has seen.
+# The verifier opens the selected app, but signing in and answering the notification
+# dialog happen inside it, behind whatever login it has. Neither is work an agent can do
+# honestly: it has to guess which field is which, and a wrong guess is indistinguishable
+# from a screen that was slow.
 # The permission dialog is worse than slow — it is a question Android asks *the person*,
 # and a tool that taps Allow has answered it on their behalf.
 #
@@ -571,7 +579,7 @@ q_run_app_context() {
   fi
   echo "  2. Allow notifications when Android asks"
   echo ""
-  echo "Neither is mine to do. Everything from here only reads the device, and nothing here taps, types or launches anything on it: a tap I guessed at looks exactly like a screen that was slow, and Allow is yours to give."
+  echo "I open the selected app and stop there. Nothing here taps, types, signs in or grants permission: a tap I guessed at looks exactly like a screen that was slow, and Allow is yours to give."
   echo ""
   echo "Then say so below, and every device check runs again."
 }
@@ -879,6 +887,77 @@ q_iterable_step() {
   # browser is inviting the one answer it cannot check. Where the answer is mechanical —
   # take this key, use this address — saying so is help rather than a nudge.
   printf ',"recommended":%s}' "$([[ "$rec" == null ]] && printf null || jstr "$rec")"
+}
+
+# ------------------------------------------------------ the same words, in a terminal
+#
+# bin/wizard used to carry its own wording for every one of these moments, so each screen
+# existed twice with nothing keeping the two in step. The sign-in moment said "I never see
+# your password — gcloud opens your browser and handles it" in the terminal and "You run
+# it, your browser handles it" in a chat, and neither was the other's source. One set of
+# words now, two renderers: an agent gets the JSON, a person gets this.
+#
+# Words and labels only. The options' `commands` stay the caller's to run, exactly as they
+# are on the agent path — running them in here would move consent recording into a
+# renderer, and the renderer is the one place in this tool with no business deciding
+# anything.
+#
+# q_render <question-json> — the words, and nothing that waits for an answer.
+#
+# Separate from ask_question so "the terminal prints what the chat is handed" is an offline
+# assertion. Joined to the menu it would need a pty, and a test that needs a pty to check a
+# sentence is a test that ends up skipped — which is how the wording drifted unnoticed.
+q_render() {
+  local q="$1" prompt
+  # Paragraphs arrive unwrapped on purpose — a chat window reflows them anyway — so the
+  # width belongs to whoever is drawing. Wrapped here rather than with fold, which would
+  # lose the indent on every continuation line.
+  prompt="$(printf '%s' "$q" | jqn 'process.stdout.write(j.prompt||"")')"
+  echo
+  [[ -n "$prompt" ]] && printf '  %s\n\n' "$(bold "$prompt")"
+  printf '%s' "$q" | jqn '
+    const W = 76, pad = "  ", out = [];
+    const wrap = s => {
+      if (!s) { out.push(""); return; }
+      let cur = "";
+      for (const word of s.split(" ")) {
+        if (cur && (cur + " " + word).length > W) { out.push(pad + cur); cur = word; }
+        else cur = cur ? cur + " " + word : word;
+      }
+      if (cur) out.push(pad + cur);
+    };
+    (j.context  || []).forEach(wrap);
+    (j.requires || []).forEach(s => { out.push(""); wrap(s); });
+    process.stdout.write(out.join("\n") + "\n\n");
+  '
+}
+
+# ask_question <kind> [arg] — draw a screen, return which option came back.
+# Sets ASK_LABEL and ASK_INDEX (1-based, in the order the screen lists them).
+#   0  something was chosen     1  cancelled     2  no screen for that kind
+ask_question() {
+  local q l i=0
+  # Cleared before anything can fail, because the caller reads them on every return and
+  # config.sh runs under `set -u`: a return 2 that left them unset would take the wizard
+  # down with it rather than letting it fall back to its own prompt.
+  ASK_LABEL=""; ASK_INDEX=0
+  q="$(question_for "$1" "${2:-}")" || return 2
+
+  # Everything a person reads goes to stderr, because stdout is the answer — the same
+  # split menu() keeps, and what lets a caller capture one without the other.
+  q_render "$q" >&2
+
+  local labels chosen
+  labels="$(printf '%s' "$q" | jqn \
+    'process.stdout.write((j.options||[]).map(o=>o.label).join("\n"))')"
+  [[ -n "$labels" ]] || return 1
+  chosen="$(printf '%s\n' "$labels" | menu)" || return 1
+
+  while IFS= read -r l; do
+    i=$((i + 1))
+    [[ "$l" == "$chosen" ]] && { ASK_INDEX=$i; ASK_LABEL="$l"; return 0; }
+  done <<< "$labels"
+  return 1
 }
 
 # question_for <kind> [arg] — one question object on stdout, or rc 1 and nothing at all

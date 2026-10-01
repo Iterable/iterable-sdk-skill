@@ -16,7 +16,8 @@ set timeout 180
 # refuses to resolve a workspace inside itself, which is where a test run from the
 # repo would land, and a run that picks a project must not overwrite the choice the
 # developer is actually working on.
-set ws "/tmp/itbl-wizard-decline.ws"
+set tag [pid]
+set ws "/tmp/itbl-wizard-decline-$tag.ws"
 file delete -force $ws
 file mkdir $ws
 set env(WS) $ws
@@ -27,7 +28,7 @@ set env(WS) $ws
 # work. On a fully provisioned project the wizard exits before the consent prompt,
 # so the assertion this test exists for is unreachable and it silently skipped.
 proc first_project_needing_work {} {
-  return [exec bash -c {
+  spawn -noecho bash -c {
     source bin/config.sh
     i=0
     while IFS=$'\t' read -r p _; do
@@ -35,10 +36,18 @@ proc first_project_needing_work {} {
       [[ -n "$(android_apps_of "$p")" ]] || continue
       gcloud iam service-accounts describe "itbl-onboard-fcm@$p.iam.gserviceaccount.com" \
         --format='value(email)' >/dev/null 2>&1 && continue
-      echo "$i"; exit 0
+      echo "PROJECT_INDEX=$i"; exit 0
     done <<< "$(firebase_projects)"
-    echo 0
-  }]
+    echo PROJECT_INDEX=0
+  }
+  set found 0
+  expect {
+    -re {PROJECT_INDEX=([0-9]+)} { set found $expect_out(1,string); exp_continue }
+    eof {}
+    timeout { catch { close }; catch { wait } }
+  }
+  catch { wait }
+  return $found
 }
 
 set proj [expr {$argc > 0 ? [lindex $argv 0] : [first_project_needing_work]}]
