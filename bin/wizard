@@ -8,6 +8,9 @@
 # a terminal.
 
 source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
+# The screens themselves, so a moment that exists in a chat is worded once and this
+# renders the same words rather than a second set of its own.
+source "$(dirname "${BASH_SOURCE[0]}")/questions.sh"
 
 # The cursor is restored first in both traps: the picker hides it, and a Ctrl-C out of
 # a picker would otherwise leave the developer's shell with no cursor afterwards.
@@ -57,19 +60,18 @@ part 1 "Google"
 
 # ---------------------------------------------------------------- G1: identity
 if [[ -z "$(tok)" ]]; then
-  echo
-  echo "  $(bold "Sign in to Google")"
-  echo "  I never see your password — gcloud opens your browser and handles it."
-  echo
-  if ask_yn "Run 'gcloud auth login' now?"; then
-    echo
-    gcloud auth login || { echo "  Sign-in did not complete."; exit 10; }
-  else
-    echo "  Can't continue without it. When you are ready, run this again:"
-    echo
-    run_line onboard
-    exit 10
-  fi
+  # Hosted here rather than handed over: this is the one thing a terminal can do that a
+  # chat cannot. The words are the screen's either way.
+  ask_question sign_in; rc=$?
+  case "$rc:$ASK_INDEX" in
+    0:1) echo; gcloud auth login || { echo "  Sign-in did not complete."; exit 10; } ;;
+    0:2) : ;;  # already signed in; the check below is what decides
+    # Declined, aborted, or cancelled — all the same outcome, and nothing was read.
+    *)   echo; echo "  Nothing read and nothing recorded. Google needs a session before"
+         echo "  anything here can see a project. When you are ready:"
+         echo; run_line onboard; exit 10 ;;
+  esac
+  [[ -n "$(tok)" ]] || { echo; echo "  Still no gcloud session."; echo; run_line onboard; exit 10; }
 fi
 echo
 echo "  $(green ✓) Signed in as $(gcloud config get-value account 2>/dev/null)"
@@ -78,10 +80,19 @@ echo "  $(green ✓) Signed in as $(gcloud config get-value account 2>/dev/null)
 # Always offer the choice. If a previous run remembered one, it is a default to
 # confirm, not a decision already made on your behalf.
 if [[ -n "$PID" && -n "$PACKAGE" ]]; then
-  echo
-  echo "  Last time you chose:  $(bold "$PID")  /  $PACKAGE"
-  echo
-  ask_yn "Use that again?" && KEEP=1 || KEEP=0
+  # The options are read here; their `commands` are not run. Which project is used is a
+  # decision, and the wizard's own actions below are what record it.
+  if ask_question keep_target; then
+    case "$ASK_INDEX" in
+      1) KEEP=1 ;;
+      2) KEEP=0 ;;
+      *) echo; echo "  Nothing changed — $PID / $PACKAGE is still what is on record."; exit 0 ;;
+    esac
+  else
+    # Cancelled. Not a yes and not a no: stopping leaves the remembered choice alone,
+    # which is what pressing q asked for.
+    echo; echo "  Nothing changed."; exit 0
+  fi
 else
   KEEP=0
 fi
@@ -136,52 +147,35 @@ fi
 # `emulator-5556` is a port number. Asked to confirm one, a developer is being
 # asked about a string they have no way to recognise — so every line here names
 # the AVD, and the remembered choice is stored as that name too.
-echo
-echo "  $(bold "Which device")"
-echo
-echo "  Part 3 proves the push on a real device. Choosing it now means every check"
-echo "  from here on reads the same one you will be watching."
-
 # boot_avd lives in config.sh, so tests/device-pick.sh can drive its timeout.
 
-# device_options lives in config.sh: the chat picker offers the same devices, and a
-# list that exists twice is a list that comes to differ. Field 1 of every option is
-# the machine value. Same contract as the project picker.
-
-if DEV="$(device_serial)"; then WHY=""; else WHY="$DEV"; DEV=""; fi
+# One list rather than confirm-then-pick: device_options is where both front ends get their
+# devices, so an attached phone appears alongside everything else and the answer means the
+# same thing in either. Asked even when there is exactly one — a phone left plugged in to
+# charge is still the wrong device to prove a push on, and the only person who knows which
+# one is meant is the one reading this.
+#
+# The words come from the screen; the menu is drawn here from every row. A chat picker is
+# held to four options and offers free text for the rest, which a terminal has no reason to
+# copy: the list fits, so all of it is shown.
 CHOSE=""
-if [[ -n "$DEV" ]]; then
+OPTS="$(device_options 2>/dev/null)"
+if [[ -z "$OPTS" ]]; then
   echo
-  echo "  Device:  $(bold "$(device_label "$DEV")")"
+  # device_serial's own reason first: nothing attached and a phone that never authorised
+  # adb need different things done about them.
+  DEV="$(device_serial)" || echo "  $DEV"
+  echo "  No devices and no AVDs. Create one in Android Studio, or attach a phone."
+  echo "  Everything before the device steps still works — re-run when you have one."
   echo
-  # Asked even when there is exactly one. A phone left plugged in to charge, or
-  # yesterday's emulator, is still the wrong device to prove a push on — and the
-  # only person who knows which one is meant is the one reading this.
-  if ask_yn "Use it?"; then
-    CHOSE="$(avd_of "$DEV")"; CHOSE="${CHOSE:-$DEV}"
-  fi
 else
-  echo
-  echo "  $WHY"
-fi
-
-if [[ -z "$CHOSE" ]]; then
-  echo
-  echo "  $(bold "Pick a device")"
-  echo
-  OPTS="$(device_options)"
-  if [[ -z "$OPTS" ]]; then
-    echo "  No devices and no AVDs. Create one in Android Studio, or attach a phone."
-    echo "  Everything before the device steps still works — re-run when you have one."
-    echo
-  else
-    LINE="$(printf '%s\n' "$OPTS" | menu)" || LINE=""
-    if [[ -n "$LINE" ]]; then
-      CHOSE="$(awk '{print $1}' <<< "$LINE")"
-      if [[ "$LINE" == *"start it"* ]]; then
-        echo
-        boot_avd "$CHOSE" >/dev/null || true
-      fi
+  q_render "$(question_for pick_device)"
+  LINE="$(printf '%s\n' "$OPTS" | menu)" || LINE=""
+  if [[ -n "$LINE" ]]; then
+    CHOSE="$(awk '{print $1}' <<< "$LINE")"
+    if [[ "$LINE" == *"start it"* ]]; then
+      echo
+      boot_avd "$CHOSE" >/dev/null || true
     fi
   fi
 fi

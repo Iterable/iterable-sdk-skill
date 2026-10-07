@@ -1,0 +1,228 @@
+#!/usr/bin/env bash
+# Every screen a developer can be shown, printed from the source of it.
+#
+#   tools/screens              all of them
+#   tools/screens pick_device  one
+#   tools/screens --help       usage and every available scenario
+#   tools/screens --list       just the scenario names, one per line
+#   tools/screens --where      just the addresses, for the test that they all resolve
+#
+# For anyone who needs to read or change the wording — the whole conversation on one
+# screenful, each screen headed by the file and line the words live on, so reading it and
+# editing it are the same two minutes. `make screens` runs it.
+#
+# Nothing is stored. A committed dump of this would be a second copy of the words to keep
+# true, and the first time it fell behind it would be worse than no dump at all: it shows
+# you text without telling you where to type. This renders live from the Markdown and
+# shell sources every time you ask.
+#
+# It is not a contract. INTENDED-FLOW.md says what the path is; this says what the words
+# currently are. If the two disagree, the code and this agree with each other and the
+# document is the one that is wrong.
+#
+# No network, no credentials, no device: a stub toolchain and a fixture discovery cache, so
+# what you read is the real screen with sample projects in it rather than a mock of one.
+
+set -uo pipefail
+cd "$(dirname "$0")/.."
+Q=bin/questions.sh
+
+# The dispatch table is the list of screens — one place, and it is the same place the
+# renderer reads, so there is no second list here to fall behind it.
+kinds() {
+  sed -n "/^question_for() {/,/^}/p" "$Q" \
+    | grep -oE '^    [a-z_|]+\)' | tr -d ' )' | tr '|' '\n'
+}
+
+# where <kind> — the functions the dispatch hands it to, and the line each is written on.
+# Read off the case arm rather than guessed from the name: `choose_driver` is answered by
+# q_opening, and `run_in_terminal` by q_approve_firebase.
+where() {
+  local fns fn line copy out="" sep=""
+  fns="$(sed -n "/^question_for() {/,/^}/p" "$Q" \
+    | awk -v k="$1" '$0 ~ ("^    ([a-z_]+\\|)*" k "(\\||\\))") { a = 1 }
+                     a { print; if (/;;/) exit }' \
+    | grep -oE 'q_[a-z_]+' | sort -u)"
+  for fn in $fns; do
+    # A screen whose prose has moved to the writer-facing Markdown names that first.
+    # Derived from q_opening -> opening.md, so adding the next one needs no registry here.
+    copy="copy/screens/${fn#q_}.md"
+    if [[ -f "$copy" ]]; then
+      out+="$sep$copy:1  words"; sep="
+              "
+    fi
+    line="$(grep -n "^$fn() {" "$Q" | cut -d: -f1)"
+    [[ -n "$line" ]] || continue
+    out+="$sep$Q:$line  $fn behavior"; sep="
+              "
+  done
+  printf '%s' "$out"
+}
+
+# The selectors accepted on the command line. Iterable's four steps share one kind in the
+# dispatch, but each has different words, so they are four scenarios here.
+scenarios() {
+  local k n
+  for k in $(kinds); do
+    if [[ "$k" == iterable_step ]]; then
+      for n in 1 2 3 4; do printf '%s %s\n' "$k" "$n"; done
+    else
+      printf '%s\n' "$k"
+    fi
+  done
+}
+
+scenario_table() {
+  local scenario kind source
+  while IFS= read -r scenario; do
+    kind="${scenario%% *}"
+    source="$(where "$kind" | tr '\n' ' ' | tr -s ' ')"
+    printf '  %-24s %s\n' "$scenario" "${source:-no q_ function found}"
+  done < <(scenarios)
+}
+
+usage() {
+  cat <<'EOF'
+Usage:
+  make screens
+  make screens KIND=SCENARIO
+  make screens-help
+
+  tools/screens
+  tools/screens SCENARIO
+  tools/screens --list
+  tools/screens --where
+
+With no scenario, every screen is rendered. Use --list for copy-friendly scenario
+names; --where prints the dispatch addresses without rendering.
+
+Available scenarios:
+EOF
+  scenario_table
+}
+
+# Help and source discovery need neither node nor a sample workspace. Keep them usable on
+# a machine that is only trying to find the words or learn the command.
+case "${1:-}" in
+  -h|--help|help) usage; exit 0 ;;
+  --list) scenarios; exit 0 ;;
+  --where)
+    for k in $(kinds); do
+      printf '%s\t%s\n' "$k" "$(where "$k" | tr '\n' ' ' | tr -s ' ')"
+    done
+    exit 0 ;;
+esac
+
+command -v node >/dev/null || { echo "screens needs node — the questions are JSON." >&2; exit 30; }
+
+# Copied rather than sourced: config.sh resolves a workspace as it loads and refuses one
+# inside the tool, which is exactly where a run from the repo would land. Two lines is
+# cheaper than the exception that would need.
+dim()  { printf '\033[2m%s\033[0m' "$1"; }
+bold() { printf '\033[1m%s\033[0m' "$1"; }
+
+# So the fixtures live in a temp directory, and go away with the process. Named rather than
+# left to mktemp's default, because some screens print the workspace path back at you and
+# `/tmp/iterable-screens.aB12cD/artifacts/sa-key.json` reads as the sample it is, where
+# macOS's `/var/folders/wp/dvfc7…/T/tmp.358ugbAljz/` reads as something to worry about.
+WSD="$(mktemp -d /tmp/iterable-screens.XXXXXX)"; trap 'rm -rf "$WSD"' EXIT
+# shellcheck source=tests/lib/stub-toolchain.sh
+. tests/lib/stub-toolchain.sh
+stub_toolchain "$WSD/tools"
+# An emulator too, which the shared stub leaves out: without it the device screen lists
+# whatever AVDs happen to be on this machine, and the same command would print different
+# text to two people reading it together.
+printf '#!/bin/sh\n[ "$*" = "-list-avds" ] && printf "Pixel_9_Pro\\nOld_Tablet\\n"\nexit 0\n' \
+  > "$WSD/tools/emulator"
+chmod +x "$WSD/tools/emulator"
+
+# Five projects, because at four the pickers start saying "N more not shown" and that
+# sentence is one of the ones worth reading.
+node -e '
+const projects = [];
+for (let i = 1; i <= 5; i++) projects.push({ id: `proj-number-${i}`, name: `Project ${i}`, apps: [] });
+projects[1].apps = [{ package: "com.other.thing", appId: "1:2:android:aaa" }];
+projects[3].apps = [{ package: "com.dogshelter", appId: "1:4:android:bbb" }];
+process.stdout.write(JSON.stringify({ account: "you@example.com", projects }));
+' > "$WSD/discovered.json"
+
+# One screen, in whichever state has something to say. Most speak with a project and a
+# package on record; the ones that are about choosing those speak only before. Which state
+# was used is printed, because a screen reads differently depending on it.
+render() {
+  local kind="$1" arg="${2:-}" state
+  for state in chosen fresh; do
+    if [[ "$state" == chosen ]]; then P=proj-number-4; K=com.dogshelter; else P=""; K=""; fi
+    WS="$WSD" PID="$P" PACKAGE="$K" PATH="$WSD/tools:$PATH" \
+      bash -c '
+        source bin/config.sh >/dev/null 2>&1; source bin/questions.sh
+        q="$(question_for "$1" "$2")" || exit 1
+        q_render "$q"
+        printf "%s" "$q" | jqn '\''
+          const W = 72, out = [];
+          const wrap = (s, pad) => {
+            let cur = "";
+            for (const w of (s || "").split(" ")) {
+              if (cur && (cur + " " + w).length > W) { out.push(pad + cur); cur = w; }
+              else cur = cur ? cur + " " + w : w;
+            }
+            if (cur) out.push(pad + cur);
+          };
+          (j.options || []).forEach((o, i) => {
+            out.push("  " + (i + 1) + ") " + o.label + (o.label === j.recommended ? "   (recommended)" : ""));
+            wrap(o.description, "        ");
+            if (o.relay) out.push("        you run: " + o.relay);
+            out.push("");
+          });
+          if (j.free_text) wrap("or type " + j.free_text.hint + " — " + j.free_text.effect, "     ");
+          process.stdout.write(out.join("\n") + "\n");
+        '\''
+      ' _ "$kind" "$arg" && {
+        if [[ "$state" == chosen ]]; then
+          printf '     %s\n' "$(dim "with proj-number-4 / com.dogshelter already on record")"
+        else
+          printf '     %s\n' "$(dim "with nothing chosen yet")"
+        fi
+        return 0
+      }
+  done
+  return 1
+}
+
+one() { # <kind> [arg]
+  local kind="$1" arg="${2:-}" name="$1" w rule=""
+  [[ -n "$arg" ]] && name="$1 $arg"
+  w="$(where "$kind")"
+  ((${#name} < 60)) && rule="$(printf '%.0s─' $(seq 1 $((60 - ${#name}))))"
+  echo
+  printf '  %s %s\n' "$(bold "── $name")" "$(dim "$rule")"
+  printf '     %s\n' "$(dim "${w:-no q_ function — see $Q}")"
+  render "$kind" "$arg" || printf '\n  %s\n' "$(dim "no screen in either state — this step is work, not a question")"
+}
+
+if (($# > 0)); then
+  requested="$*"; known=0
+  while IFS= read -r scenario; do
+    [[ "$scenario" == "$requested" ]] && known=1
+  done < <(scenarios)
+  if ((known == 0)); then
+    printf 'Unknown screen scenario: %s\n\n' "$requested" >&2
+    printf 'Run tools/screens --help to see every available scenario.\n' >&2
+    exit 2
+  fi
+  one "$@"
+  exit 0
+fi
+
+for k in $(kinds); do
+  # The four dashboard steps are one kind with an argument, and each is a different screen.
+  if [[ "$k" == iterable_step ]]; then
+    for n in 1 2 3 4; do one "$k" "$n"; done
+  else
+    one "$k"
+  fi
+done
+
+echo
+printf '  %s\n' "$(dim "question sources are listed above · other text surfaces are mapped in CONTRIBUTING.md")"
+echo
