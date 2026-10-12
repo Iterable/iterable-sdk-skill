@@ -512,14 +512,13 @@ run_line() { local c="$1"; shift; printf '      %s\n' "$(bold "$(cmd_path "$c")$
 part_map() {
   cat <<EOF
 
-  $(bold "Three parts, in this order:")
+  $(bold " Setup has three distinct parts:")
 
-    1  Google      the project, a push-only service account, its key
-    2  Iterable    four steps in the dashboard, in your browser
-    3  Device      run your app until a real push lands on it
+    1  Google: An Iterable project, a push-only service account, its key
+    2  Iterable: Complete four steps in Iterable, in your browser
+    3  Device: Run your app until a real push lands on it
 
-  Part 1 is mine. Parts 2 and 3 are yours — I walk you through every step and
-  check what it produced, so nothing here is taken on trust.
+  The skill runs part 1, and you run parts 2 and 3. The skill guides you through each step and checks the results to ensure that they are trustworthy.
 
 EOF
 }
@@ -572,7 +571,7 @@ pending_tail() {
     echo "  Keep $(bold "$(wsp artifacts/sa-key.json)") — the Iterable push integration step uploads it."
     echo
   fi
-  echo "  When that is done, run this again — nothing already green gets redone:"
+  echo "  When that is done, run this again — nothing that's already green is redone:"
   echo
   run_line onboard
   echo
@@ -600,19 +599,18 @@ iterable_part() {
   Part 1 is done and verified: the service-account key exists, and FCM
   accepted it.
 
-  Part 2 is four steps in the Iterable dashboard. Nothing out here can do
-  them for you — Iterable has no API for creating an API key, a mobile app,
-  or a push integration. Until they are done your app has no mobile key, so
-  the device checks have nothing to find. That is all the rows above are
-  saying, and none of it is a fault in your app or in what you just did.
+  Part 2 is four steps that you complete in Iterable. Iterable has no API to
+  create an API key, a mobile app, or a push integration. Until those steps are
+  done, your app has no mobile key, so the device checks have nothing to find.
+  The rows above mean part 2 hasn't started. Part 1 succeeded, and your app is fine.
 
-  About five minutes. Every step gets checked by spending what it produced.
+  This will take about five minutes. Every step is validated by testing what it produced.
 
 EOF
   local pick
   pick="$(printf '%s\n' \
-    "Walk me through the four Iterable steps now" \
-    "Stop here — leave my assistant the state so far" | menu)" || pick=""
+    "Walk through the four Iterable steps now" \
+    "Stop here — leave the skill in the current state" | menu)" || pick=""
   case "$pick" in
     # Quiet for the same reason provision is: it ends by exec'ing the verifier, and the
     # endings below print the verdict themselves. Without it the developer gets two.
@@ -632,7 +630,7 @@ EOF
 # the reader being addressed.
 agent_handback() {
   local owner kind gate cmd summary name
-  printf '\n  %s\n' "$(dim "── for the assistant that sent me here ──")"
+  printf '\n  %s\n' "$(dim "── for the skill that sent you here ──")"
   # Stopped before anything was checked — at the project picker, or on a Ctrl-C out of
   # the sign-in. Pointing at state.tsv here would hand over either nothing or, worse,
   # whatever a previous run left in it.
@@ -885,7 +883,7 @@ ask_spent() { # <kind> <token> [now-in-ms]
 # its answer, on purpose: the remedy for a missing yes is asking, and an agent that is
 # handed `approve list` at the moment of being blocked will take it.
 list_refusal() {
-  printf '  %s\n' "Not read: nobody has said yes to listing this account's Firebase projects."
+  printf '  %s\n' "Not read: you haven't agreed to list this account's Firebase projects."
   printf '  %s\n' "It is a question, and it has a screen — ask it and run what the answer carries:"
   printf '\n      %s\n\n' "$(bold "$BIN/agent question choose_target")"
   printf '  %s\n\n' "Do not record the answer yourself. Finding gcloud signed in is not consent."
@@ -1040,8 +1038,8 @@ handoff_banner() {
                 "    · picks the device by name, and proves it with a real push" \
                 "    · skips whatever already works — only what is not done gets touched" ""
   box "$colour" "$(bold "  When it finishes") — or if it stops and you are not sure why —" \
-                "  come back here and say so, and I will carry on from there." \
-                "  Nothing to copy: the result is in $(wsp "" | sed 's:/$::') and I read it from there."
+                "  come back here and say so, and the skill will carry on from there." \
+                "  Nothing to copy: the result is in $(wsp "" | sed 's:/$::') and the skill reads it from there."
   box_end "$colour"
 }
 
@@ -1068,11 +1066,11 @@ next_part_banner() { # [gate name] [its verdict]
     box "$colour" ""
   fi
   box "$colour" \
-    "$(bold "  I can do this part from here") — one question at a time, answered" \
+    "$(bold "  The skill will manage this part") — one question at a time, answered" \
     "  by picking one. You see every change before it is made, and no is a" \
     "  complete answer to any of them." \
     "" \
-    "  Say go and I carry on from here. Nothing changes until you do." \
+    "  Approve the change and the skill will continue from here. Nothing changes until you do." \
     "" \
     "  $(bold "Or run it yourself") — the same questions, as a terminal menu:" \
     "      $(bold "$(cmd_path onboard)")"

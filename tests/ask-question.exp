@@ -110,7 +110,7 @@ expect {
 # A fragment short enough to survive wrapping: the renderer breaks paragraphs to the
 # terminal's width, so a sentence long enough to wrap never matches as one string.
 expect {
-  -ex "it opens your own browser" {
+  -ex "this action opens your browser" {
     ok "and so is the paragraph under it"
   }
   eof     { bad "the context is printed" "the explanation was dropped" }
