@@ -1,7 +1,7 @@
 {
   "name": "iterable-sdk",
   "version": "26.10.1-beta",
-  "description": "Version-pinned Iterable SDK integration guidance for native Android, native iOS, React Native, and Expo. Android workflows can also provision Firebase and prove that a push reached a selected device.",
+  "description": "Iterable SDK integration guidance for native Android, native iOS, React Native, and Expo. Android workflows can also provision Firebase and prove that a push reached a selected device.",
   "author": { "name": "Iterable" },
   "repository": "https://github.com/Iterable/iterable-sdk-skill",
   "license": "MIT",

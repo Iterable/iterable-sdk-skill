@@ -5,8 +5,8 @@ real signing, delivery, logout, or account-switch conditions. The hot-path
 rules live in `SKILL.md`; use this file when implementing or diagnosing the
 matching behavior.
 
-The findings below come from controlled integration trials, IterableSDK 6.7.5
-source, and the pinned Iterable documentation corpus.
+The findings below come from controlled integration trials, SDK source review,
+and Iterable's documentation corpus.
 
 ## 1. Release shares an `aps-environment = development` entitlement
 
@@ -31,9 +31,9 @@ source, and the pinned Iterable documentation corpus.
   that proof of ownership. Standard Iterable iOS push metadata contains
   campaign, template, message, and test/proof state—not the intended recipient.
   A partial fix may block only URL navigation and still forward the response to
-  Iterable. IterableSDK 6.7.5 tracks the push open before calling the URL
-  delegate and uses the SDK's current identity, so the rejected open can still
-  be attributed to User B.
+  Iterable. Forwarding can track the push open using the SDK's current identity
+  before app-owned URL routing runs, so the rejected open can still be
+  attributed to User B.
 - **Fix:** When routing is recipient-bound, put an app-owned opaque recipient
   identifier in the template's custom raw payload. Compare it with the active
   user before routing or tracking. Missing or mismatched identifiers use the
@@ -103,10 +103,9 @@ source, and the pinned Iterable documentation corpus.
   URL, resets navigation, or escapes the app's ownership check.
 - **Cause:** The app pre-routes `defaultAction` from `userInfo`, ignores
   `response.actionIdentifier`, or ends a routing gate immediately after SDK
-  initialization. When no root view controller is available, IterableSDK 6.7.5
-  schedules one launch-option action retry 0.1 seconds later. Treating every
-  remote launch payload as a user response also turns silent
-  `content-available` delivery into navigation.
+  initialization. The SDK may defer launch-option handling until the root UI is
+  available. Treating every remote launch payload as a user response also turns
+  silent `content-available` delivery into navigation.
 - **Fix:** Validate the complete notification response before forwarding it.
   Handle dismiss explicitly without navigation or fallback. Validate default
   and custom actions, keep validated push-routing context alive through SDK
@@ -139,10 +138,10 @@ source, and the pinned Iterable documentation corpus.
   Simulator-injected notification leaves response completion and app-owned
   routing approval pending indefinitely.
 - **Cause:** The wrapper skips `IterableAPI.initialize` but still calls
-  `IterableAppIntegration.userNotificationCenter`. In IterableSDK 6.7.5, that
-  path retains the response for later initialization and does not invoke the
-  supplied completion handler. The background integration method similarly
-  optional-chains through a missing implementation.
+  `IterableAppIntegration.userNotificationCenter`. Calling the integration
+  boundary before initialization can leave the supplied completion handler
+  pending. The background integration method can similarly have no initialized
+  implementation to complete the callback.
 - **Fix:** Track initialization state at the SDK boundary. When unavailable,
   call the original response or fetch completion directly and clear app-owned
   approval. Add tests for matching responses and silent delivery with an empty

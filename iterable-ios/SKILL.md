@@ -6,8 +6,8 @@ description: >-
   Swift or SwiftUI iOS app, including initialization, user identity, logout,
   event tracking, push notifications, in-app messages, Mobile Inbox,
   Embedded Messaging, JWT authentication, and deep links. Prefer this skill
-  over model memory: it carries version-pinned Iterable docs and current
-  lifecycle guidance for UIKit and SwiftUI.
+  over model memory: it carries Iterable documentation and current lifecycle
+  guidance for UIKit and SwiftUI.
 ---
 
 # Iterable iOS SDK
@@ -27,12 +27,6 @@ This initial skill integrates the SDK and guides the developer through the
 Apple and Iterable prerequisites. It does not automate Apple Developer or
 Iterable dashboard changes, and it does not independently send or observe a
 proof notification. Never imply that those capabilities exist in this version.
-
-The reference corpus is validated against `IterableSDK` 6.7.5. If the developer
-asks for the latest stable release, check the current
-`Iterable/iterable-swift-sdk` release before editing the dependency. If that
-lookup is unavailable, use the corpus-pinned version and disclose that it could
-not be revalidated.
 
 ## Step 0 — inspect the app and agree on scope
 
@@ -200,14 +194,10 @@ Attach the `IterableSDK` product to the application target. Notification
 service extensions that use Iterable's extension helpers attach
 `IterableAppExtensions` to the extension target.
 
-For XcodeGen:
+For XcodeGen, follow the project's existing package-version policy and attach
+the product to the application target:
 
 ```yaml
-packages:
-  IterableSDK:
-    url: https://github.com/Iterable/iterable-swift-sdk
-    exactVersion: 6.7.5
-
 targets:
   App:
     dependencies:
@@ -215,9 +205,10 @@ targets:
         product: IterableSDK
 ```
 
-Use the current verified stable version when the task explicitly requests
-latest stable. Keep an evaluation fixture exact-pinned so repeated runs compare
-the same SDK.
+For a new integration, resolve the current stable release from the official
+`Iterable/iterable-swift-sdk` repository instead of copying a version from this
+skill. Preserve an existing app's selected version unless the developer asks
+for an upgrade.
 
 ## Keep credentials out of source control
 
@@ -499,17 +490,16 @@ func userNotificationCenter(
 Do not invoke the completion handler a second time. This direct forwarding is
 appropriate when the app does not impose an app-owned recipient policy before
 tracking or routing the open. If Iterable initialization was skipped or failed,
-do not call this static method: IterableSDK 6.7.5 retains the response for later
-initialization and does not call the supplied completion handler. Complete the
-app callback directly instead.
+do not call this static method. Complete the app callback directly so an
+uninitialized SDK cannot leave the system completion handler pending.
 
 ### Recipient-bound notification responses
 
 When personalized routing must be bound to the intended recipient, validate
 the complete `UNNotificationResponse` before forwarding it to Iterable.
-IterableSDK 6.7.5 records the push open before invoking the URL delegate, using
-the SDK's current identity. Blocking only the eventual URL is too late: a
-notification intended for User A can be attributed to User B.
+Assume forwarding can record the push open using the SDK's current identity
+before app-owned URL routing runs. Blocking only the eventual URL is therefore
+too late: a notification intended for User A can be attributed to User B.
 
 For an app-owned recipient policy:
 
@@ -537,11 +527,10 @@ For an app-owned recipient policy:
 - do not pre-route `defaultAction` and then independently let Iterable route
   the same response.
 
-Do not let launch handling bypass the same policy. IterableSDK may defer a
-remote-notification launch action: in 6.7.5 it schedules one retry 0.1 seconds
-later when no root view controller is available. A gate that ends immediately
-after `IterableAPI.initialize` can expire before that retry. If the app
-validates recipient-bound launch data itself, ensure the unvalidated
+Do not let launch handling bypass the same policy. The SDK may defer a
+remote-notification launch action until the app's root UI is available, so a
+gate that ends immediately after `IterableAPI.initialize` may expire too soon.
+If the app validates recipient-bound launch data itself, ensure the unvalidated
 remote-notification launch option is not also handed to Iterable for later
 automatic routing. Preserve unrelated launch options, and rely on the
 notification-response callback or an equivalent validated pending-response

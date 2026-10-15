@@ -18,7 +18,7 @@ before reading or changing scoped cloud resources.
 |---|---|
 | `iterable-provision` | Creates and verifies Firebase prerequisites, then guides and checks the required Iterable setup. |
 | `iterable-android` | Integrates and troubleshoots Iterable's native Android SDK using version-pinned documentation. |
-| `iterable-ios` | Integrates and troubleshoots Iterable's native iOS SDK using version-pinned documentation and iOS lifecycle guidance. |
+| `iterable-ios` | Integrates and troubleshoots Iterable's native iOS SDK using Iterable documentation and iOS lifecycle guidance. |
 | `iterable-react-native` | Integrates and troubleshoots `@iterable/react-native-sdk`, including Expo projects. |
 | `iterable-verify` | Verifies an Android push integration by confirming that a real notification reached a selected device. |
 

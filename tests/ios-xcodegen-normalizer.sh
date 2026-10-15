@@ -17,7 +17,7 @@ bad() {
   FAILED=1
 }
 
-test_root="$(mktemp -d "/private/tmp/iterable-ios-normalizer.XXXXXX")"
+test_root="$(mktemp -d "${TMPDIR:-/tmp}/iterable-ios-normalizer.XXXXXX")"
 trap 'find "$test_root" -depth -delete' EXIT
 
 malformed="$test_root/malformed.pbxproj"
