@@ -1,11 +1,11 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "iterable-sdk",
-  "version": "26.10.0-beta",
-  "description": "Takes an Android app — native or React Native — from nothing to a push notification proven on a real device: Firebase provisioning, version-pinned SDK integration, silent-failure pitfalls, and device-side proof that a push actually arrived. Integration guidance covers React Native and Expo on both platforms; provisioning and device-side proof are Android-first.",
+  "version": "26.10.1-beta",
+  "description": "Version-pinned Iterable SDK integration guidance for native Android, native iOS, React Native, and Expo. Android workflows can also provision Firebase and prove that a push reached a selected device.",
   "author": { "name": "Iterable" },
   "repository": "https://github.com/Iterable/iterable-sdk-skill",
   "license": "MIT",
-  "keywords": ["iterable", "android", "react-native", "expo", "sdk", "mobile", "push", "in-app"],
-  "skills": ["./iterable-provision", "./iterable-android", "./iterable-react-native", "./iterable-verify"]
+  "keywords": ["iterable", "android", "ios", "swift", "react-native", "expo", "sdk", "mobile", "push", "in-app"],
+  "skills": ["./iterable-provision", "./iterable-android", "./iterable-ios", "./iterable-react-native", "./iterable-verify"]
 }

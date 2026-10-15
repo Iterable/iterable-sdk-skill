@@ -1,0 +1,153 @@
+# Pitfall index for the native iOS SDK skill.
+#
+# Mirrors `iterable-ios/PITFALLS.md` headings 1..N. Triggers are reserved
+# case-insensitive discovery metadata; current evaluation and reporting use the
+# explicit pitfall IDs and titles.
+
+platform: ios
+
+pitfalls:
+  - id: 1
+    title: Release shares an aps-environment development entitlement
+    triggers:
+      - "aps-environment"
+      - "APS_ENVIRONMENT"
+      - "APNS.*sandbox"
+      - "TestFlight"
+    features: [push-notifications, integration]
+
+  - id: 2
+    title: Active user at tap time is treated as the notification recipient
+    triggers:
+      - "recipient (id|identifier|ownership)"
+      - "custom raw"
+      - "custom payload"
+      - "account switch"
+      - "old notification"
+    features: [push-notifications, deep-linking, user-profiles]
+
+  - id: 3
+    title: Notification permission callback mutates the next user session
+    triggers:
+      - "requestAuthorization"
+      - "getNotificationSettings"
+      - "delayed callback"
+      - "session (token|generation|identity)"
+    features: [push-notifications, user-profiles]
+
+  - id: 4
+    title: Direct Test Push is used to claim logout or targeting works
+    triggers:
+      - "Test Push"
+      - "device token"
+      - "user-targeted"
+      - "logout.*(push|notification|token|target)"
+    features: [push-notifications, user-profiles]
+
+  - id: 5
+    title: No safe way to distinguish APNs failure from registration failure
+    triggers:
+      - "Contact Lookup"
+      - "device token"
+      - "DEBUG"
+      - "didRegisterForRemoteNotifications"
+    features: [push-notifications, integration]
+
+  - id: 6
+    title: General pasteboard token copy is described as non-persistent
+    triggers:
+      - "UIPasteboard"
+      - "localOnly"
+      - "expirationDate"
+      - "Universal Clipboard"
+    features: [push-notifications, integration, security]
+
+  - id: 7
+    title: Launch or action handling bypasses recipient validation
+    triggers:
+      - "actionIdentifier"
+      - "launchOptions"
+      - "content-available"
+      - "terminated"
+      - "custom action"
+    features: [push-notifications, deep-linking, user-profiles]
+
+  - id: 8
+    title: SwiftUI onOpenURL enters a trusted personalized route
+    triggers:
+      - "onOpenURL"
+      - "external URL"
+      - "(custom|URL) scheme.*(trust|ownership)"
+      - "source trust"
+    features: [deep-linking, user-profiles, security]
+
+  - id: 9
+    title: Skipped SDK initialization leaves an Apple callback unfinished
+    triggers:
+      - "(empty|missing|invalid).*API key"
+      - "isInitialized"
+      - "pendingNotificationResponse"
+      - "completion.*(skipped|missing|uninitialized)"
+    features: [push-notifications, integration]
+
+  - id: 10
+    title: Privacy copy lists app-selected fields as all Iterable data
+    triggers:
+      - "Iterable receives only"
+      - "sends only"
+      - "device metadata"
+      - "SDK-managed"
+    features: [integration, push-notifications, in-app-messages, security]
+
+  - id: 11
+    title: XcodeGen writes Push capability metadata as a string
+    triggers:
+      - "SystemCapabilities"
+      - "XcodeGen.*(string|stringif)"
+      - "TargetAttributes"
+    features: [push-notifications, integration]
+
+  - id: 12
+    title: SwiftUI attaches the notification response handler after launch
+    triggers:
+      - "responseHandler.*onAppear"
+      - "didFinishLaunching.*delegate"
+      - "nil handler"
+      - "terminated.*response"
+    features: [push-notifications, integration, deep-linking]
+
+  - id: 13
+    title: Restored profile fields are dropped before SDK initialization
+    triggers:
+      - "pending identity"
+      - "restored.*profile"
+      - "initialize.*favorites"
+      - "queue.*profile"
+    features: [integration, user-profiles]
+
+  - id: 14
+    title: Notification permission exists only in a settings screen
+    triggers:
+      - "first favorite"
+      - "contextual.*permission"
+      - "Not Now"
+      - "notification settings"
+    features: [push-notifications, user-profiles]
+
+  - id: 15
+    title: URL routing reads observable session state off the main actor
+    triggers:
+      - "ObservableObject"
+      - "@Published"
+      - "MainActor"
+      - "background.*(URL|route|navigation)"
+    features: [deep-linking, push-notifications, user-profiles]
+
+  - id: 16
+    title: Simulator support is confused with local notification injection
+    triggers:
+      - "simctl push"
+      - "APNs sandbox"
+      - "eligible Simulator"
+      - "physical iPhone"
+    features: [push-notifications, integration]

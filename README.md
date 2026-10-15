@@ -5,9 +5,9 @@
 > confidential, may contain inaccuracies, and may change during the beta.
 
 Use these skills with Claude Code, Cursor, or Codex to integrate Iterable's
-Android or React Native SDK. For Android push integrations, the workflow can
-also create the required Firebase resources and verify that a real push
-notification reaches your device.
+native Android, native iOS, or React Native SDK. For Android push integrations,
+the workflow can also create the required Firebase resources and verify that a
+real push notification reaches your device.
 
 The plugin runs under your coding assistant. The provisioning workflow asks
 before reading or changing scoped cloud resources.
@@ -18,11 +18,12 @@ before reading or changing scoped cloud resources.
 |---|---|
 | `iterable-provision` | Creates and verifies Firebase prerequisites, then guides and checks the required Iterable setup. |
 | `iterable-android` | Integrates and troubleshoots Iterable's native Android SDK using version-pinned documentation. |
+| `iterable-ios` | Integrates and troubleshoots Iterable's native iOS SDK using version-pinned documentation and iOS lifecycle guidance. |
 | `iterable-react-native` | Integrates and troubleshoots `@iterable/react-native-sdk`, including Expo projects. |
 | `iterable-verify` | Verifies an Android push integration by confirming that a real notification reached a selected device. |
 
-The skills can work independently. For a new Android push integration, the
-usual sequence is:
+The integration skills can work independently. For a new Android push
+integration, the usual sequence is:
 
 `iterable-provision` → `iterable-android` or `iterable-react-native` → `iterable-verify`
 
@@ -30,6 +31,7 @@ Skills are model-invoked. Describe the outcome you want rather than running a
 skill by name. For example:
 
 - "Set up Iterable push notifications in this app."
+- "Integrate Iterable's native iOS SDK."
 - "Integrate Iterable's React Native SDK."
 - "Why isn't my push notification arriving?"
 - "Verify that this integration works on my emulator."
@@ -37,24 +39,29 @@ skill by name. For example:
 ## Supported workflows
 
 - Native Android SDK integration.
+- Native iOS SDK integration for Swift and SwiftUI apps.
 - React Native integration for Android and iOS, including Expo.
 - Firebase provisioning and device-side push verification for Android.
 - Push notifications, in-app messages, mobile inbox, embedded messaging, deep
   links, JWT authentication, event tracking, and user profiles.
-- Unknown user activation for native Android.
+- Unknown user activation for native Android and native iOS.
 
-Native iOS and web skills are not included. Provisioning and device-side proof
-are Android-first; the React Native skill can integrate the iOS SDK, but it does
-not provision or verify APNs.
+Automated provisioning and independent device-side proof remain Android-only.
+The native iOS skill guides the required Apple and Iterable setup and can
+integrate the application code, but it does not automate those dashboard
+changes or independently send and observe an APNs proof notification.
 
 ## Requirements
 
 ### Accounts
 
-- An Iterable project. The provisioning skill can guide you through creating
-  the required Iterable API keys and mobile configuration.
+- An Iterable project. The skills guide the required API-key and mobile-app
+  configuration; Android provisioning automates the supported Firebase side.
 - A Google account with access to a Firebase project, or permission to create
   one, when setting up Android push.
+- Access to the app's Apple Developer team and Iterable project when setting up
+  iOS push. Creating a new APNs authentication key may require an Apple Account
+  Holder or Admin.
 
 You authenticate with Google and Iterable yourself. The plugin does not ask for
 or handle your account passwords.
@@ -82,6 +89,12 @@ install commands with your approval.
 
 If a required tool is missing, the workflow reports which tool is needed and
 stops without attempting to install it.
+
+### iOS toolchain
+
+Native iOS integration requires a macOS development environment with the
+project's supported Xcode version. A signed APNs test also requires access to
+the app's Apple Developer team.
 
 ### Android device
 
@@ -113,7 +126,7 @@ directories:
 ```bash
 git clone --depth 1 https://github.com/Iterable/iterable-sdk-skill.git ~/iterable-skills
 mkdir -p ~/.cursor/skills
-for skill in iterable-provision iterable-android iterable-react-native iterable-verify; do
+for skill in iterable-provision iterable-android iterable-ios iterable-react-native iterable-verify; do
   ln -sfn ~/iterable-skills/$skill ~/.cursor/skills/$skill
 done
 ```
@@ -181,6 +194,9 @@ organization's configuration. Install plugins only from sources you trust.
 ## Current limitations
 
 - Firebase provisioning and device-side proof support Android only.
+- Native iOS setup is guided rather than automated. Apple Developer and
+  Iterable dashboard changes remain developer-performed, and end-to-end APNs
+  delivery is reported as manual evidence.
 - Creating Iterable API keys, mobile apps, and push integrations requires
   dashboard interaction because these actions do not have public APIs.
 - JWT-enabled mobile API keys are recognized but are not currently supported by

@@ -3,13 +3,13 @@
   "owner": { "name": "Iterable" },
   "metadata": {
     "description": "Iterable's official skills for AI coding assistants — mobile SDK integration guidance.",
-    "version": "26.10.0-beta"
+    "version": "26.10.1-beta"
   },
   "plugins": [
     {
       "name": "iterable-sdk",
       "source": "./",
-      "description": "Iterable mobile SDK: provision, integrate, and prove a push arrives"
+      "description": "Integrate Iterable mobile SDKs; provision and prove Android push"
     }
   ]
 }
