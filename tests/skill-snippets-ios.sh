@@ -6,9 +6,11 @@
 # Xcode project's defaults. Nothing else holds it to that: a snippet edited by hand,
 # or an SDK release that renames an API, reads exactly as well as a working one.
 #
-# Builds three targets in a throwaway project: SwiftUI (Swift 6, Default Actor
-# Isolation = MainActor), UIKit with scenes (Swift 5), and the Notification Service
-# Extension. Fetches the SDK from GitHub, so run-all.sh only runs it with --all.
+# Builds four targets in a throwaway project: SwiftUI in Swift 6 with Default Actor
+# Isolation = MainActor (a new project) and with the default nonisolated (an existing
+# project moved to Swift 6), UIKit with scenes plus the legacy app-delegate URL methods
+# (Swift 5), and the Notification Service Extension. Fetches the SDK from GitHub, so
+# run-all.sh only runs it with --all.
 
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -50,6 +52,7 @@ const integration = one(swift, "IterableIntegration.swift", (b) => b.startsWith(
 const appDelegate = one(swift, "AppDelegate.swift", (b) => b.startsWith("// AppDelegate.swift"));
 const swiftUIApp = one(swift, "SwiftUI entry point", (b) => b.includes("@UIApplicationDelegateAdaptor"));
 const scene = one(swift, "scene delegate methods", (b) => b.includes("func scene(_ scene: UIScene, willConnectTo"));
+const legacyURLs = one(swift, "app-delegate URL methods", (b) => b.includes("restorationHandler: @escaping"));
 const permission = one(swift, "permission request", (b) => b.includes("func requestNotificationPermission"));
 const nse = one(swift, "Notification Service Extension", (b) => b.includes("ITBNotificationServiceExtension {}"));
 const events = one(swift, "events and profiles", (b) => b.startsWith("IterableAPI.track(event:"));
@@ -73,9 +76,14 @@ w("SwiftUIApp/Events.swift", "import IterableSDK\n\nfunc sampleEvents() {\n    l
   + events.trim().split("\n").map((l) => "    " + l).join("\n") + "\n}\n");
 w("SwiftUIApp/Stubs.swift", appStubs + 'import SwiftUI\nstruct ContentView: View { var body: some View { Text("") } }\n');
 
+// In the class body, not an extension: a signature that only "nearly matches" a
+// requirement warns there and is silent in an extension.
+const legacyBody = "\n" + legacyURLs.trim().split("\n").map((l) => (l ? "    " + l : l)).join("\n") + "\n}\n";
 const uikitDelegate = appDelegate.replace("final class AppDelegate: NSObject, UIApplicationDelegate,",
-  "@main\nfinal class AppDelegate: UIResponder, UIApplicationDelegate,");
-if (uikitDelegate === appDelegate) { console.log("MISSING the AppDelegate declaration the UIKit variant rewrites"); process.exit(2); }
+  "@main\nfinal class AppDelegate: UIResponder, UIApplicationDelegate,").replace(/\}\s*$/, legacyBody);
+if (!uikitDelegate.includes("@main") || !uikitDelegate.includes("restorationHandler")) {
+  console.log("MISSING the AppDelegate declaration the UIKit variant rewrites"); process.exit(2);
+}
 const sceneBody = scene.trim().split("\n").map((l) => (l ? "    " + l : l)).join("\n")
   .replace("    // ...window setup...", "        guard let windowScene = scene as? UIWindowScene else { return }\n"
     + "        window = UIWindow(windowScene: windowScene)\n        window?.rootViewController = UIViewController()\n        window?.makeKeyAndVisible()");
@@ -139,6 +147,22 @@ targets:
       - package: IterableSDK
         product: IterableSDK
       - target: NotificationService
+  SwiftUINonisolated:
+    type: application
+    platform: iOS
+    sources: [SwiftUIApp]
+    configFiles:
+      Debug: Config/Base.xcconfig
+      Release: Config/Base.xcconfig
+    settings:
+      base:
+        SWIFT_VERSION: "6.0"
+        INFOPLIST_FILE: Config/Info.plist
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: "YES"
+        INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
+    dependencies:
+      - package: IterableSDK
+        product: IterableSDK
   UIKitApp:
     type: application
     platform: iOS
@@ -182,11 +206,27 @@ else
   first_errors SwiftUIApp | sed 's/^/        /'
 fi
 
+if build SwiftUINonisolated; then
+  ok "SwiftUI app builds (Swift 6, default nonisolated)"
+else
+  bad "the SwiftUI snippets do not build" "Swift 6, default nonisolated"
+  first_errors SwiftUINonisolated | sed 's/^/        /'
+fi
+
 if build UIKitApp; then
-  ok "UIKit app with scenes builds (Swift 5)"
+  ok "UIKit app with scenes and app-delegate URL methods builds"
 else
   bad "the UIKit snippets do not build" "Swift 5, scenes"
   first_errors UIKitApp | sed 's/^/        /'
+fi
+
+# The build passes either way; the warning is the only sign UIKit will never call it.
+nearly="$(grep -h 'nearly matches' "$WORK"/*.log | grep -v '/spm/checkouts/' | sort -u | head -3)"
+if [[ -z "$nearly" ]]; then
+  ok "no snippet only \"nearly matches\" a delegate requirement"
+else
+  bad "a snippet only nearly matches a requirement" "UIKit will never call it"
+  printf '%s\n' "$nearly" | sed 's/^/        /'
 fi
 
 APP="$WORK/dd/Build/Products/Debug-iphonesimulator/SwiftUIApp.app"

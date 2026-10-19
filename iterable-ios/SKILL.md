@@ -176,8 +176,11 @@ call or a real push confirmed is proved. Say it once, without softening it.
 - **Weak references:** `IterableConfig.urlDelegate`, `customActionDelegate`,
   `authDelegate`, and `unknownUserHandler` are `weak`. Keep the objects alive
   yourself ([pitfall 18](PITFALLS.md#18-a-delegate-assigned-inline-is-deallocated)).
-- **Built-in URL schemes:** `https`, `action`, `itbl`, `iterable`. Every other
-  scheme must be in `config.allowedProtocols`.
+- **URL schemes:** only `https` passes the SDK's URL gate without being listed.
+  `http`, `tel`, `mailto`, `sms`, and your own scheme must be in
+  `config.allowedProtocols`, in lowercase — the match is case-sensitive.
+  `action://`, `itbl://`, and `iterable://` are custom actions in in-app and
+  Embedded messages only ([pitfall 25](PITFALLS.md#25-a-url-scheme-is-missing-from-allowedprotocols)).
 
 ---
 
@@ -205,7 +208,11 @@ non-trivial code.
    lifetime. `config.urlDelegate = MyHandler()` is deallocated immediately.
 5. **Custom URL schemes need both `config.allowedProtocols` and a
    `CFBundleURLTypes` entry.** Without the first, the SDK will not open the
-   link; without the second, iOS will not deliver it.
+   link; without the second, iOS will not deliver it. Only an `https` URL on
+   your Iterable link-tracking domain with an `/a/` path goes to
+   `IterableAPI.handle(universalLink:)` — never a custom-scheme URL — and the
+   `IterableURLDelegate` never returns `false` for a URL on your own scheme or
+   domains ([pitfall 27](PITFALLS.md#27-a-link-bounces-between-the-sdk-and-the-app)).
 6. **Never commit the API key.** A Mobile key is meant to ship inside the app,
    but it belongs in an ignored file, not in source. Never put a server-side
    key in an app.
@@ -316,7 +323,12 @@ import UIKit
 import UserNotifications
 import IterableSDK
 
+@MainActor
 enum IterableIntegration {
+    // Your Iterable link-tracking domain: the tracking domain under Settings > Domains,
+    // and the host of the app's `applinks:` Associated Domains entitlement.
+    static let linkTrackingDomain = "links.example.com"
+
     private(set) static var isInitialized = false
     // IterableConfig holds its delegates weakly; these statics keep them alive.
     private static let urlHandler = IterableURLHandler()
@@ -347,11 +359,25 @@ enum IterableIntegration {
         guard isInitialized else { return }
         IterableAPI.logoutUser()
     }
+
+    /// Every URL the app receives — onOpenURL, scene and app delegates — comes here.
+    static func open(_ url: URL) {
+        let isTrackingLink = url.scheme == "https" && url.host == linkTrackingDomain
+            && IterableAPI.isIterableDeepLink(url.absoluteString)
+        if isTrackingLink && isInitialized {
+            IterableAPI.handle(universalLink: url)
+        } else {
+            _ = AppRouter.open(url)
+        }
+    }
 }
 
-final class IterableURLHandler: NSObject, IterableURLDelegate {
+@MainActor
+final class IterableURLHandler: NSObject, @preconcurrency IterableURLDelegate {
     func handle(iterableURL url: URL, inContext context: IterableActionContext) -> Bool {
-        AppRouter.open(url)  // your app's router; true when the app handled the URL
+        // Your router: true for every URL on your own scheme or domains (unknown paths
+        // go to its fallback screen); false only for other apps' URLs.
+        AppRouter.open(url)
     }
 }
 ```
@@ -362,7 +388,7 @@ import UIKit
 import UserNotifications
 import IterableSDK
 
-final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+final class AppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUserNotificationCenterDelegate {
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
@@ -409,6 +435,16 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 }
 ```
 
+`@MainActor` on `IterableIntegration` and `IterableURLHandler`, and
+`@preconcurrency` on the two delegate conformances, are what let this compile in
+Swift 6 language mode whatever the target's Default Actor Isolation.
+`@preconcurrency` makes Swift check at runtime that a callback arrives on the
+main thread: the SDK only calls its delegates there, and UIKit delivers the
+completion-handler notification callbacks there in practice (Apple doesn't
+document the queue). In Swift 5 language mode the compiler warns that
+`@preconcurrency` has no effect on the notification conformance; that warning
+is harmless.
+
 `IterableAppIntegration.userNotificationCenter` tracks the open and runs the
 push's action — the deep link through your `IterableURLDelegate`, a custom
 action through `customActionDelegate` — and calls the completion handler
@@ -416,7 +452,7 @@ itself. Don't call it twice. `willPresent` is the app's choice: return `[]` to
 keep banners hidden while the app is in the foreground.
 
 For a **UIKit app**, the same class is the entry point: declare it
-`@main final class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterDelegate`
+`@main final class AppDelegate: UIResponder, UIApplicationDelegate, @preconcurrency UNUserNotificationCenterDelegate`
 (and keep the template's `window`/scene methods).
 
 ### 3. SwiftUI entry point
@@ -433,11 +469,7 @@ struct ExampleApp: App {
         WindowGroup {
             ContentView()
                 .onOpenURL { url in
-                    if IterableAPI.isIterableDeepLink(url.absoluteString) {
-                        IterableAPI.handle(universalLink: url)
-                    } else {
-                        _ = AppRouter.open(url)
-                    }
+                    IterableIntegration.open(url)
                 }
         }
     }
@@ -445,15 +477,23 @@ struct ExampleApp: App {
 ```
 
 SwiftUI delivers universal links to `onOpenURL` as a URL, not to the app
-delegate's `application(_:continue:restorationHandler:)`. Pass Iterable
-tracking links (`/a/` paths) to `IterableAPI.handle(universalLink:)`, which
-tracks the click, resolves the original URL, and calls your
-`IterableURLDelegate` with `context.source == .universalLink`. Route
-everything else — custom schemes, your own links — directly.
+delegate's `application(_:continue:restorationHandler:)`.
+`IterableIntegration.open` sends only Iterable tracking links — `https`, your
+tracking domain, an `/a/` path — to `IterableAPI.handle(universalLink:)`, which
+tracks the click, resolves the destination, and calls your
+`IterableURLDelegate` with `context.source == .universalLink`. Everything else
+— custom schemes, your own links — goes straight to the router.
 
-### 4. UIKit with scenes
+The scheme and host checks are not optional: `IterableAPI.isIterableDeepLink`
+looks for `/a/` followed by a letter or digit anywhere in the string, so
+`myapp://shop/a/42` and `https://example.com/help?next=/a/b` both pass it on
+their own.
 
-A scene-based UIKit app receives universal links in the scene delegate:
+### 4. UIKit: scenes, or the app delegate without them
+
+A scene-based UIKit app receives universal links and custom-scheme URLs in the
+scene delegate — at launch in `connectionOptions`, afterwards in
+`scene(_:continue:)` and `scene(_:openURLContexts:)`:
 
 ```swift
 func scene(_ scene: UIScene, willConnectTo session: UISceneSession,
@@ -461,22 +501,58 @@ func scene(_ scene: UIScene, willConnectTo session: UISceneSession,
     // ...window setup...
     if let url = connectionOptions.userActivities
         .first(where: { $0.activityType == NSUserActivityTypeBrowsingWeb })?.webpageURL {
-        IterableAPI.handle(universalLink: url)
+        IterableIntegration.open(url)
+    }
+    if let url = connectionOptions.urlContexts.first?.url {
+        IterableIntegration.open(url)
     }
 }
 
 func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
     guard userActivity.activityType == NSUserActivityTypeBrowsingWeb,
           let url = userActivity.webpageURL else { return }
-    IterableAPI.handle(universalLink: url)
+    IterableIntegration.open(url)
+}
+
+func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
+    guard let url = URLContexts.first?.url else { return }
+    IterableIntegration.open(url)
 }
 ```
 
-Custom-scheme URLs arrive in `connectionOptions.urlContexts` and
-`scene(_:openURLContexts:)`. Only a UIKit app **without** scenes uses
-`application(_:continue:restorationHandler:)`, as in
-`reference/ios-universal-links.md`. `handle(universalLink:)` called before
-initialization is held and replayed once the SDK starts.
+Only a UIKit app **without** scenes uses the app-delegate methods. The iOS 26
+SDK deprecates both in favour of the scene lifecycle, so prefer scenes for new
+work:
+
+```swift
+// UIKit without scenes only — deprecated in the iOS 26 SDK.
+func application(_ application: UIApplication,
+                 continue userActivity: NSUserActivity,
+                 restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void) -> Bool {
+    guard userActivity.activityType == NSUserActivityTypeBrowsingWeb,
+          let url = userActivity.webpageURL else { return false }
+    IterableIntegration.open(url)
+    return true
+}
+
+func application(_ app: UIApplication, open url: URL,
+                 options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
+    IterableIntegration.open(url)
+    return true
+}
+```
+
+Don't copy the app-delegate snippets in `reference/ios-universal-links.md` or
+`reference/deep-links-in-push-notifications.md`. The first declares
+`restorationHandler: @escaping ([Any]?) -> Void`, which only "nearly matches"
+the protocol requirement, so UIKit never calls it and universal links are
+dropped without an error ([pitfall 28](PITFALLS.md#28-a-universal-link-method-nearly-matches-and-is-never-called));
+both use `UIApplicationLaunchOptionsKey`, which no longer compiles.
+
+Before initialization the SDK holds only the **last** link passed to
+`handle(universalLink:)` and replays it when `initialize` runs; if it never
+runs (no key), the link is lost. That is why `IterableIntegration.open` routes
+everything itself until `isInitialized` is true.
 
 ### 5. Identity and logout
 
@@ -717,17 +793,49 @@ product decision to raise, not a default.
 - One app-owned router for push, in-app, Embedded, custom-scheme, and
   universal-link URLs. `IterableActionContext.source` says which one
   (`.push`, `.inApp`, `.embedded`, `.universalLink`).
-- In the `IterableURLDelegate`: validate scheme, host, path, and identifiers;
-  return `true` when the app handled the URL, `false` to let the SDK open it.
-  Treat a repeated URL idempotently and navigate on the main actor.
-- Universal links need the **Associated Domains** entitlement with the
-  Iterable link-tracking domain (`applinks:links.example.com`) plus the
-  dashboard setup in `reference/ios-universal-links.md`, and the entry points in
-  canonical steps 3–4.
-- Any URL from `onOpenURL` or a universal link can come from outside the app.
-  Validate it before it reaches personalized content (Apple's universal-link
-  guidance says the same).
-- Push deep links: `reference/deep-links-in-push-notifications.md`.
+- **What the `IterableURLDelegate`'s answer means.** `true`: the app handled
+  it. `false` — or no delegate, or a deallocated one — makes the SDK call
+  `UIApplication.shared.open(url)`: the system decides where it goes (the
+  browser for a web URL, the owning app for a scheme). The bundled
+  `reference/deep-links-in-push-notifications.md` says "Safari"; it is the
+  system. For a URL on your own scheme that means straight back into your app,
+  and for one on your own domains it never reaches your screen either, so
+  return `false` only for other apps' URLs.
+- **Tracking links are asynchronous.** For an `/a/` link,
+  `handle(universalLink:)` returns `true` at once; the SDK then requests the
+  link and calls the delegate on the main thread with the destination URL — or
+  with the raw `/a/` URL if the request fails, for example offline. The
+  delegate must cope with both.
+- **The scheme gate applies before the delegate.** The URL of a push "Open URL",
+  an in-app or Embedded link, and the resolved destination of an `/a/` link all
+  pass `allowedProtocols` first; a scheme that isn't listed never reaches the
+  delegate. A push whose "Open URL" is `action://…` is dropped unless `action`
+  is listed — use a custom action instead ([pitfall 25](PITFALLS.md#25-a-url-scheme-is-missing-from-allowedprotocols)).
+- Validate scheme, host, path, and identifiers; treat a repeated URL
+  idempotently and navigate on the main actor. Any URL from `onOpenURL` or a
+  universal link can come from outside the app; validate it before it reaches
+  personalized content (Apple's universal-link guidance says the same).
+- Push deep links: `reference/deep-links-in-push-notifications.md`, with the
+  two corrections above (the system, not Safari; current Swift signatures).
+
+**Iterable prerequisites for universal links** (`reference/ios-universal-links.md`
+and Iterable's "Configuring Deep Links for Email or SMS"):
+
+1. A custom link-tracking domain with HTTPS — not `links.iterable.com` or
+   `links.eu.iterable.com`.
+2. In Iterable: **Settings > Domains** → edit the tracking domain → **New
+   Destination Path** → add the destination domain → **Edit Configuration** →
+   upload your `apple-app-site-association` file.
+3. Check `https://<tracking domain>/apple-app-site-association`: Iterable's
+   aggregate file must list `<TEAM_ID>.<bundle ID>` with `"paths": ["/a/*"]`.
+4. The app's **Associated Domains** entitlement contains
+   `applinks:<tracking domain>`, and `IterableIntegration.linkTrackingDomain`
+   is the same host.
+
+The bundled reference says iOS fetches the association file only on install or
+update. Apple's current behaviour: its CDN fetches the file within 24 hours,
+and devices check for updates about once a week after installation
+([Supporting associated domains](https://developer.apple.com/documentation/xcode/supporting-associated-domains)).
 
 ## Events and user profiles
 

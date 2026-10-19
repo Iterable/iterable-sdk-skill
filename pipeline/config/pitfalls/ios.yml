@@ -232,11 +232,12 @@ pitfalls:
     features: [push-notifications]
 
   - id: 25
-    title: Custom URL scheme missing from allowedProtocols
+    title: URL scheme missing from allowedProtocols
     triggers:
       - "allowedProtocols"
       - "CFBundleURLTypes"
       - "custom (URL )?scheme"
+      - "(tel|mailto|sms|http):"
     features: [deep-linking]
 
   - id: 26
@@ -246,3 +247,20 @@ pitfalls:
       - "check-apple"
       - "Push Notifications capability"
     features: [push-notifications]
+
+  - id: 27
+    title: Link bounces between the SDK and the app
+    triggers:
+      - "isIterableDeepLink"
+      - "handle\\(universalLink:"
+      - "onOpenURL"
+      - "loop"
+    features: [deep-linking]
+
+  - id: 28
+    title: Universal-link method nearly matches and is never called
+    triggers:
+      - "restorationHandler"
+      - "nearly matches"
+      - "continue userActivity"
+    features: [deep-linking]

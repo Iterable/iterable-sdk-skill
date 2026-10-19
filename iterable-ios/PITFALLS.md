@@ -280,16 +280,21 @@ Benchmark-app policy, not a general rule: [`eval/scenarios/ios-benchmark.md`](..
   `SKILL.md` → Push notifications). Don't register categories in the app for
   Iterable's buttons. Match the extension's deployment target to the app's.
 
-## 25. A custom URL scheme is missing from `allowedProtocols`
+## 25. A URL scheme is missing from `allowedProtocols`
 
-- **Symptom:** A push or in-app link such as `myapp://item/42` does nothing; the
-  `IterableURLDelegate` is never called for it.
-- **Cause:** The SDK checks the scheme before calling the delegate. Only
-  `https` and the schemes in `config.allowedProtocols` pass; `action://`,
-  `itbl://`, and `iterable://` are handled as Iterable actions.
-- **Fix:** Add every custom scheme to `config.allowedProtocols` before
-  `initialize`, and register it under `CFBundleURLTypes` so iOS delivers it to
-  the app at all.
+- **Symptom:** A push, in-app, or Embedded link such as `myapp://item/42`,
+  `tel:`, or `http://` does nothing, and the `IterableURLDelegate` is never
+  called for it.
+- **Cause:** The SDK checks the scheme before it calls the delegate or opens
+  anything. Only `https` and the schemes in `config.allowedProtocols` pass, and
+  the comparison is case-sensitive (`MyApp` ≠ `myapp`). The gate also applies to
+  the destination an `/a/` tracking link resolves to. `action://`, `itbl://`,
+  and `iterable://` are custom actions in in-app and Embedded messages only; as
+  a push "Open URL" they hit the same gate and are dropped.
+- **Fix:** List every scheme links may use — `http`, `tel`, `mailto`, `sms`,
+  your own — in lowercase in `config.allowedProtocols` before `initialize`, and
+  register your own scheme under `CFBundleURLTypes`. Use a custom action, not an
+  `action://` URL, for push.
 
 ## 26. Iterable accepts the send, but APNs refuses it with TopicDisallowed
 
@@ -307,3 +312,34 @@ Benchmark-app policy, not a general rule: [`eval/scenarios/ios-benchmark.md`](..
   team selector, open the App ID, tick Push Notifications, Save, and Confirm;
   in Keys, make sure the key is not restricted to other Bundle IDs. Then run
   the check again before sending.
+
+## 27. A link bounces between the SDK and the app
+
+- **Symptom:** Tapping a link loops — the app reopens, the screen flickers, or
+  the same URL arrives in `onOpenURL` again and again — or a valid link silently
+  goes nowhere.
+- **Cause:** `IterableAPI.isIterableDeepLink` only looks for `/a/` followed by
+  a letter or digit anywhere in the string, so `myapp://shop/a/42` passes it.
+  Sent to `handle(universalLink:)`, that URL's tracking request fails, the SDK
+  falls back to the original URL, and if the `IterableURLDelegate` returns
+  `false` the SDK calls `UIApplication.shared.open`, which hands a URL on the
+  app's own scheme straight back to `onOpenURL`.
+- **Fix:** Send a URL to `handle(universalLink:)` only when its scheme is
+  `https`, its host is your link-tracking domain, and `isIterableDeepLink`
+  agrees — never a custom-scheme URL. Make the delegate return `true` for every
+  URL on your own scheme or domains, sending unknown paths to a fallback screen;
+  return `false` only for other apps' URLs.
+
+## 28. A universal-link method "nearly matches" and is never called
+
+- **Symptom:** Universal links open the app but never route, in a UIKit app
+  without scenes, and nothing is logged.
+- **Cause:** `reference/ios-universal-links.md` declares
+  `application(_:continue:restorationHandler:)` with
+  `restorationHandler: @escaping ([Any]?) -> Void`. The requirement takes
+  `([UIUserActivityRestoring]?) -> Void`, so Swift treats the method as an
+  unrelated one — it only warns that it "nearly matches" (and is silent if the
+  method sits in an extension) — and UIKit never calls it.
+- **Fix:** Use the signatures in `SKILL.md` → canonical step 4 — or better, the
+  scene lifecycle: the iOS 26 SDK deprecates both app-delegate URL methods.
+  Treat a "nearly matches optional requirement" warning as an error.
