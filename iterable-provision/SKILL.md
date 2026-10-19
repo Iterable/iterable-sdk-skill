@@ -1,18 +1,133 @@
 ---
 name: iterable-provision
 description: >-
-  Produces and proves the prerequisites for Iterable push on Android — a Firebase
-  Android app and its `google-services.json`, a service account scoped to sending
-  push plus its key, and the four Iterable dashboard steps (two API keys, the mobile
-  app, the Firebase push integration with FCM type Data notifications, the test
-  identity). Use when the developer does not yet have a `google-services.json`, an
-  Iterable mobile API key, or a configured push integration — including phrasings
-  like "set up FCM for Iterable", "create the push integration", "I don't have the
-  Firebase config", or when the `iterable-android` / `iterable-react-native` skill
-  reaches a Preflight input nobody has. Never fabricate these inputs; get them here.
+  Produces and proves external prerequisites for Iterable mobile integrations. On Android,
+  it provisions Firebase, credentials, Iterable setup, and device-side proof. On
+  native iOS, it records the integration scope, prepares Apple/APNs prerequisites
+  first when push is selected, then securely captures and validates the required
+  Mobile and Server-side API keys.
+  Use when an integration is missing Firebase, Apple, APNs, Iterable API-key,
+  mobile-app, or push-integration inputs. Never fabricate these inputs.
 ---
 
-# Provisioning Iterable push, and proving it
+# Provisioning Iterable mobile integrations, and proving them
+
+## Rendering a tool screen
+
+Every screen a tool hands you, on either platform, has a `context` and a
+selector. `AskUserQuestion` has no field for `context`, so in the same turn:
+
+1. print `context`, and `requires` when it is not empty, as a normal message,
+   every line verbatim;
+2. then call `AskUserQuestion` with `header`, `prompt`, and the options.
+
+Never call `AskUserQuestion` for a screen whose `context` you have not printed
+in that turn. On iOS screens the links and numbered steps are in `prompt` itself,
+with the question as its last line: pass `prompt` to `AskUserQuestion` whole,
+line breaks included, and never shorten it to the question line.
+
+Some options run a command that prints another screen, such as an iOS
+`question --kind help_…` guide or "Show these steps again". Render that screen
+the same way and carry on from the developer's answer to it. When an answer
+starts from the developer's side ("I don't have …", "I'm not sure …",
+"Help me …"), it leads to real guidance; take it instead of improvising your
+own walkthrough.
+
+## Choose the platform before running a ladder
+
+Inspect the app before invoking a program:
+
+- For an Android app, or the Android target of a React Native app, follow the
+  Android program below.
+- For a native iOS app, read
+  [`reference/ios.md`](reference/ios.md) and use `<root>/bin/ios-provision`.
+  Conduct the interactive state machine in the main session. Do not hand the
+  whole flow to a background agent: it cannot reliably own the developer's
+  selectors and credential handoffs. The shipped `ios-provisioner` may be used
+  only for a bounded read-only Apple/APNs investigation and must return the
+  exact next action to the main session. Never invoke `gcp-provisioner`; it
+  owns Android Firebase/FCM and has no Apple/APNs role.
+  Every native iOS integration uses this path for recorded scope and secure
+  Mobile-key capture. When push is selected, follow Android's provider-first
+  order: complete the Apple Bundle ID, Push Notifications capability, signing
+  readiness, and APNs credential before asking for Iterable credentials or
+  dashboard setup. Status reads the Bundle ID and product name from the app
+  target's build settings; `choose_bundle` offers them as one runnable
+  `record-target`. After recording the exact target, render the tool-authored
+  Apple setup selector. The developer chooses one of three paths: reuse and
+  read back an existing setup, follow a guided Account Holder or Admin
+  handoff, or let an App Store Connect Team API key register the App ID and
+  enable Push Notifications. The guided path recommends **Walk me through
+  it**, which shows one Apple Developer step per screen: register the explicit
+  App ID, enable Push Notifications, then reuse or create the APNs key. The
+  first two are recorded as developer-confirmed (`developer_observed`,
+  `tool_verified: false`). The Team-key path is never recommended by
+  default; it reads App Store Connect, shows the exact plan, writes only
+  after `asc-apply --confirm`, and records `tool_verified` readiness. Every
+  path converges on APNs-key import from the `.p8` path the developer gives,
+  followed by `validate-apns`, a tool step that proves the key, Key ID, and
+  Team ID against the APNs sandbox (not the App ID). Apple and APNs steps are
+  skipped when push is not selected.
+  Native iOS status starts with Android's grouped scope choices—push,
+  events plus user profiles, and a long-tail bucket—with one optional
+  long-tail follow-up. The free-text `initialization only` answer is the same
+  basic init-and-identify path. Free-text commands already single-quote
+  `'{{answer}}'`; substitute the developer's text inside those quotes and
+  write any single quote in it as `'\''`. It then carries one
+  tool-authored selector in `next.question` at a time. Render it and run the
+  selected option commands exactly as described in the iOS reference. In
+  Claude Code, follow *Rendering a tool screen*: print `context` first, then
+  call `AskUserQuestion` with all options. Never collapse a numbered
+  dashboard step into one prose paragraph or replace its options with “tell me
+  how you would like to proceed.” For Iterable dashboard steps, show the
+  tool-authored navigation and let the developer perform the browser actions,
+  just as the Android Iterable walk does. Do not delegate native iOS setup to a
+  browser agent. Immediately after Mobile-key validation, the state machine
+  asks for
+  `capture-server` and `validate-server`, preparing a separate Server-side key
+  before dashboard app setup or application integration. It never enters the
+  app. A rejected key — including a Server-side key pasted into the Mobile
+  slot, or the same key in both slots — routes to `replace_mobile_key` or
+  `replace_server_key`, whose options run `capture-mobile --replace` or
+  `capture-server --replace`; never re-run a validation that already failed
+  as if it could pass. The verifier uses the Server-side key only for reads,
+  while the separate sender uses it only for announced proof sends. For push, this is followed by two separate
+  enforced screens: first create the iOS mobile app or explicitly confirm that
+  its exact Bundle ID already exists; then add the recorded APNs `.p8`, Key ID,
+  Team ID, and Bundle ID. Never summarize these screens as “create or select
+  the app and attach the credential.” For an existing integration,
+  `ios-verify inspect` starts the read-only handoff. `ios-prepare-proof`
+  records the existing identity, Iterable region, environment, and selected
+  device, then generates one targeted marker. It automatically uses behavioral
+  proof and makes no app edits. A standalone verification-only request may
+  reuse the installed app and must report that its current source/build is not
+  linked to the proof. A new integration completed in the current flow records
+  the exact built artifact before verification. Do not expose verification
+  mechanics as another developer decision. Fresh User
+  A/User B identities, an exact evaluation artifact, profile/event
+  expectations, tap routing, logout, and callback ordering belong only to an
+  explicitly requested instrumented benchmark. Generated markers and local
+  records assert no success; `iterable-ios-verify` reads the outcomes
+  independently.
+
+  The iOS `next` action is an enforced sequence. A command existing on disk
+  does not make it an alternative path: run only `next.command` or the commands
+  attached to the developer's selected option. Do not skip Apple/APNs to
+  capture an Iterable key early, skip mobile-app creation to record APNs
+  configuration, or start app edits in parallel while provisioning is
+  incomplete.
+
+  Changing the recorded iOS target invalidates target-bound local Apple,
+  APNs, Iterable push, and proof state. It does not revoke Apple resources or
+  delete the retained APNs private key.
+- For an iOS target owned by a React Native or Expo integration, keep the
+  React Native skill in charge of application code. Use the iOS provisioning
+  path only for the Apple and Iterable prerequisites it explicitly needs.
+
+Do not run the Android gate ladder against an iOS project. Its Firebase,
+`adb`, package-name, and FCM conclusions do not apply to APNs.
+
+## Android provisioning
 
 This skill drives a program. You are not the state machine — `<root>/bin/agent` is. It
 reads the world, decides the single next action, and tells you who owns it. Your
@@ -101,7 +216,8 @@ instruction: **ask it, do not answer it.** Later steps of a walk come one at a t
 
 Render it as one `AskUserQuestion`:
 
-- `context` goes in the message **immediately above** the selector, every line, verbatim.
+- `context` goes in a message printed **before** the `AskUserQuestion` call, every line,
+  verbatim (see *Rendering a tool screen*).
   That is what they are agreeing to. The wording is the tool's because a shortened
   version of it still comes back "yes".
 - `requires`, when it is not empty, goes in the same message. It is what they have to do
@@ -214,8 +330,8 @@ relay the block, do not look for a flag that gets you past it, and never set
 | `project_unreachable` | Relay `next.summary` verbatim — it is a permissions answer from Google, not something to work around — and then ask `next.question`, which offers aiming somewhere else. A typo'd project id and a project they have no access to look identical from here, and both are answered at that screen. |
 | `register_app` | Their project has no Android app for this package. Ask `next.question` — this is the one change the limits promise never happens unless they ask outright, so its yes is separate from the provisioning yes and recorded with `<root>/bin/agent approve create-app`. Never `CREATE_APP=1`. |
 | `iterable_keys` | Four steps in their Iterable account that only they can do. Ask `next.question`, then walk them **one at a time** — see *The four Iterable steps* below. The two keys reach the workspace with `iterable-keys --take server\|mobile`, off their clipboard; never into this conversation. |
-| `install_app` / `run_app` | The device half — hand off to `iterable-verify`. Until a device is on record `next.question` is the device picker, worth asking even when only one is attached: a phone left plugged in to charge is "the only device", takes the proof push, and the developer watching an emulator reports that nothing arrived. The verifier may open the selected app after installation; signing in and allowing notifications still happen inside their app, by their hand. |
-| `send_proof` | The device half — hand off to `iterable-verify`. |
+| `install_app` / `run_app` | The Android device half—hand off to `iterable-android-verify`. Until a device is on record `next.question` is the device picker, worth asking even when only one is attached: a phone left plugged in to charge is "the only device", takes the proof push, and the developer watching an emulator reports that nothing arrived. The verifier may open the selected app after installation; signing in and allowing notifications still happen inside their app, by their hand. |
+| `send_proof` | The Android device half—hand off to `iterable-android-verify`. |
 | `done` | A real push reached the device. Say which device and chain onward. |
 
 `next.command` is the command for that step when there is one. Run it; do not
@@ -453,4 +569,5 @@ the app module (`app/google-services.json` for a standard Android project) and s
 it as part of its one confirmed diff. This skill produces the file; it does not
 write into the developer's source tree.
 
-After the integration is written, `iterable-verify` proves it with a real push.
+After the integration is written, `iterable-android-verify` proves it with a
+real push.
