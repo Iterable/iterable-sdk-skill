@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# Keep local and CI runs on the version evaluated for this repository.
+agent_device_cache="${AGENT_DEVICE_NPM_CACHE:-${TMPDIR:-/tmp}/iterable-agent-device-npm-cache}"
+mkdir -p "$agent_device_cache"
+export npm_config_cache="$agent_device_cache"
+
+# Avoid inheriting stale daemon ownership from an unrelated checkout or older
+# client in ~/.agent-device. One repository gets one explicit daemon state.
+agent_device_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+agent_device_state_key="$(printf '%s' "$agent_device_root" | shasum -a 256 | cut -c1-12)"
+export AGENT_DEVICE_STATE_DIR="${AGENT_DEVICE_STATE_DIR:-${TMPDIR:-/tmp}/iterable-agent-device-state-$agent_device_state_key}"
+
+exec npx -y agent-device@0.21.22 "$@"

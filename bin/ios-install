@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+# Installation actor for the exact native iOS proof artifact.
+
+set -uo pipefail
+
+BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TOOL_ROOT="$(cd "$BIN/.." && pwd)"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  ios-install [--workspace PATH]
+
+Installs the exact .app recorded in proof-target.json on its recorded Simulator
+or physical iPhone. This command never builds the app: APP_PATH must already be
+the exact artifact intended for the proof. It never launches or operates the
+app; ios-verify reads the installed state independently.
+EOF
+}
+
+die() {
+  printf 'error: %s\n' "$*" >&2
+  exit 30
+}
+
+WORKSPACE_OVERRIDE=""
+while (($#)); do
+  case "$1" in
+    --workspace)
+      (($# >= 2)) || die "--workspace needs a value"
+      WORKSPACE_OVERRIDE="$2"
+      shift 2
+      ;;
+    --workspace=*)
+      WORKSPACE_OVERRIDE="${1#*=}"
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      die "unknown option: $1"
+      ;;
+  esac
+done
+
+if [[ -n "$WORKSPACE_OVERRIDE" ]]; then
+  WORKSPACE="$WORKSPACE_OVERRIDE"
+elif [[ -n "${IOS_WORKSPACE:-}" ]]; then
+  WORKSPACE="$IOS_WORKSPACE"
+else
+  project_root="$(git rev-parse --show-toplevel 2>/dev/null)" || project_root="$PWD"
+  [[ "$project_root" != "$TOOL_ROOT" ]] ||
+    die "run this from the iOS app being proved, not from the skill repository"
+  WORKSPACE="$project_root/.iterable/ios"
+fi
+
+TARGET="$WORKSPACE/proof-target.json"
+[[ -f "$TARGET" ]] || die "record the proof target before installing"
+read_target() {
+  node -e '
+    const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
+    process.stdout.write(String(v[process.argv[2]] ?? ""));
+  ' "$TARGET" "$1"
+}
+
+BUNDLE_ID="$(read_target bundle_id)"
+DEVICE_ID="$(read_target device)"
+DEVICE_KIND="$(read_target device_kind)"
+APP_PATH="$(read_target app_path)"
+[[ -n "$BUNDLE_ID" && -n "$DEVICE_ID" && -d "$APP_PATH" &&
+    "$APP_PATH" == *.app ]] ||
+  die "the proof target must name a bundle, device, and existing .app"
+[[ "$DEVICE_KIND" == simulator || "$DEVICE_KIND" == physical ]] ||
+  die "the proof target has no valid device kind"
+command -v xcrun >/dev/null 2>&1 || die "xcrun is not installed"
+
+APP_VERSION="$(plutil -extract CFBundleShortVersionString raw -o - \
+  "$APP_PATH/Info.plist" 2>/dev/null || printf unknown)"
+APP_BUILD="$(plutil -extract CFBundleVersion raw -o - \
+  "$APP_PATH/Info.plist" 2>/dev/null || printf unknown)"
+printf 'Installing an existing app artifact; ios-install does not build.\n'
+printf '  app path: %s\n  bundle: %s\n  version/build: %s (%s)\n  device: %s (%s)\n' \
+  "$APP_PATH" "$BUNDLE_ID" "$APP_VERSION" "$APP_BUILD" "$DEVICE_ID" "$DEVICE_KIND"
+
+simulators="$(xcrun simctl list devices --json 2>/dev/null || true)"
+is_booted_simulator=false
+if printf '%s' "$simulators" | node -e '
+  let input="";
+  process.stdin.on("data",chunk=>input+=chunk).on("end",()=>{
+    let root; try { root=JSON.parse(input) } catch { process.exit(1) }
+    const wanted=process.argv[1];
+    const devices=Object.values(root.devices||{}).flat();
+    process.exit(devices.some(device=>
+      device.udid===wanted && device.state==="Booted"
+    ) ? 0 : 1);
+  });
+' "$DEVICE_ID"; then
+  is_booted_simulator=true
+fi
+
+if [[ "$DEVICE_KIND" == simulator ]]; then
+  [[ "$is_booted_simulator" == true ]] ||
+    die "the recorded Simulator is not booted"
+  xcrun simctl install "$DEVICE_ID" "$APP_PATH" ||
+    die "Simulator could not install the recorded app"
+  printf 'Installed exact artifact %s on Simulator %s. Run ios-launch next.\n' \
+    "$APP_PATH" "$DEVICE_ID"
+  exit 0
+fi
+
+[[ "$is_booted_simulator" == false ]] ||
+  die "the selected UDID is a Simulator but proof-target.json records physical"
+xcrun devicectl device install app --device "$DEVICE_ID" "$APP_PATH" ||
+  die "CoreDevice could not install the recorded app"
+printf 'Installed exact artifact %s on physical iPhone %s. Run ios-launch next.\n' \
+  "$APP_PATH" "$DEVICE_ID"

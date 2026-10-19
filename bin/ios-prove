@@ -1,0 +1,768 @@
+#!/usr/bin/env bash
+# Sends exactly one marked proof push through Iterable and gathers the evidence
+# that it arrived. On a Simulator it reads the Simulator's own notification
+# store and log. On a physical iPhone the push shows a short code the developer
+# reads back; the device log corroborates it when the host can read it.
+#
+# ios-verify re-derives the verdict on its own; the receipt written here is a
+# convenience, not the proof.
+
+set -uo pipefail
+
+BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TOOL_ROOT="$(cd "$BIN/.." && pwd)"
+source "$BIN/ios-simulator.sh"
+READER="$BIN/ios-notify-read.js"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  ios-prove --confirm [--timeout SECONDS] [--background terminate|switch] [--workspace PATH]
+  ios-prove readback --code - [--workspace PATH]      (code on stdin)
+  ios-prove readback --code CODE [--workspace PATH]
+  ios-prove readback --not-seen [--workspace PATH]
+
+Run from the iOS app being proved, after `ios-prepare-proof start`. It checks
+the device and Iterable preconditions and sends one marked push through
+Iterable's proof API. It never sends twice for a run.
+
+On a Simulator it moves the app out of the foreground and waits up to
+--timeout seconds (default 60) for the Simulator to record the push.
+
+On a physical iPhone the notification shows a six-character code. The
+developer reads it from the phone and `readback --code` checks it; only a slow
+hash of the code is stored, and three wrong codes end the run. The device log
+is then collected without elevated permissions to corroborate the arrival; if
+the host refuses, corroboration is skipped and reported, never escalated. The
+physical path has not been tested by the maintainers. Instrumented runs keep
+their coordinated path (ios-deliver).
+EOF
+}
+
+die() {
+  printf 'error: %s\n' "$*" >&2
+  exit 30
+}
+
+file_mode() {
+  stat -f '%Lp' "$1" 2>/dev/null || stat -c '%a' "$1" 2>/dev/null
+}
+
+MODE=send
+if [[ "${1:-}" == readback ]]; then
+  MODE=readback
+  shift
+fi
+CONFIRM=false
+READBACK_CODE=""
+NOT_SEEN=false
+TIMEOUT=60
+BACKGROUND="${IOS_PROVE_BACKGROUND:-terminate}"
+WORKSPACE_OVERRIDE=""
+while (($#)); do
+  case "$1" in
+    --confirm) CONFIRM=true; shift ;;
+    --code) (($# >= 2)) || die "--code needs a value"; READBACK_CODE="$2"; shift 2 ;;
+    --code=*) READBACK_CODE="${1#*=}"; shift ;;
+    --not-seen) NOT_SEEN=true; shift ;;
+    --timeout) (($# >= 2)) || die "--timeout needs a value"; TIMEOUT="$2"; shift 2 ;;
+    --timeout=*) TIMEOUT="${1#*=}"; shift ;;
+    --background) (($# >= 2)) || die "--background needs a value"; BACKGROUND="$2"; shift 2 ;;
+    --background=*) BACKGROUND="${1#*=}"; shift ;;
+    --workspace) (($# >= 2)) || die "--workspace needs a value"; WORKSPACE_OVERRIDE="$2"; shift 2 ;;
+    --workspace=*) WORKSPACE_OVERRIDE="${1#*=}"; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) die "unknown option: $1" ;;
+  esac
+done
+if [[ "$READBACK_CODE" == - ]]; then
+  READBACK_CODE="$(cat)"
+fi
+if [[ "$MODE" == send ]]; then
+  [[ "$CONFIRM" == true ]] ||
+    die "ios-prove requires --confirm after the developer has confirmed the proof run"
+else
+  [[ -n "$READBACK_CODE" || "$NOT_SEEN" == true ]] ||
+    die "readback needs --code with what the developer read, or --not-seen"
+  [[ -z "$READBACK_CODE" || "$NOT_SEEN" != true ]] ||
+    die "readback takes either --code or --not-seen, not both"
+fi
+[[ "$TIMEOUT" =~ ^[0-9]+$ ]] && ((TIMEOUT >= 5 && TIMEOUT <= 180)) ||
+  die "--timeout must be between 5 and 180 seconds"
+[[ "$BACKGROUND" == terminate || "$BACKGROUND" == switch ]] ||
+  die "--background must be terminate or switch"
+
+if [[ -n "$WORKSPACE_OVERRIDE" ]]; then
+  WORKSPACE="$WORKSPACE_OVERRIDE"
+elif [[ -n "${IOS_WORKSPACE:-}" ]]; then
+  WORKSPACE="$IOS_WORKSPACE"
+else
+  project_root="$(git rev-parse --show-toplevel 2>/dev/null)" || project_root="$PWD"
+  [[ "$project_root" != "$TOOL_ROOT" ]] ||
+    die "run this from the iOS app being proved, not from the skill repository"
+  WORKSPACE="$project_root/.iterable/ios"
+fi
+TARGET="$WORKSPACE/proof-target.json"
+ENV_FILE="$WORKSPACE/.env"
+SCOPE_FILE="$WORKSPACE/scope.json"
+DEVICES_ROOT="$(ios_simulator_devices_root)"
+[[ -f "$TARGET" && "$(file_mode "$TARGET")" == 600 ]] ||
+  die "no mode-0600 proof run exists; start one with ios-prepare-proof start --confirm"
+[[ -f "$ENV_FILE" && "$(file_mode "$ENV_FILE")" == 600 ]] ||
+  die "capture the Server-side key before proving delivery"
+
+read_target() {
+  node -e '
+    const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
+    let value=v;
+    for (const key of process.argv[2].split(".")) value=value?.[key];
+    process.stdout.write(value == null ? "" : String(value));
+  ' "$TARGET" "$1"
+}
+
+PROOF_MODE="$(read_target proof_mode)"
+BUNDLE_ID="$(read_target bundle_id)"
+DEVICE_ID="$(read_target device)"
+DEVICE_KIND="$(read_target device_kind)"
+ENVIRONMENT="$(read_target environment)"
+RUN_ID="$(read_target run_id)"
+STARTED_AT="$(read_target started_at)"
+IDENTITY_TYPE="$(read_target identity_type)"
+IDENTITY="$(read_target identity)"
+MARKER="$(read_target markers.user_targeted)"
+[[ -n "$PROOF_MODE" ]] || PROOF_MODE=behavioral
+[[ "$PROOF_MODE" == behavioral ]] ||
+  die "instrumented runs keep their coordinated path: ios-deliver target --recipient initial --confirm"
+case "$DEVICE_KIND" in
+  simulator)
+    [[ "$ENVIRONMENT" == development ]] || die "an iOS Simulator receives APNs sandbox pushes only"
+    ;;
+  physical)
+    [[ "$ENVIRONMENT" == development || "$ENVIRONMENT" == production ]] ||
+      die "the proof run has no valid environment"
+    ;;
+  *) die "the proof run has no valid device kind" ;;
+esac
+[[ "$MODE" == send || "$DEVICE_KIND" == physical ]] ||
+  die "read-back is for a physical iPhone; a Simulator's own records are read directly"
+[[ "$BUNDLE_ID" =~ ^[A-Za-z0-9.-]+$ && "$DEVICE_ID" =~ ^[A-Za-z0-9-]+$ ]] ||
+  die "the proof run has no safe bundle ID or device identifier"
+[[ "$RUN_ID" =~ ^[A-Za-z0-9._-]+$ && -n "$MARKER" && -n "$IDENTITY" ]] ||
+  die "the proof run is incomplete; restart it with ios-prepare-proof restart --confirm"
+[[ "$IDENTITY_TYPE" == email || "$IDENTITY_TYPE" == user-id ]] ||
+  die "the proof run has no supported identity type"
+
+REGION="$(sed -n 's/^ITERABLE_DATA_REGION=//p' "$ENV_FILE" | head -1)"
+if [[ -z "$REGION" && -f "$SCOPE_FILE" ]]; then
+  REGION="$(node -e '
+    const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
+    process.stdout.write(String(v.data_region||""));
+  ' "$SCOPE_FILE" 2>/dev/null)"
+fi
+SERVER_KEY="$(sed -n 's/^ITERABLE_SERVER_KEY=//p' "$ENV_FILE" | head -1)"
+[[ "$REGION" == US || "$REGION" == EU ]] || die "the workspace has no valid Iterable region"
+[[ -n "$SERVER_KEY" ]] || die "no Server-side key was captured"
+[[ "$REGION" == EU ]] && BASE="https://api.eu.iterable.com" || BASE="https://api.iterable.com"
+
+MANIFEST_DIR="$WORKSPACE/sends/$ENVIRONMENT"
+MANIFEST="$MANIFEST_DIR/user-targeted.json"
+RUN_DIR="$WORKSPACE/observations/runs/$RUN_ID/user-targeted"
+mkdir -p "$WORKSPACE/observations/runs/$RUN_ID" "$MANIFEST_DIR"
+chmod 700 "$WORKSPACE/observations" "$WORKSPACE/observations/runs" \
+  "$WORKSPACE/observations/runs/$RUN_ID" "$WORKSPACE/sends" "$MANIFEST_DIR"
+
+# One ios-prove per run at a time: mkdir is atomic, so a second concurrent
+# invocation fails here before any network call. A lock left by a process that
+# no longer exists is reclaimed once.
+LOCK="$WORKSPACE/observations/runs/$RUN_ID/.ios-prove.lock"
+acquire_lock() {
+  mkdir "$LOCK" 2>/dev/null || return 1
+  printf '%s\n' "$$" > "$LOCK/pid"
+}
+if ! acquire_lock; then
+  holder="$(cat "$LOCK/pid" 2>/dev/null)"
+  if [[ "$holder" =~ ^[0-9]+$ ]] && ! kill -0 "$holder" 2>/dev/null; then
+    rm -rf "$LOCK"
+    acquire_lock || die "another ios-prove holds this run; wait for it to finish, then run ios-verify status"
+  else
+    die "another ios-prove is already running for this run; wait for it to finish, then run ios-verify status"
+  fi
+fi
+trap 'rm -rf "$LOCK"' EXIT
+
+if [[ "$MODE" == send ]]; then
+  [[ ! -e "$RUN_DIR" ]] ||
+    die "this run already holds evidence from an earlier attempt; ios-prove never sends twice. Run ios-verify status, or restart the run"
+  [[ ! -e "$MANIFEST" ]] ||
+    die "this run already has a send attempt; ios-prove never sends twice. Run ios-verify status to read the result, or restart the run"
+else
+  [[ -d "$RUN_DIR" ]] || die "no proof push has been sent for this run; run ios-prove --confirm first"
+fi
+
+emit() {
+  # emit <exit-code> <observed> <diagnosis> <summary> [judge-json]
+  local rc="$1" observed="$2" diagnosis="$3" summary="$4" judged="${5:-}"
+  [[ -n "$judged" ]] || judged='{}'
+  node -e '
+    const [observed,diagnosis,summary,judged,state,http,tokenMatch,bin]=process.argv.slice(1);
+    let j={}; try { j=JSON.parse(judged) } catch {}
+    process.stdout.write(JSON.stringify({
+      tool:"iterable-ios-prove",
+      contract:1,
+      observed:observed==="true",
+      evidence:j.evidence||{apns_received:false,os_stored:false,os_displayed:false},
+      apns_binding:j.apns_binding||null,
+      record_digest:j.record?.digest||null,
+      diagnosis:diagnosis||null,
+      summary,
+      send:{state:state||"not-sent",http_code:http||null},
+      token_match:tokenMatch||"unknown",
+      next:process.argv[9]
+        ? JSON.parse(process.argv[9])
+        : {owner:"tool",kind:"verify",command:`${bin}/ios-verify status`},
+      ...(process.argv[12] ? {apple_check:JSON.parse(process.argv[12])} : {}),
+      ...(process.argv[10]==="physical" ? {
+        verification_tier:"developer-observed",
+        corroboration:process.argv[11] ? JSON.parse(process.argv[11]) : null,
+        notice:"physical path not tested by the maintainers"
+      } : {})
+    })+"\n");
+  ' "$observed" "$diagnosis" "$summary" "$judged" "${SEND_STATE:-}" "${HTTP_CODE:-}" \
+    "${TOKEN_MATCH:-}" "$BIN" "${EMIT_NEXT:-}" "$DEVICE_KIND" "${CORROBORATION:-}" "${APPLE_CHECK:-}"
+  exit "$rc"
+}
+
+pending_without_send() {
+  emit 40 false "$1" "$2"
+}
+
+secret_request() {
+  local method="$1" path="$2" data="${3:-}" escaped_key escaped_data output
+  escaped_key="${SERVER_KEY//\\/\\\\}"
+  escaped_key="${escaped_key//\"/\\\"}"
+  escaped_data="${data//\\/\\\\}"
+  escaped_data="${escaped_data//\"/\\\"}"
+  output="$(
+    {
+      printf 'header = "Api-Key: %s"\n' "$escaped_key"
+      printf 'url = "%s%s"\n' "$BASE" "$path"
+      printf 'request = "%s"\n' "$method"
+      printf 'max-time = 30\n'
+      if [[ "$method" == POST ]]; then
+        printf 'header = "Content-Type: application/json"\n'
+        printf 'data = "%s"\n' "$escaped_data"
+      fi
+    } | curl -K - -sS -w $'\n%{http_code}' 2>/dev/null
+  )" || true
+  HTTP_CODE="${output##*$'\n'}"
+  HTTP_BODY="${output%$'\n'*}"
+  [[ "$HTTP_CODE" =~ ^[0-9]{3}$ ]] || HTTP_CODE=000
+}
+
+read_store() {
+  node "$READER" store "$DEVICES_ROOT" "$DEVICE_ID" "$BUNDLE_ID" 2>/dev/null ||
+    printf '{"mapped":false,"records":[],"registration":null}'
+}
+
+read_log() {
+  ios_simulator_proof_log "$DEVICE_ID" "$BUNDLE_ID" "$PREPARED_AT"
+}
+
+judge_now() {
+  node -e '
+    const [store,log,marker,nonceHash,template,notBefore]=process.argv.slice(1);
+    const l=JSON.parse(log);
+    process.stdout.write(JSON.stringify({
+      expect:{marker,nonce_sha256:nonceHash,template_id:Number(template),not_before:notBefore},
+      store:JSON.parse(store),
+      events:l.events,
+      log_lines:l.lines,
+      log_ok:l.ok!==false,
+      require_record:true
+    }));
+  ' "$1" "$2" "$MARKER" "$NONCE_HASH" "$TEMPLATE_ID" "$PREPARED_AT" |
+    node "$READER" judge
+}
+
+json_field() {
+  node -e '
+    let v=JSON.parse(process.argv[1]);
+    for (const key of process.argv[2].split(".")) v=v?.[key];
+    process.stdout.write(v == null ? "" : String(v));
+  ' "$1" "$2"
+}
+
+readback_next() {
+  node -e '
+    const bin=process.argv[1], device=process.argv[2];
+    process.stdout.write(JSON.stringify({
+      owner:"human",
+      kind:"readback_code",
+      command:`printf '"'"'%s'"'"' '"'"'{{answer}}'"'"' | ${bin}/ios-prove readback --code -`,
+      question:{
+        header:"Proof code",
+        prompt:`What six-character code does the "Iterable iOS proof" notification show on ${device}?`,
+        selection:"single",
+        context:[
+          "Look at the iPhone itself: the notification banner, the Lock Screen, or Notification Center.",
+          "Type the code exactly as shown; case and the dash do not matter. Three wrong codes end this run."
+        ],
+        requires:[],recommended:null,before_commands:[],
+        options:[
+          {label:"I do not see it",description:"Nothing titled Iterable iOS proof arrived on the iPhone.",effect:"records that the developer did not see the push; nothing is resent",relay:"",commands:[`${bin}/ios-prove readback --not-seen`]},
+          {label:"Stop here",description:"Leave the run waiting for the code.",effect:"the push remains unproved",relay:"",commands:[]}
+        ],
+        free_text:{hint:"Enter the code shown in the notification",effect:"checks the code against this run’s send",command:`printf '"'"'%s'"'"' '"'"'{{answer}}'"'"' | ${bin}/ios-prove readback --code -`}
+      }
+    }));
+  ' "$BIN" "$DEVICE_ID"
+}
+
+corroborate_device_log() {
+  local since="$1" out="$RUN_DIR/device-log.ndjson" collected events
+  collected="$(ios_device_log_collect "$DEVICE_ID" "$BUNDLE_ID" "$since" "$out")"
+  if [[ "$collected" != *'"status":"ok"'* ]]; then
+    node -e '
+      const c=JSON.parse(process.argv[1]);
+      process.stdout.write(JSON.stringify({
+        status:"skipped",
+        reason:c.status==="permission"
+          ? `the host would not collect the iPhone log without elevated permissions, and the tool does not escalate (${c.reason})`
+          : `the iPhone log could not be collected (${c.reason})`
+      }));
+    ' "$collected"
+    return
+  fi
+  events="$(node "$READER" log "$BUNDLE_ID" --device --since "$since" < "$out")"
+  node -e '
+    const l=JSON.parse(process.argv[1]);
+    process.stdout.write(JSON.stringify({events:l.events,not_before:process.argv[2]}));
+  ' "$events" "$since" | node "$READER" corroborate | node -e '
+    let i=""; process.stdin.on("data",c=>i+=c).on("end",()=>{
+      const c=JSON.parse(i);
+      process.stdout.write(JSON.stringify({status:"collected",file:process.argv[1],...c}));
+    });
+  ' "$(basename "$out")"
+}
+
+if [[ "$MODE" == readback ]]; then
+  [[ -f "$MANIFEST" && "$(file_mode "$MANIFEST")" == 600 ]] ||
+    die "no proof push has been sent for this run; run ios-prove --confirm first"
+  facts="$(node -e '
+    const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
+    const [bundle,device,runId]=process.argv.slice(2);
+    const ok=v.contract===4 && v.device_kind==="physical" && v.bundle_id===bundle &&
+      v.device===device && v.run_id===runId && ["sent","uncertain"].includes(v.state) &&
+      /^[0-9a-f]{32}$/.test(String(v.readback?.salt||"")) && /^[0-9a-f]{64}$/.test(String(v.readback?.hash||""));
+    if (!ok) process.exit(1);
+    process.stdout.write([v.prepared_at,v.readback.salt,v.readback.hash,v.state].join("\x1f"));
+  ' "$MANIFEST" "$BUNDLE_ID" "$DEVICE_ID" "$RUN_ID")" ||
+    die "this run's send manifest has no read-back to check; restart the run with ios-prepare-proof restart --confirm"
+  IFS=$'\x1f' read -r PREPARED_AT readback_salt readback_hash SEND_STATE <<< "$facts"
+  RECEIPT="$WORKSPACE/proof/$ENVIRONMENT/user-targeted.json"
+  [[ ! -e "$RECEIPT" ]] || die "this run's read-back is already recorded; run ios-verify status"
+  READBACK_STATE="$WORKSPACE/observations/readback.json"
+  read -r attempts locked not_seen < <(node -e '
+    let v={}; try { v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")) } catch {}
+    process.stdout.write(`${Number(v.attempts||0)} ${v.locked===true} ${v.not_seen===true}\n`);
+  ' "$READBACK_STATE")
+  write_readback_state() {
+    (
+      umask 077
+      node -e '
+        const fs=require("fs"), a=process.argv.slice(2);
+        fs.writeFileSync(process.argv[1],JSON.stringify({
+          contract:2, run_id:a[0], attempts:Number(a[1]), locked:a[2]==="true",
+          not_seen:a[3]==="true", diagnosis:a[4]||null,
+          corroboration:a[5] ? JSON.parse(a[5]) : null, matched:a[6]==="true",
+          updated_at:new Date().toISOString()
+        },null,2)+"\n",{mode:0o600});
+      ' "$READBACK_STATE" "$RUN_ID" "$1" "$2" "$3" "$4" "$5" "${6:-false}"
+    )
+  }
+  if [[ "$locked" == true || "$not_seen" == true ]]; then
+    emit 40 false readback_closed \
+      "This run's read-back is already closed (three wrong codes, or the developer did not see the push). Nothing will be resent; start a fresh run once the cause is understood."
+  fi
+  if [[ "$NOT_SEEN" == true ]]; then
+    CORROBORATION="$(corroborate_device_log "$PREPARED_AT")"
+    write_readback_state "$attempts" false true not_seen_by_developer "$CORROBORATION"
+    summary="The developer did not see this run's push on the iPhone. Nothing will be resent."
+    case "$CORROBORATION" in
+      *'"verdict":"suppressed"'*) summary="$summary The iPhone's log shows iOS received an alert push for the app but did not save or show it, which is what a foreground handler that suppresses the notification, or notifications turned off for the app, looks like." ;;
+      *'"verdict":"missing"'*) summary="$summary The iPhone's log shows no alert push for the app in this window, so it most likely never reached the device: check the device token Iterable holds and the APNs environment of the push integration." ;;
+      *'"verdict":"corroborated"'*) summary="$summary The iPhone's log does show one alert push for the app saved and delivered, so check Focus, notification settings, and Notification Center on the phone." ;;
+      *'"status":"skipped"'*) summary="$summary The iPhone's log could not be read to say more." ;;
+    esac
+    emit 40 false not_seen_by_developer "$summary"
+  fi
+  checked="$(printf '%s' "$READBACK_CODE" | node "$READER" readback-check - "$readback_salt" "$readback_hash")" ||
+    die "the read-back code could not be checked"
+  unset READBACK_CODE
+  if [[ "$checked" != *'"match":true'* ]]; then
+    attempts=$((attempts + 1))
+    if ((attempts >= 3)); then
+      write_readback_state "$attempts" true false readback_locked ""
+      emit 40 false readback_locked \
+        "Three codes did not match this run's push, so this run is closed. Nothing will be resent; start a fresh run if the developer wants to try again."
+    fi
+    write_readback_state "$attempts" false false readback_mismatch ""
+    EMIT_NEXT="$(readback_next)"
+    emit 40 false readback_mismatch \
+      "That code does not match this run's push ($((3 - attempts)) attempt(s) left). Ask the developer to read the code from the newest Iterable iOS proof notification again."
+  fi
+  checked=""
+  CORROBORATION="$(corroborate_device_log "$PREPARED_AT")"
+  case "$CORROBORATION" in
+    *'"verdict":"duplicate"'*)
+      write_readback_state "$attempts" true false duplicate_delivery "$CORROBORATION"
+      emit 40 false duplicate_delivery \
+        "The code matches, but the iPhone's log shows more than one alert push for the app in this window, so this run's push cannot be singled out. Nothing will be resent."
+      ;;
+    *'"verdict":"missing"'*|*'"verdict":"incomplete"'*|*'"verdict":"suppressed"'*)
+      write_readback_state "$attempts" true false device_log_disagrees "$CORROBORATION"
+      emit 40 false device_log_disagrees \
+        "The code matches, but the iPhone's log does not show this push arriving, being saved, and being delivered. The read-back and the device disagree, so the run is not counted; review both before starting a fresh run."
+      ;;
+  esac
+  RECEIPT_DIR="$WORKSPACE/proof/$ENVIRONMENT"
+  mkdir -p "$RECEIPT_DIR"
+  chmod 700 "$WORKSPACE/proof" "$RECEIPT_DIR"
+  MARKER_HASH="$(printf '%s' "$MARKER" | shasum -a 256 | awk '{print $1}')"
+  (
+    umask 077
+    node -e '
+      const fs=require("fs"), a=process.argv.slice(2);
+      fs.writeFileSync(process.argv[1],JSON.stringify({
+        observed:true,
+        contract:3,
+        kind:"user-targeted",
+        bundle_id:a[0],
+        device:a[1],
+        device_kind:"physical",
+        environment:a[2],
+        expectation_sha256:a[3],
+        run_id:a[4],
+        observed_at:new Date().toISOString(),
+        observer:"developer read-back",
+        verification_tier:"developer-observed",
+        readback_matched:true,
+        corroboration:JSON.parse(a[5])
+      },null,2)+"\n",{mode:0o600});
+    ' "$RECEIPT_DIR/user-targeted.json" "$BUNDLE_ID" "$DEVICE_ID" "$ENVIRONMENT" \
+      "$MARKER_HASH" "$RUN_ID" "$CORROBORATION"
+  )
+  write_readback_state "$attempts" false false "" "$CORROBORATION" true
+  case "$CORROBORATION" in
+    *'"verdict":"corroborated"'*) corroboration_text="The iPhone's log corroborates one alert push for the app, saved and delivered." ;;
+    *) corroboration_text="Device-log corroboration was skipped: $(node -e 'process.stdout.write(JSON.parse(process.argv[1]).reason||"unavailable")' "$CORROBORATION")." ;;
+  esac
+  emit 0 true "" "The developer read back the code shown on the iPhone, which matches this run's push. $corroboration_text This is developer-observed proof; the physical path has not been tested by the maintainers."
+fi
+
+# Preconditions. Nothing below sends until every one of them holds.
+SIM_TOKEN_HASH=""
+if [[ "$DEVICE_KIND" == physical ]]; then
+  ios_physical_device_connected "$DEVICE_ID" ||
+    pending_without_send device_not_connected \
+      "CoreDevice cannot see the selected iPhone. Connect and unlock it (accept Trust if asked), then run ios-prove again; nothing was sent."
+else
+simulators="$(xcrun simctl list devices --json 2>/dev/null || printf '{}')"
+ios_simulator_host_supports_apns ||
+  die "this Mac/Xcode combination cannot receive real APNs pushes in a Simulator (needs macOS 13+, Xcode 14+, Apple silicon or T2)"
+ios_simulator_device_supports_apns "$simulators" "$DEVICE_ID" ||
+  pending_without_send simulator_not_ready \
+    "The selected Simulator must be booted, available, and on an iOS 16+ runtime. Boot it, then run ios-prove again; nothing was sent."
+xcrun simctl get_app_container "$DEVICE_ID" "$BUNDLE_ID" app >/dev/null 2>&1 ||
+  pending_without_send app_not_installed \
+    "$BUNDLE_ID is not installed on the selected Simulator. Build and install it, then run ios-prove again; nothing was sent."
+
+STORE_BEFORE="$(read_store)"
+[[ "$(json_field "$STORE_BEFORE" mapped)" == true ]] ||
+  pending_without_send app_never_registered_notifications \
+    "iOS has no notification record for $BUNDLE_ID on this Simulator yet. Launch the app signed in as $IDENTITY and allow notifications, then run ios-prove again; nothing was sent."
+[[ "$(json_field "$STORE_BEFORE" registration.environment)" == development ]] ||
+  pending_without_send app_not_registered_for_push \
+    "$BUNDLE_ID has not registered with the APNs sandbox on this Simulator. Launch it signed in as $IDENTITY with notifications allowed, then run ios-prove again; nothing was sent."
+SIM_TOKEN_HASH="$(json_field "$STORE_BEFORE" registration.token_sha256)"
+fi
+
+encoded_identity="$(node -e 'process.stdout.write(encodeURIComponent(process.argv[1]))' "$IDENTITY")"
+if [[ "$IDENTITY_TYPE" == email ]]; then
+  secret_request GET "/api/users/getByEmail?email=$encoded_identity"
+else
+  secret_request GET "/api/users/byUserId/$encoded_identity"
+fi
+[[ "$HTTP_CODE" == 200 ]] ||
+  pending_without_send identity_not_in_iterable \
+    "Iterable has no readable user $IDENTITY (HTTP $HTTP_CODE). Sign in as that user in the app, then run ios-prove again; nothing was sent."
+DEVICES="$(printf '%s' "$HTTP_BODY" | node "$READER" iterable-devices "$BUNDLE_ID" "$SIM_TOKEN_HASH" 2>/dev/null ||
+  printf '{"enabled":0}')"
+HTTP_BODY=""
+[[ "$(json_field "$DEVICES" enabled)" != 0 ]] ||
+  pending_without_send device_not_registered_in_iterable \
+    "Iterable has no enabled $BUNDLE_ID device for $IDENTITY. Open the app signed in as that user and allow notifications, then run ios-prove again; nothing was sent."
+TOKEN_MATCH=unknown
+if [[ "$(json_field "$DEVICES" token_match)" == true ]]; then
+  TOKEN_MATCH=true
+elif [[ "$(json_field "$DEVICES" token_comparable)" == true ]]; then
+  TOKEN_MATCH=false
+  pending_without_send stale_device_token \
+    "Iterable's $BUNDLE_ID device token for $IDENTITY is not this Simulator's current APNs token, so a push would go elsewhere. Launch the app signed in on this Simulator so the SDK registers the current token, then run ios-prove again; nothing was sent."
+fi
+
+# Ask Apple once before spending the send: Iterable accepts a send that APNs
+# then refuses (for example TopicDisallowed) without telling anyone why.
+APPLE_CHECK=""
+if [[ "$DEVICE_KIND" == simulator ]]; then
+  APPLE_CHECK="$(ios_apns_probe "$WORKSPACE" "$DEVICE_ID" "$BUNDLE_ID" "$ENVIRONMENT")"
+  case "$(json_field "$APPLE_CHECK" status)" in
+    ready|not_run) ;;
+    *)
+      pending_without_send "apple_$(json_field "$APPLE_CHECK" classification)" \
+        "$(json_field "$APPLE_CHECK" summary) Nothing was sent through Iterable. Fix this, then run ios-prove again (ios-verify check-apple re-asks Apple on its own)."
+      ;;
+  esac
+fi
+
+if [[ "$DEVICE_KIND" == simulator && "$BACKGROUND" == terminate ]]; then
+  xcrun simctl terminate "$DEVICE_ID" "$BUNDLE_ID" >/dev/null 2>&1 || true
+elif [[ "$DEVICE_KIND" == simulator ]]; then
+  xcrun simctl launch "$DEVICE_ID" com.apple.Preferences >/dev/null 2>&1 || true
+fi
+
+client_template_id="itbl-ios-proof-$(printf '%s' "$BUNDLE_ID" | tr '.' '-' | tr -cd '[:alnum:]-' | cut -c1-80)"
+NONCE="$(node -e 'process.stdout.write(require("crypto").randomBytes(32).toString("hex"))')"
+NONCE_HASH="$(printf '%s' "$NONCE" | shasum -a 256 | awk '{print $1}')"
+MESSAGE="$MARKER"
+READBACK_SALT=""
+READBACK_HASH=""
+READBACK_KDF=""
+PROOF_CODE=""
+if [[ "$DEVICE_KIND" == physical ]]; then
+  # The code reaches Iterable only as a per-send merge field, never on the template.
+  MESSAGE="Proof code: {{proofCode}}"
+  IFS=$'\x1f' read -r PROOF_CODE READBACK_SALT READBACK_HASH READBACK_KDF < <(
+    node "$READER" readback-new | node -e '
+      let i=""; process.stdin.on("data",c=>i+=c).on("end",()=>{
+        const r=JSON.parse(i);
+        process.stdout.write([r.display,r.salt,r.hash,r.kdf].join("\x1f")+"\n");
+      });
+    '
+  )
+  [[ -n "$PROOF_CODE" && -n "$READBACK_HASH" ]] || die "could not create the read-back code"
+fi
+body="$(node -e '
+  const [clientTemplateId,bundle,marker,nonce,message]=process.argv.slice(1);
+  process.stdout.write(JSON.stringify({
+    clientTemplateId,
+    name:`Iterable iOS proof ${bundle}`,
+    title:"Iterable iOS proof",
+    message,
+    payload:{iterableProofMarker:marker,iterableProofNonce:nonce}
+  }));
+' "$client_template_id" "$BUNDLE_ID" "$MARKER" "$NONCE" "$MESSAGE")"
+unset MESSAGE
+PAYLOAD_HASH="$(printf '%s' "$body" | shasum -a 256 | awk '{print $1}')"
+secret_request POST /api/templates/push/upsert "$body"
+[[ "$HTTP_CODE" == 200 ]] || {
+  unset SERVER_KEY NONCE
+  die "Iterable rejected the proof template upsert (HTTP $HTTP_CODE); nothing was sent"
+}
+TEMPLATE_ID="$(printf '%s' "$HTTP_BODY" | sed -n 's/.*IDs: *\([0-9][0-9]*\).*/\1/p' | head -1)"
+[[ "$TEMPLATE_ID" =~ ^[0-9]+$ ]] || {
+  unset SERVER_KEY NONCE
+  die "Iterable did not return the proof template ID; nothing was sent"
+}
+
+MARKER_HASH="$(printf '%s' "$MARKER" | shasum -a 256 | awk '{print $1}')"
+RECIPIENT_HASH="$(printf '%s' "$IDENTITY" | shasum -a 256 | awk '{print $1}')"
+PREPARED_AT="$(node -e 'process.stdout.write(new Date().toISOString())')"
+
+write_manifest() {
+  local state="$1" candidate
+  candidate="$(mktemp "$MANIFEST_DIR/.send-manifest.XXXXXX")" || die "could not create a secure send manifest"
+  chmod 600 "$candidate"
+  node -e '
+    const fs=require("fs");
+    const a=process.argv.slice(2);
+    const value={
+      contract:4,
+      state:a[0],
+      sent:a[0]==="sent",
+      kind:"user-targeted",
+      source:"iterable-api-template-proof",
+      sender:"ios-prove",
+      bundle_id:a[1],
+      device:a[2],
+      device_kind:a[12],
+      environment:a[3],
+      run_id:a[4],
+      marker_sha256:a[5],
+      recipient_sha256:a[6],
+      template_id:Number(a[7]),
+      delivery_nonce_sha256:a[8],
+      payload_sha256:a[9],
+      prepared_at:a[10]
+    };
+    if (a[12]==="physical") value.readback={salt:a[13],hash:a[14],kdf:a[15]};
+    if (a[0]!=="prepared") {
+      value.http_code=a[11];
+      value[a[0]==="sent" ? "sent_at" : a[0]==="failed" ? "failed_at" : "uncertain_at"]=new Date().toISOString();
+    }
+    fs.writeFileSync(process.argv[1],JSON.stringify(value,null,2)+"\n",{mode:0o600});
+  ' "$candidate" "$state" "$BUNDLE_ID" "$DEVICE_ID" "$ENVIRONMENT" "$RUN_ID" \
+    "$MARKER_HASH" "$RECIPIENT_HASH" "$TEMPLATE_ID" "$NONCE_HASH" "$PAYLOAD_HASH" \
+    "$PREPARED_AT" "${HTTP_CODE:-}" "$DEVICE_KIND" "$READBACK_SALT" "$READBACK_HASH" \
+    "$READBACK_KDF" || { rm -f "$candidate"; die "could not write the send manifest"; }
+  mv -f "$candidate" "$MANIFEST" || die "could not activate the send manifest"
+}
+
+mkdir "$RUN_DIR" 2>/dev/null ||
+  die "this run already holds evidence from an earlier attempt; ios-prove never sends twice"
+chmod 700 "$RUN_DIR"
+write_manifest prepared
+if [[ "$IDENTITY_TYPE" == email ]]; then recipient_field=recipientEmail; else recipient_field=recipientUserId; fi
+send_body="$(printf '%s' "$PROOF_CODE" | node -e '
+  const [templateId,field,identity]=process.argv.slice(1);
+  let code=""; process.stdin.on("data",c=>code+=c).on("end",()=>{
+    const body={templateId:Number(templateId),[field]:identity};
+    if (code) body.dataFields={proofCode:code};
+    process.stdout.write(JSON.stringify(body));
+  });
+' "$TEMPLATE_ID" "$recipient_field" "$IDENTITY")"
+secret_request POST /api/templates/push/proof "$send_body"
+unset SERVER_KEY NONCE PROOF_CODE send_body
+SEND_MESSAGE="$(printf '%s' "$HTTP_BODY" | node -e '
+  let input=""; process.stdin.on("data",c=>input+=c).on("end",()=>{
+    let msg=""; try { msg=String(JSON.parse(input).msg||"") } catch { msg=input }
+    process.stdout.write(msg.replace(/\s+/g," ").slice(0,200));
+  });
+')"
+HTTP_BODY=""
+APNS_HINT=""
+case "$SEND_MESSAGE" in
+  *TopicDisallowed*) APNS_HINT=" APNs answered TopicDisallowed: the App ID is not registered for Push Notifications, or the key cannot send to this bundle." ;;
+  *DeviceTokenNotForTopic*) APNS_HINT=" APNs answered DeviceTokenNotForTopic: the device token belongs to a different Bundle ID than Iterable's push integration uses." ;;
+esac
+if [[ "$HTTP_CODE" == 200 ]]; then
+  SEND_STATE=sent
+elif [[ "$HTTP_CODE" =~ ^4[0-9][0-9]$ ]]; then
+  SEND_STATE=failed
+  write_manifest failed
+  emit 30 false send_rejected \
+    "Iterable rejected the proof send (HTTP $HTTP_CODE: ${SEND_MESSAGE:-no message}).$APNS_HINT Nothing was sent. Fix the cause, then start a fresh run with ios-prepare-proof restart --confirm."
+else
+  SEND_STATE=uncertain
+fi
+write_manifest "$SEND_STATE"
+
+if [[ "$DEVICE_KIND" == physical ]]; then
+  EMIT_NEXT="$(readback_next)"
+  lead="Sent one proof push"
+  [[ "$SEND_STATE" != uncertain ]] ||
+    lead="Iterable did not confirm the send (HTTP $HTTP_CODE), so it is uncertain and will not be repeated; if it arrived"
+  emit 40 false "" \
+    "$lead to $IDENTITY on the selected iPhone. Ask the developer to read the six-character code in the notification titled Iterable iOS proof and type it in; if nothing arrives, choose I do not see it."
+fi
+
+deadline=$((SECONDS + TIMEOUT))
+next_log_check=$((SECONDS + 5))
+JUDGED=""
+found=false
+while ((SECONDS < deadline)); do
+  store="$(read_store)"
+  if node -e '
+    const s=JSON.parse(process.argv[1]), before=JSON.parse(process.argv[2]);
+    const seen=new Set((before.records||[]).map(r=>r.identifier));
+    process.exit((s.records||[]).some(r=>!seen.has(r.identifier) &&
+      r.marker===process.argv[3] && r.nonce_sha256===process.argv[4] &&
+      r.template_id===Number(process.argv[5])) ? 0 : 1);
+  ' "$store" "$STORE_BEFORE" "$MARKER" "$NONCE_HASH" "$TEMPLATE_ID"; then
+    found=true
+    break
+  fi
+  if ((SECONDS >= next_log_check)); then
+    JUDGED="$(judge_now "$store" "$(read_log)")"
+    case "$(json_field "$JUDGED" diagnosis)" in
+      suppressed_by_app|notifications_not_authorized|injection_detected|duplicate_delivery|missing_aps_environment)
+        break
+        ;;
+    esac
+    next_log_check=$((SECONDS + 5))
+  fi
+  sleep 0.25
+done
+if [[ "$found" == true ]]; then
+  # The store is written before SpringBoard presents the banner; give the log a moment.
+  sleep 2
+fi
+store="$(read_store)"
+JUDGED="$(judge_now "$store" "$(read_log)")"
+(
+  umask 077
+  printf '%s\n' "$JUDGED" > "$RUN_DIR/prove-$(date -u +%Y%m%dT%H%M%SZ)-$$.json"
+)
+
+if [[ "$(json_field "$JUDGED" observed)" == true ]]; then
+  RECEIPT_DIR="$WORKSPACE/proof/$ENVIRONMENT"
+  mkdir -p "$RECEIPT_DIR"
+  chmod 700 "$WORKSPACE/proof" "$RECEIPT_DIR"
+  (
+    umask 077
+    node -e '
+      const fs=require("fs");
+      const a=process.argv.slice(2), j=JSON.parse(a[8]);
+      fs.writeFileSync(process.argv[1],JSON.stringify({
+        observed:true,
+        contract:3,
+        kind:"user-targeted",
+        bundle_id:a[0],
+        device:a[1],
+        device_kind:"simulator",
+        environment:a[2],
+        expectation_sha256:a[3],
+        run_id:a[4],
+        observed_at:new Date().toISOString(),
+        observer:"ios-prove simulator store and log",
+        evidence:j.evidence,
+        apns_binding:j.apns_binding,
+        record_digest:j.record?.digest||null,
+        nonce_sha256:a[5],
+        template_id:Number(a[6]),
+        token_match:a[7]
+      },null,2)+"\n",{mode:0o600});
+    ' "$RECEIPT_DIR/user-targeted.json" "$BUNDLE_ID" "$DEVICE_ID" "$ENVIRONMENT" \
+      "$MARKER_HASH" "$RUN_ID" "$NONCE_HASH" "$TEMPLATE_ID" "$TOKEN_MATCH" "$JUDGED"
+  )
+  emit 0 true "" "$(json_field "$JUDGED" summary)" "$JUDGED"
+fi
+
+ATTEMPT_DIR="$WORKSPACE/observations/attempts"
+mkdir -p "$ATTEMPT_DIR"
+chmod 700 "$ATTEMPT_DIR"
+(
+  umask 077
+  node -e '
+    const fs=require("fs");
+    const a=process.argv.slice(2), j=JSON.parse(a[5]);
+    fs.writeFileSync(process.argv[1],JSON.stringify({
+      contract:2,
+      kind:"user-targeted",
+      bundle_id:a[0],
+      device:a[1],
+      environment:a[2],
+      run_id:a[3],
+      send_state:a[4],
+      diagnosis:j.diagnosis,
+      summary:j.summary,
+      evidence:j.evidence,
+      attempted_at:new Date().toISOString()
+    },null,2)+"\n",{mode:0o600});
+  ' "$ATTEMPT_DIR/user-targeted.json" "$BUNDLE_ID" "$DEVICE_ID" "$ENVIRONMENT" \
+    "$RUN_ID" "$SEND_STATE" "$JUDGED"
+)
+summary="$(json_field "$JUDGED" summary)"
+[[ "$SEND_STATE" != uncertain ]] ||
+  summary="Iterable's response was not a confirmed success (HTTP $HTTP_CODE), so the send is uncertain and will not be repeated. $summary"
+emit 40 false "$(json_field "$JUDGED" diagnosis)" "$summary" "$JUDGED"

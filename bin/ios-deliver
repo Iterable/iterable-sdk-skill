@@ -1,0 +1,202 @@
+#!/usr/bin/env bash
+# Coordinates one iOS proof send with an already-armed independent observer.
+#
+# ios-send remains the only actor that sends. ios-observe remains the only
+# actor that decides whether delivery was observed. This coordinator only
+# closes the short notification-banner race between those two actors.
+
+set -uo pipefail
+
+BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TOOL_ROOT="$(cd "$BIN/.." && pwd)"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  ios-deliver target --recipient initial|switch --confirm [--timeout MS] [--workspace PATH]
+
+Run from the iOS app being proved. The coordinator binds the independent
+SpringBoard observer first, waits for its secure arm receipt, and then invokes
+ios-send exactly once. It never retries a send. The observer records visible
+or durable Simulator delivery evidence and preserves its raw output.
+EOF
+}
+
+die() {
+  printf 'error: %s\n' "$*" >&2
+  exit 30
+}
+
+file_mode() {
+  stat -f '%Lp' "$1" 2>/dev/null || stat -c '%a' "$1" 2>/dev/null
+}
+
+COMMAND="${1:-}"
+shift || true
+RECIPIENT=""
+CONFIRM=false
+TIMEOUT_MS=30000
+WORKSPACE_OVERRIDE=""
+while (($#)); do
+  case "$1" in
+    --recipient)
+      (($# >= 2)) || die "--recipient needs a value"
+      RECIPIENT="$2"
+      shift 2
+      ;;
+    --recipient=*)
+      RECIPIENT="${1#*=}"
+      shift
+      ;;
+    --confirm)
+      CONFIRM=true
+      shift
+      ;;
+    --timeout)
+      (($# >= 2)) || die "--timeout needs a value"
+      TIMEOUT_MS="$2"
+      shift 2
+      ;;
+    --timeout=*)
+      TIMEOUT_MS="${1#*=}"
+      shift
+      ;;
+    --workspace)
+      (($# >= 2)) || die "--workspace needs a value"
+      WORKSPACE_OVERRIDE="$2"
+      shift 2
+      ;;
+    --workspace=*)
+      WORKSPACE_OVERRIDE="${1#*=}"
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      die "unknown option: $1"
+      ;;
+  esac
+done
+
+[[ "$COMMAND" == target ]] || {
+  usage >&2
+  exit 30
+}
+[[ "$CONFIRM" == true ]] ||
+  die "target requires --confirm after announcing the exact recipient and generated marker"
+[[ "$RECIPIENT" == initial || "$RECIPIENT" == switch ]] ||
+  die "target requires --recipient initial or switch"
+[[ "$TIMEOUT_MS" =~ ^[0-9]+$ ]] &&
+  ((TIMEOUT_MS >= 1000 && TIMEOUT_MS <= 60000)) ||
+  die "--timeout must be between 1000 and 60000 milliseconds"
+
+if [[ -n "$WORKSPACE_OVERRIDE" ]]; then
+  WORKSPACE="$WORKSPACE_OVERRIDE"
+elif [[ -n "${IOS_WORKSPACE:-}" ]]; then
+  WORKSPACE="$IOS_WORKSPACE"
+else
+  project_root="$(git rev-parse --show-toplevel 2>/dev/null)" || project_root="$PWD"
+  [[ "$project_root" != "$TOOL_ROOT" ]] ||
+    die "run this from the iOS app being proved, not from the skill repository"
+  WORKSPACE="$project_root/.iterable/ios"
+fi
+
+TARGET="$WORKSPACE/proof-target.json"
+[[ -f "$TARGET" && "$(file_mode "$TARGET")" == 600 ]] ||
+  die "record a mode-0600 proof target first"
+RUN_ID="$(node -e 'const v=require(process.argv[1]);process.stdout.write(String(v.run_id||""))' "$TARGET")"
+ENVIRONMENT="$(node -e 'const v=require(process.argv[1]);process.stdout.write(String(v.environment||""))' "$TARGET")"
+[[ "$RUN_ID" =~ ^[A-Za-z0-9._-]+$ ]] || die "the proof target has an unsafe run ID"
+[[ "$ENVIRONMENT" == development || "$ENVIRONMENT" == production ]] ||
+  die "the proof target has no valid environment"
+if [[ "$RECIPIENT" == initial ]]; then
+  KIND=user-targeted
+else
+  KIND=user-targeted-switch
+fi
+[[ ! -e "$WORKSPACE/sends/$ENVIRONMENT/$KIND.json" ]] ||
+  die "a $KIND send attempt already exists; do not use the coordinator to resend"
+
+ARM_DIR="$WORKSPACE/observations/armed"
+ARM_FILE="$ARM_DIR/$KIND.json"
+RUN_OUTPUT_DIR="$WORKSPACE/observations/runs/$RUN_ID/$KIND"
+mkdir -p "$ARM_DIR" "$RUN_OUTPUT_DIR"
+chmod 700 "$WORKSPACE/observations" "$ARM_DIR" \
+  "$WORKSPACE/observations/runs" \
+  "$WORKSPACE/observations/runs/$RUN_ID" \
+  "$RUN_OUTPUT_DIR"
+rm -f "$ARM_FILE"
+ARM_TOKEN="$(node -e 'process.stdout.write(require("crypto").randomBytes(24).toString("hex"))')"
+OBSERVER_LOG="$RUN_OUTPUT_DIR/coordinator-observer-$(date -u +%Y%m%dT%H%M%SZ)-$$.log"
+: > "$OBSERVER_LOG"
+chmod 600 "$OBSERVER_LOG"
+
+observer_pid=""
+cleanup() {
+  if [[ -n "$observer_pid" ]] && kill -0 "$observer_pid" 2>/dev/null; then
+    kill "$observer_pid" 2>/dev/null || true
+    wait "$observer_pid" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT INT TERM
+
+"$BIN/ios-observe" delivery \
+  --kind "$KIND" \
+  --await-send \
+  --arm-token "$ARM_TOKEN" \
+  --timeout "$TIMEOUT_MS" \
+  --workspace "$WORKSPACE" >"$OBSERVER_LOG" 2>&1 &
+observer_pid=$!
+
+armed=false
+arm_deadline=$((SECONDS + 15))
+while ((SECONDS < arm_deadline)); do
+  if [[ -f "$ARM_FILE" && "$(file_mode "$ARM_FILE")" == 600 ]] &&
+      node -e '
+        const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
+        process.exit(
+          v.armed===true &&
+          v.kind===process.argv[2] &&
+          v.run_id===process.argv[3] &&
+          v.coordinator_token===process.argv[4] ? 0 : 1
+        );
+      ' "$ARM_FILE" "$KIND" "$RUN_ID" "$ARM_TOKEN" 2>/dev/null; then
+    armed=true
+    break
+  fi
+  if ! kill -0 "$observer_pid" 2>/dev/null; then
+    wait "$observer_pid" 2>/dev/null || true
+    observer_pid=""
+    cat "$OBSERVER_LOG" >&2
+    die "the independent observer exited before it was armed"
+  fi
+  sleep 0.05
+done
+[[ "$armed" == true ]] || die "the independent observer did not arm within 15 seconds"
+if ! kill -0 "$observer_pid" 2>/dev/null; then
+  wait "$observer_pid" 2>/dev/null || true
+  observer_pid=""
+  cat "$OBSERVER_LOG" >&2
+  die "the independent observer stopped after arming and before the send"
+fi
+
+ "$BIN/ios-send" target \
+  --recipient "$RECIPIENT" \
+  --confirm \
+  --workspace "$WORKSPACE"
+send_rc=$?
+if ((send_rc != 0)); then
+  kill "$observer_pid" 2>/dev/null || true
+  wait "$observer_pid" 2>/dev/null || true
+  observer_pid=""
+  cat "$OBSERVER_LOG" >&2
+  exit "$send_rc"
+fi
+
+wait "$observer_pid"
+observer_rc=$?
+observer_pid=""
+cat "$OBSERVER_LOG"
+exit "$observer_rc"
