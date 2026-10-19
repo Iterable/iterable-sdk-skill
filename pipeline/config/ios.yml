@@ -1,0 +1,152 @@
+# Iterable iOS SDK — docs refresh config.
+#
+# The generated corpus is sourced from Iterable's public docs and pinned to a
+# specific SDK release. Agent-only integration rules belong in SKILL.md; this
+# directory remains a faithful, refreshable copy of the human documentation.
+
+platform: ios
+
+source:
+  repo: Iterable/iterable-docs
+  ref: 9875968f907df280d7023b1f8f45ba0293940498
+  ref_label: "master @ 2026-10-02"
+
+sdk:
+  repo: Iterable/iterable-swift-sdk
+  tag: 6.7.5
+  artifact: IterableSDK
+  changelog_path: CHANGELOG.md
+
+paths:
+  reference_dir: iterable-ios/reference
+
+articles:
+  - slug: ios-sdk
+    source_path: docs/developer-and-api-docs/iterables-ios-and-android-sdks/ios-sdk/index.md
+    feature: integration
+    archetype: integration
+
+  - slug: sdk-testing-and-troubleshooting
+    source_path: docs/developer-and-api-docs/iterables-ios-and-android-sdks/testing-and-troubleshooting/index.md
+    feature: integration
+    archetype: feature
+
+  - slug: identifying-the-user
+    source_path: docs/developer-and-api-docs/managing-user-profiles/identifying-the-user/index.md
+    feature: user-profiles
+    archetype: identity
+
+  - slug: updating-user-profiles
+    source_path: docs/developer-and-api-docs/managing-user-profiles/updating-user-profiles/index.md
+    feature: user-profiles
+    archetype: identity
+
+  - slug: user-profile-testing-and-troubleshooting
+    source_path: docs/developer-and-api-docs/managing-user-profiles/testing-and-troubleshooting-user-profiles/index.md
+    feature: user-profiles
+    archetype: feature
+
+  - slug: tracking-events-with-iterables-mobile-sdks
+    source_path: docs/developer-and-api-docs/event-tracking/tracking-events-with-iterables-mobile-sdks/index.md
+    feature: event-tracking
+    archetype: feature
+
+  - slug: event-tracking-testing-and-troubleshooting
+    source_path: docs/developer-and-api-docs/event-tracking/event-tracking-testing-and-troubleshooting/index.md
+    feature: event-tracking
+    archetype: feature
+
+  - slug: setting-up-ios-push-notifications
+    source_path: docs/developer-and-api-docs/push-notifications/setting-up-ios-push-notifications/index.md
+    feature: push-notifications
+    archetype: prerequisite
+
+  - slug: push-notification-overview
+    source_path: docs/developer-and-api-docs/push-notifications/push-notification-overview/index.md
+    feature: push-notifications
+    archetype: feature
+
+  - slug: push-notification-testing-and-troubleshooting
+    source_path: docs/developer-and-api-docs/push-notifications/push-notification-testing-and-troubleshooting/index.md
+    feature: push-notifications
+    archetype: feature
+
+  - slug: advanced-ios-push-notifications
+    source_path: docs/developer-and-api-docs/push-notifications/advanced-ios-push-notifications/index.md
+    feature: push-notifications
+    archetype: feature
+
+  - slug: creating-push-notification-templates
+    source_path: docs/sending-messages-by-channel/push-notification/creating-push-notification-templates/index.md
+    feature: push-notifications
+    archetype: feature
+
+  - slug: push-campaign-metrics
+    source_path: docs/sending-messages-by-channel/push-notification/push-campaign-metrics/index.md
+    feature: push-notifications
+    archetype: feature
+
+  - slug: deep-links-in-push-notifications
+    source_path: docs/developer-and-api-docs/push-notifications/deep-links-in-push-notifications/index.md
+    feature: deep-linking
+    archetype: feature
+
+  - slug: ios-universal-links
+    source_path: docs/developer-and-api-docs/deep-links/ios-universal-links/index.md
+    feature: deep-linking
+    archetype: feature
+
+  - slug: in-app-messages-on-ios
+    source_path: docs/developer-and-api-docs/in-app-messages/in-app-messages-on-ios/index.md
+    feature: in-app-messages
+    archetype: feature
+
+  - slug: in-app-message-testing-and-troubleshooting
+    source_path: docs/developer-and-api-docs/in-app-messages/testing-and-troubleshooting-in-app-messages/index.md
+    feature: in-app-messages
+    archetype: feature
+
+  - slug: sending-in-app-messages
+    source_path: docs/sending-messages-by-channel/in-app/sending-in-app-messages/index.md
+    feature: in-app-messages
+    archetype: feature
+
+  - slug: creating-in-app-templates
+    source_path: docs/sending-messages-by-channel/in-app/creating-in-app-templates/index.md
+    feature: in-app-messages
+    archetype: feature
+
+  - slug: events-for-in-app-messages-and-mobile-inbox
+    source_path: docs/sending-messages-by-channel/in-app/events-for-in-app-messages-and-mobile-inbox/index.md
+    feature: in-app-messages
+    archetype: feature
+
+  - slug: setting-up-mobile-inbox-on-ios
+    source_path: docs/developer-and-api-docs/in-app-messages/setting-up-mobile-inbox-on-ios/index.md
+    feature: mobile-inbox
+    archetype: feature
+
+  - slug: customizing-mobile-inbox-on-ios
+    source_path: docs/developer-and-api-docs/in-app-messages/customizing-mobile-inbox-on-ios/index.md
+    feature: mobile-inbox
+    archetype: feature
+
+  - slug: embedded-messages-with-iterables-ios-sdk
+    source_path: docs/developer-and-api-docs/embedded-messaging/embedded-messages-with-iterables-ios-sdk/index.md
+    feature: embedded-messaging
+    archetype: feature
+
+  - slug: configure-the-ios-sdk
+    source_path: docs/developer-and-api-docs/unknown-user-activation-dev/configure-the-ios-sdk/index.md
+    feature: unknown-user-activation
+    archetype: identity
+
+  - slug: api-keys
+    source_path: docs/developer-and-api-docs/api/api-keys/index.md
+    feature: integration
+    archetype: prerequisite
+
+  - slug: jwt-enabled-api-keys
+    source_path: docs/developer-and-api-docs/api/jwt-enabled-api-keys/index.md
+    feature: jwt-authentication
+    archetype: prerequisite

@@ -15,7 +15,8 @@ description: >-
   wrong — no `google-services.json`, no Iterable mobile API key, no
   configured push integration — that is `iterable-provision`, which creates
   and proves them; never fabricate one here. To prove a push actually reaches
-  a device, `iterable-verify` (Android target).
+  a device, use `iterable-android-verify` for an Android target or
+  `iterable-ios-verify` for an iOS target.
 ---
 
 # Iterable React Native SDK
@@ -389,8 +390,12 @@ Native push / APNs / FCM / `POST_NOTIFICATIONS` steps are in the installing
 and push (or expo) reference docs — do them as part of this skill when push
 is in scope. If a React Native article defers to Android-native detail that
 is already shipped in the sibling `iterable-android` skill, you may open
-`../iterable-android/reference/<slug>.md` for that native step. There is no
-iOS skill yet; iOS native setup is only what this corpus includes.
+`../iterable-android/reference/<slug>.md` for that native step. Likewise, for
+an iOS-native step the article defers (APNs setup, entitlements, the
+Notification Service Extension) you may open
+`../iterable-ios/reference/<slug>.md`. Do not copy `iterable-ios`'s Swift
+initialization into an RN app: this package initializes the native SDK, and the
+iOS SDK version it ships (above) wins over the iOS skill's pin.
 
 ---
 
@@ -464,8 +469,8 @@ you detected), then load feature slugs **as you reach each feature**.
 ## What's NOT in this skill
 
 - Native Android-only or iOS-only app integrations — those are
-  `iterable-android` and (when authored) `iterable-ios`. If this project is
-  a native Android app with no React Native, stop and use `iterable-android`.
+  `iterable-android` and `iterable-ios`. If this project is a native app with
+  no React Native, stop and use the matching native skill.
 - Iterable platform / dashboard configuration. Direct the user to
   [support.iterable.com](https://support.iterable.com).
 - JWT *server-side* implementation. Assume the team has, or will build, a
