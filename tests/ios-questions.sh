@@ -655,10 +655,12 @@ if node -e '
   const labels=q.options.map(option=>option.label);
   process.exit(
     q.selection==="multiple" &&
-    q.options.length===3 &&
-    labels.includes("Push notifications") &&
-    labels.includes("Events + user profiles") &&
-    labels.includes("More features") &&
+    q.options.length===4 &&
+    labels.join("|")==="Push notifications|Events + user profiles|Deep links|More features" &&
+    q.options[2].commands[0].endsWith("--field feature-deep-links --value true") &&
+    q.options[2].description.includes("including links opened from push and in-app") &&
+    !q.options[3].description.includes("deep links") &&
+    q.before_commands.some(command=>command.endsWith("--field feature-deep-links --value false")) &&
     q.options.find(option =>
       option.label==="Events + user profiles"
     ).commands.length===2 &&

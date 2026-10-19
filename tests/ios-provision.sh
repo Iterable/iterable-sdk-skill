@@ -167,6 +167,8 @@ if [[ "$(json_value "$fresh" next.kind)" == choose_features &&
       "$(json_value "$fresh" next.question.options.1.label)" == \
         "Events + user profiles" &&
       "$(json_value "$fresh" next.question.options.2.label)" == \
+        "Deep links" &&
+      "$(json_value "$fresh" next.question.options.3.label)" == \
         "More features" &&
       "$(json_value "$fresh" next.question.free_text.hint)" == \
         *"initialization only"* &&
@@ -186,7 +188,7 @@ if node -e '
   process.exit(
     question.header === "Features" &&
     question.selection === "multiple" &&
-    question.options.length === 3 &&
+    question.options.length === 4 &&
     question.before_commands.length >= 4 &&
     question.free_text?.command.includes("--field features --value \u0027{{answer}}\u0027") &&
     question.options.every(option =>
@@ -209,6 +211,7 @@ fi
 run_ios_in "$QUESTION_WORKSPACE" answer --field feature-push --value false >/dev/null
 run_ios_in "$QUESTION_WORKSPACE" answer --field feature-events --value true >/dev/null
 run_ios_in "$QUESTION_WORKSPACE" answer --field feature-profiles --value true >/dev/null
+run_ios_in "$QUESTION_WORKSPACE" answer --field feature-deep-links --value true >/dev/null
 core_features="$(
   run_ios_in "$QUESTION_WORKSPACE" answer --field feature-more --value true
 )"
@@ -216,8 +219,13 @@ if [[ "$(json_value "$core_features" next.kind)" == choose_more_features &&
       "$(json_value "$core_features" next.question.selection)" == multiple &&
       "$(json_value "$core_features" next.question.options.0.label)" == \
         "In-app customization" &&
-      "$(json_value "$core_features" next.question.options.3.label)" == \
-        "Deep links" ]]; then
+      "$(json_value "$core_features" next.question.options.2.label)" == \
+        "Embedded Messages" &&
+      "$(json_value "$core_features" next.question.options.length)" == 3 ]] &&
+    node -e '
+      const q=JSON.parse(process.argv[1]).next.question;
+      process.exit(JSON.stringify(q).includes("feature-deep-links") ? 1 : 0);
+    ' "$core_features"; then
   ok "the long tail is one optional follow-up instead of serial feature questions"
 else
   bad "selecting more features did not open one compact follow-up"
@@ -225,9 +233,8 @@ fi
 
 run_ios_in "$QUESTION_WORKSPACE" answer --field feature-in-app --value false >/dev/null
 run_ios_in "$QUESTION_WORKSPACE" answer --field feature-inbox --value false >/dev/null
-run_ios_in "$QUESTION_WORKSPACE" answer --field feature-embedded --value false >/dev/null
 answered_features="$(
-  run_ios_in "$QUESTION_WORKSPACE" answer --field feature-deep-links --value true
+  run_ios_in "$QUESTION_WORKSPACE" answer --field feature-embedded --value false
 )"
 if [[ "$(json_value "$answered_features" next.kind)" == choose_identity &&
       "$(json_value "$answered_features" discovery.features)" == \

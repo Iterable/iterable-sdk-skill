@@ -2170,12 +2170,13 @@ status_json() {
     next_owner="human"
     if [[ "$discovery_valid" != true ||
           "$discovery_push" == unset || "$discovery_events" == unset ||
-          "$discovery_profiles" == unset || "$discovery_more" == unset ]]; then
+          "$discovery_profiles" == unset || "$discovery_deep_links" == unset ||
+          "$discovery_more" == unset ]]; then
       next_kind="choose_features"
       next_summary="Ask for the integration scope with one compact multi-select."
     elif [[ "$discovery_more" == true &&
             ( "$discovery_in_app" == unset || "$discovery_inbox" == unset ||
-              "$discovery_embedded" == unset || "$discovery_deep_links" == unset ) ]]; then
+              "$discovery_embedded" == unset ) ]]; then
       next_kind="choose_more_features"
       next_summary="Ask one follow-up multi-select for the additional features."
     elif [[ -z "$discovery_identity" ]]; then

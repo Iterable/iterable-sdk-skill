@@ -67,7 +67,8 @@ text:
 
 - Push notifications
 - Events + user profiles
-- More: Mobile Inbox, Embedded Messaging, deep links / universal links
+- Deep links: universal links and custom URL schemes
+- More: Mobile Inbox, Embedded Messaging
 
 "Initialization and identity only" is the free-text answer. **In-app messages
 are not a question:** once the SDK is initialized and the user identified, the

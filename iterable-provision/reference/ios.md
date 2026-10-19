@@ -71,11 +71,12 @@ developer confirms. Passing `--bundle-id` does not skip that screen; the
 target is complete only once `.iterable/ios/target.json` records it.
 
 Fresh status starts with the same grouped scope shape as Android:
-**Push notifications**, **Events + user profiles**, and **More features**.
-Use the selector's `initialization only` free-text path for basic
-initialization and identification without optional capabilities. Selecting
-**More features** opens one additional multi-select for custom in-app behavior,
-Mobile Inbox, Embedded Messages, and deep links. Initialization,
+**Push notifications**, **Events + user profiles**, **Deep links** (universal
+links and custom URL schemes, including links opened from push and in-app),
+and **More features**. Use the selector's `initialization only` free-text path
+for basic initialization and identification without optional capabilities.
+Selecting **More features** opens one additional multi-select for custom in-app
+behavior, Mobile Inbox, and Embedded Messages. Initialization,
 identification, and the default Iterable in-app message display are included
 automatically. Identity, region, JWT policy, and final confirmation follow.
 

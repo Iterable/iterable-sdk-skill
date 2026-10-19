@@ -47,7 +47,8 @@ the long tail under one bucket, e.g.:
 
 - Push notifications (FCM)
 - Event tracking + user profiles
-- Other (inbox, embedded, deep links) — describe in the option
+- Deep links: App Links and custom URL schemes
+- Other (inbox, embedded) — describe in the option
 
 (If they just want the basics, that's the "init + identify only" path — let
 them say so via the free-form "Other" the tool always provides.)

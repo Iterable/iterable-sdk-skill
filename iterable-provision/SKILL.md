@@ -69,8 +69,8 @@ Inspect the app before invoking a program:
   Team ID against the APNs sandbox (not the App ID). Apple and APNs steps are
   skipped when push is not selected.
   Native iOS status starts with Android's grouped scope choices—push,
-  events plus user profiles, and a long-tail bucket—with one optional
-  long-tail follow-up. The free-text `initialization only` answer is the same
+  events plus user profiles, deep links, and a long-tail bucket—with one
+  optional long-tail follow-up. The free-text `initialization only` answer is the same
   basic init-and-identify path. Free-text commands already single-quote
   `'{{answer}}'`; substitute the developer's text inside those quotes and
   write any single quote in it as `'\''`. It then carries one

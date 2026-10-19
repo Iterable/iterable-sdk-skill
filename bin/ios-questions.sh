@@ -43,7 +43,7 @@ ios_q_choose_features() {
   printf '"context":%s,' "$(ios_q_arr <<'EOF'
 Initialization, user identification, and the Iterable SDK default in-app message handling are included automatically.
 
-Select the product capabilities this app needs. Event tracking and user profiles are grouped like the Android flow. Choose More features only when you need custom in-app behavior, Mobile Inbox, Embedded Messages, or Iterable deep links; one compact follow-up will ask which ones.
+Select the product capabilities this app needs. Event tracking and user profiles are grouped like the Android flow. Choose Deep links when the app opens universal links or custom URL schemes, including links opened from push and in-app messages. Choose More features only when you need custom in-app behavior, Mobile Inbox, or Embedded Messages; one compact follow-up will ask which ones.
 EOF
 )"
   printf '"requires":[],"recommended":null,"before_commands":['
@@ -52,11 +52,11 @@ EOF
     "$BIN/ios-provision answer --field feature-push --value false" \
     "$BIN/ios-provision answer --field feature-events --value false" \
     "$BIN/ios-provision answer --field feature-profiles --value false" \
+    "$BIN/ios-provision answer --field feature-deep-links --value false" \
     "$BIN/ios-provision answer --field feature-more --value false" \
     "$BIN/ios-provision answer --field feature-in-app --clear" \
     "$BIN/ios-provision answer --field feature-inbox --clear" \
-    "$BIN/ios-provision answer --field feature-embedded --clear" \
-    "$BIN/ios-provision answer --field feature-deep-links --clear"
+    "$BIN/ios-provision answer --field feature-embedded --clear"
   do
     printf '%s%s' "$sep" "$(jstr "$command")"
     sep=","
@@ -73,8 +73,13 @@ EOF
     "$BIN/ios-provision answer --field feature-events --value true" \
     "$BIN/ios-provision answer --field feature-profiles --value true"
   printf ','
+  ios_q_opt "Deep links" \
+    "Universal links and custom URL schemes, including links opened from push and in-app messages." \
+    "records Iterable deep-link handling as selected" \
+    "$BIN/ios-provision answer --field feature-deep-links --value true"
+  printf ','
   ios_q_opt "More features" \
-    "Choose custom in-app behavior, Mobile Inbox, Embedded Messages, or deep links on one follow-up screen." \
+    "Choose custom in-app behavior, Mobile Inbox, or Embedded Messages on one follow-up screen." \
     "opens the additional feature selector" \
     "$BIN/ios-provision answer --field feature-more --value true"
   printf '],"free_text":%s}' "$(ios_q_free_text \
@@ -95,8 +100,7 @@ EOF
   for command in \
     "$BIN/ios-provision answer --field feature-in-app --value false" \
     "$BIN/ios-provision answer --field feature-inbox --value false" \
-    "$BIN/ios-provision answer --field feature-embedded --value false" \
-    "$BIN/ios-provision answer --field feature-deep-links --value false"
+    "$BIN/ios-provision answer --field feature-embedded --value false"
   do
     printf '%s%s' "$sep" "$(jstr "$command")"
     sep=","
@@ -116,11 +120,6 @@ EOF
     "Use the real placement ID and add feature-specific rendering and engagement evidence." \
     "records Embedded Messages as selected" \
     "$BIN/ios-provision answer --field feature-embedded --value true"
-  printf ','
-  ios_q_opt "Deep links" \
-    "Define and test the routing policy for selected URL schemes and universal links." \
-    "records Iterable deep-link handling as selected" \
-    "$BIN/ios-provision answer --field feature-deep-links --value true"
   printf ']}'
 }
 

@@ -70,7 +70,8 @@ use it and offer **at most 4 options**; otherwise ask in plain text:
 
 - Push notifications (FCM / APNs)
 - Event tracking + user identity
-- Other (inbox, embedded, deep links) — describe in the option
+- Deep links: iOS universal links, Android App Links, and custom URL schemes
+- Other (inbox, embedded) — describe in the option
 
 **In-app messages are absent from that list on purpose.** By default the SDK
 displays every in-app message it receives and tracks the interactions
