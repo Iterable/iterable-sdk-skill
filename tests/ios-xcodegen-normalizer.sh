@@ -17,6 +17,11 @@ bad() {
   FAILED=1
 }
 
+# Multi-line match without ripgrep, which CI runners don't have.
+matches_multiline() {
+  ruby -e 'exit(File.read(ARGV[1]).match?(Regexp.new(ARGV[0], Regexp::MULTILINE)) ? 0 : 1)' "$1" "$2"
+}
+
 test_root="$(mktemp -d "${TMPDIR:-/tmp}/iterable-ios-normalizer.XXXXXX")"
 trap 'find "$test_root" -depth -delete' EXIT
 
@@ -27,7 +32,7 @@ printf '%s\n' \
   '};' > "$malformed"
 
 if ruby "$NORMALIZER" "$malformed" &&
-   rg -U -q 'SystemCapabilities = \{\s+com\.apple\.Push = \{\s+enabled = 1;' "$malformed"; then
+   matches_multiline 'SystemCapabilities = \{\s+com\.apple\.Push = \{\s+enabled = 1;' "$malformed"; then
   ok "rewrites the known serialized Push capability with enabled 1"
 else
   bad "rewrites the known serialized Push capability with enabled 1"
@@ -52,8 +57,8 @@ printf '%s\n' \
   '};' > "$serialized_true"
 
 if ruby "$NORMALIZER" "$serialized_true" &&
-   rg -U -q 'SystemCapabilities = \{\s+com\.apple\.Push = \{\s+enabled = 1;' "$serialized_true" &&
-   ! rg -q 'enabled.*true' "$serialized_true"; then
+   matches_multiline 'SystemCapabilities = \{\s+com\.apple\.Push = \{\s+enabled = 1;' "$serialized_true" &&
+   ! grep -q -E 'enabled.*true' "$serialized_true"; then
   ok "normalizes the known serialized Push capability with enabled true"
 else
   bad "normalizes the known serialized Push capability with enabled true"
@@ -125,7 +130,7 @@ unsupported_error="$test_root/unsupported-serialized.stderr"
 if ruby "$NORMALIZER" "$unsupported_serialized" \
      > /dev/null 2> "$unsupported_error"; then
   bad "explains an unsupported serialized SystemCapabilities shape"
-elif rg -q \
+elif grep -q -E \
   'unsupported serialized SystemCapabilities shape:.*enabled.*false.*expected exactly one.*enabled set to 1 or true' \
   "$unsupported_error"; then
   ok "explains an unsupported serialized SystemCapabilities shape"
