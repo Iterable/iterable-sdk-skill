@@ -90,7 +90,7 @@ fixture pending
 # developer reading the unfinished rows as a fault. This is the whole point of the fork:
 # the sentence, not the menu.
 set run [drive {"2\r"}]
-foreach want {"Part 2 of 3" "no API for creating an API key" "is a fault in your app"} {
+foreach want {"Part 2 of 3" "create an API key" "your app is fine"} {
   if {[string first $want $run] >= 0} {
     ok "explains before asking: \"$want\""
   } else {

@@ -135,13 +135,13 @@ q_opening() {
 # firebase_plan names no changes until a project is chosen. So it is its own small
 # question, and its honesty is about scope rather than consequence.
 q_look_context() {
-  echo "To find the project this app belongs to, I need to list the Firebase projects your gcloud account can see, and the Android apps registered in each."
+  echo "To find the project this app belongs to, the skill lists the Firebase projects your gcloud account can see and the Android apps registered in each."
   echo ""
-  echo "That is a read. It writes nothing, creates nothing, and changes nothing — and it is the first thing here that uses your Google credentials at all."
+  echo "That is a read. It writes nothing, creates nothing, and changes nothing — and it is the first task that uses your Google credentials."
   echo ""
-  echo "What comes back is project names, ids and package names. If any of that is not something you want in this conversation, take the second option and name the project yourself."
+  echo "Project names, ids, and package names are what is returned. If you don't want this information in this conversation, use the second option and name the project yourself."
   echo ""
-  echo "Changing anything is a separate question, asked later, with the list of changes in it. This is not that question."
+  echo "This question isn't asking to change anything. A later question lists each change by name before anything in your Google project is changed."
 }
 
 # The one screen that writes something when it is rendered, and the reason is in the
@@ -151,7 +151,7 @@ q_choose_target() {
   local look="Yes — list my Firebase projects" tok
   tok="$(ask_for choose_target)" || tok=""
   printf '{"header":"Discover","prompt":%s,' \
-    "$(jstr "May I look at your Firebase projects?")"
+    "$(jstr "List your Firebase projects?")"
   printf '"context":%s,' "$(q_look_context | q_arr)"
   printf '"requires":%s,' "$(q_approve_requires | q_arr)"
   printf '"recommended":%s,' "$(jstr "$look")"
@@ -161,12 +161,12 @@ q_choose_target() {
   # convenience wrapper around a command that would have worked anyway. The token is the
   # only place it appears, and it is spent the first time it is used.
   q_opt "$look" \
-    "Lists the projects and their registered Android apps, so a project that already has your package can be offered — that is the path that creates nothing." \
+    "Lists the projects and their registered Android apps. If a project already has your package, it can be offered, and that path creates nothing." \
     "reads your project and app list; writes nothing" "" \
     "$BIN/agent approve list --asked $tok" "$BIN/agent discover"
   printf ','
   q_opt "No — I'll name the project myself" \
-    "Nothing gets listed. Tell me the Firebase project id and the Android package, and they get recorded as your choice." \
+    "Nothing gets listed. Tell me the Firebase project id and the Android package, so they are recorded as your choice." \
     "nothing read; waiting for a project id and package to record" ""
   printf ','
   q_opt "Abort the setup" \
@@ -188,9 +188,9 @@ q_sign_in() {
   local go="Sign in with gcloud"
   printf '{"header":"Sign in","prompt":%s,' "$(jstr "Ready to sign in to Google?")"
   printf '"context":%s,' "$(q_arr <<'EOF'
-Nothing here can read your Google projects until gcloud has a session, and that sign-in is yours: it opens your own browser, and neither this tool nor I ever see the password.
+Nothing here reads your Google projects until gcloud has a session with your sign-in: this action opens your browser, and neither the tool nor the skill ever see the password.
 
-If you are already signed in as the right account, take the second option and I will check rather than ask again.
+If you are already signed into the right account, use the second option and the skill will check rather than ask again.
 EOF
 )"
   printf '"requires":[],'
@@ -201,7 +201,7 @@ EOF
     "nothing changed; waiting for you to sign in" "gcloud auth login"
   printf ','
   q_opt "I'm already signed in — check again" \
-    "Re-reads the ladder. If the session is there this stops being asked; if it is not, the first step is still this." \
+    "Re-reads the ladder. If the session is there, the skill stops asking this question; if it isn't there, this continues to be the first step." \
     "ladder re-read; nothing changed" "" \
     "$BIN/agent"
   printf ','
@@ -226,7 +226,7 @@ Already on record from an earlier run:
 project   $PID
 package   $PACKAGE
 
-Everything from here on reads and changes that project and no other, so it is worth a look before it is spent. Changing it now costs nothing — nothing has been provisioned against it yet.
+From here on, the skill reads and changes this project only. Confirm the project and app above before you continue. You can switch projects now. Nothing has been set up in this one yet.
 EOF
 )"
   printf '"requires":[],'
@@ -245,7 +245,7 @@ EOF
     "$BIN/agent"
   printf ','
   q_opt "$again" \
-    "Lists your projects again and asks which one. Anything derived from the old choice is dropped, so no check can come back green about the previous app." \
+    "The skill lists your projects again and asks which one to use. It clears the previous project and app, so a later check can't pass based on that app." \
     "target cleared; your projects listed again" "" \
     "$BIN/agent discover" "$BIN/agent question pick_project"
   printf ','
@@ -330,11 +330,11 @@ q_pick_project_context() { # <rows>
   echo "$(plz "$n" "Firebase project" "Firebase projects"), read with ${acct:-your gcloud account}. Nothing has been changed."
   echo ""
   if ((matched == 1)); then
-    echo "One of them already has $PACKAGE registered, and it is first. That is the path where nothing gets created on the Firebase side at all — the app already exists, so its google-services.json is a download."
+    echo "One of them already has $PACKAGE registered, and it is first. That is the path where nothing gets created on the Firebase side — the app already exists, so its google-services.json is a download."
   elif ((matched > 1)); then
-    echo "$matched of them already have $PACKAGE registered, shown first. Picking one of those means nothing gets created on the Firebase side at all — the app already exists, so its google-services.json is a download. Which of them is yours is something only you know."
+    echo "$matched of them already have $PACKAGE registered, shown first. Picking one of those means nothing gets created on the Firebase side — the app already exists, so its google-services.json is a download. Only you can tell which of them is yours."
   elif [[ -n "$PACKAGE" ]]; then
-    echo "None of them has $PACKAGE registered yet, so whichever you pick, the app has to be registered in it — and that is asked separately, before anything is created."
+    echo "None of them has $PACKAGE registered yet, so the app has to be registered in whichever one you pick — you'll be asked about this separately, before anything is created."
   fi
   echo ""
   printf '%s\n' "$rows" | head -n "$Q_PICK_MAX" | while IFS=$'\t' read -r id name napps mine pkgs; do
@@ -346,7 +346,7 @@ q_pick_project_context() { # <rows>
   done
   if ((n > Q_PICK_MAX)); then
     echo ""
-    echo "$((n - Q_PICK_MAX)) more not shown. If the one you want is missing, type its project id — the id, not the display name."
+    echo "$((n - Q_PICK_MAX)) more not shown. If the one you want is missing, type its project id (not the display name)."
   fi
 }
 
@@ -367,24 +367,24 @@ q_pick_project() {
     printf '%s' "$sep"; sep=","; i=$((i + 1))
     if [[ "$mine" == 1 ]]; then
       q_opt "$id" \
-        "${name:-$id} — already has $PACKAGE registered, so nothing is created here. This is the cheapest and safest answer if it is the right project." \
+        "${name:-$id} — already has $PACKAGE registered, so nothing is created. Choose this if it is the right project." \
         "project recorded as $id, package as $PACKAGE; ladder re-read" "" \
         "$BIN/agent set PID=$id PACKAGE=$PACKAGE" "$BIN/agent"
     elif ((napps > 0)); then
       q_opt "$id" \
-        "${name:-$id} — has $(plz "$napps" "registered app" "registered apps"): $pkgs. I will ask which one this is." \
+        "${name:-$id} — has $(plz "$napps" "registered app" "registered apps"): $pkgs. The skill asks which one this is." \
         "project recorded as $id; the app picker comes next" "" \
         "$BIN/agent set PID=$id" "$BIN/agent question pick_app"
     else
       q_opt "$id" \
-        "${name:-$id} — no Android app registered yet, so one has to be created in it. That gets its own question before anything happens." \
+        "${name:-$id} — no Android app is registered yet, so one has to be created. You'll be asked about this before any action is taken." \
         "project recorded as $id; registering an app is asked next" "" \
         "$BIN/agent set PID=$id" "$BIN/agent question register_app"
     fi
   done <<< "$rows"
   printf ','
   q_opt "None of these — I'll give you the project id" \
-    "Type it and I record it as your choice. Use the project id, which is lowercase with hyphens; the display name is not it." \
+    "Type it, and the skill records it as your choice. Use the project id, which is lowercase with hyphens; this is NOT the display name." \
     "nothing recorded yet; waiting for a project id" ""
   printf '],'
   printf '"free_text":%s}' "$(q_free_text \
@@ -395,9 +395,9 @@ q_pick_project() {
 
 q_pick_app_context() { # <rows>
   local n; n="$(printf '%s\n' "$1" | grep -c .)"
-  echo "$PID has $(plz "$n" "Android app" "Android apps") registered. Which of them is the app in this repository?"
+  echo "$PID has $(plz "$n" "Android app" "Android apps") registered. Which of them is the app that's in this repository?"
   echo ""
-  echo "This has to be the applicationId your build actually ships. A google-services.json downloaded for a different package is accepted by the build and then fails at runtime, where the error names Firebase rather than the mismatch — so it is worth checking against build.gradle rather than recognising the name."
+  echo "Check the package name against the applicationId in build.gradle instead of picking an app name you recognize. A google-services.json file for a different package will still build, but will cause the app to fail when it runs. The resulting error mentions Firebase instead of the package mismatch, making it difficult to troubleshoot."
   if ((n > Q_PICK_MAX)); then
     echo ""
     echo "$((n - Q_PICK_MAX)) more not shown — type the package if it is not listed."
@@ -409,7 +409,7 @@ q_pick_app() {
   rows="$(apps_of_chosen)" || return 1
   [[ -n "$rows" ]] || return 1
 
-  printf '{"header":"App","prompt":%s,' "$(jstr "Which Android app is this one?")"
+  printf '{"header":"App","prompt":%s,' "$(jstr "Which Android app is in this repository?")"
   printf '"context":%s,' "$(q_pick_app_context "$rows" | q_arr)"
   printf '"requires":[],'
   printf '"recommended":null,'
@@ -424,7 +424,7 @@ q_pick_app() {
   done <<< "$rows"
   printf ','
   q_opt "None of these — register a new one" \
-    "Registering an app changes your Firebase project, so it is asked outright on the next screen rather than done here." \
+    "Registering an app changes your Firebase project, so the next screen asks you before anything is created." \
     "nothing recorded; the registration question comes next" "" \
     "$BIN/agent question register_app"
   printf '],'
@@ -445,26 +445,26 @@ q_register_app_context() {
     # no listing behind it. Saying the first when the second is true is the tool
     # asserting a fact it does not have.
     if listed_project; then
-      echo "$PID has no Android app that matches this repository, and I do not have the package name yet."
+      echo "$PID has no Android app that matches this repository, and the skill doesn't have the package name yet."
     else
-      echo "Nothing has listed $PID's Android apps yet, and I do not have this repository's package name either — so I cannot tell you whether one already exists."
+      echo "Nothing has listed $PID's Android apps yet, and the skill doesn't have this repository's package name either, so it can't tell whether an app already exists."
     fi
     echo ""
-    echo "Type the applicationId from your build.gradle and I will ask again with it named."
+    echo "Type the applicationId from your build.gradle. The skill asks again once that package name is filled in."
     return 0
   fi
   if ! listed_project; then
-    echo "Nothing has listed $PID's apps, so I cannot tell you whether $PACKAGE is already registered there. Reading the list first costs one call and changes nothing; asking you to approve a creation on an unchecked guess would be asking for the wrong thing."
+    echo "Nothing has listed $PID's apps, so the skill can't tell whether $PACKAGE is already registered there. Reading the list is one call and changes nothing. Approving a new app before that check could ask you to create an app that already exists."
     return 0
   fi
-  echo "$PID has no Android app for $PACKAGE, so there is no google-services.json to download for it. Registering one is the only honest way forward: a placeholder file makes the build pass and the push never arrive."
+  echo "$PID has no Android app for $PACKAGE, so there is no google-services.json file to download. Registering an app is the way forward. A placeholder file lets the build succeed, and the push never arrives."
   echo ""
-  echo "This is a change to your Firebase project — the one change this tool promises never to make unless you ask for it outright. This is that asking."
+  echo "This changes your Firebase project. The skill never makes this change unless you ask for it here."
   echo ""
   echo "What it would create:"
   echo "  · one Android app in $PID, package $PACKAGE, display name $APP_DISPLAY_NAME"
   echo ""
-  echo "Nothing else, and nothing existing is touched. It is removable in the Firebase console afterwards; $BIN/teardown does not remove it, because it is your app rather than something this tool needs."
+  echo "Nothing else is created, and nothing that already exists is changed. You can remove the app later in the Firebase console. $BIN/teardown does not remove it, because it is your app."
 }
 
 q_register_app() {
@@ -481,22 +481,22 @@ q_register_app() {
   printf '"options":['
   if [[ -n "$PACKAGE" ]] && ! listed_project; then
     q_opt "Check whether it already exists first" \
-      "Lists the Android apps in $PID. If $PACKAGE is among them nothing needs creating at all — its google-services.json is a download." \
+      "Lists the Android apps in $PID. If $PACKAGE is already there, nothing needs to be created. Its google-services.json file is a download." \
       "nothing created; the apps listed, then this asked again with an answer behind it" "" \
       "$BIN/agent discover" "$BIN/agent question pick_app"
   elif [[ -n "$PACKAGE" ]]; then
     q_opt "$yes" \
-      "Records the yes against $PID and nothing more — the app is created by the provisioning step, which asks for its own approval first." \
+      "Records your approval for $PID and nothing more. The provisioning step creates the app, and that step asks for its own approval first." \
       "app registration approved for $PID; ladder re-read" "" \
       "$BIN/agent approve create-app" "$BIN/agent"
   else
     q_opt "I'll give you the package name" \
-      "Type the applicationId from build.gradle. Nothing is created by telling me — this screen comes back with the package named, and the yes is still yours to give." \
+      "Type the applicationId from build.gradle. Naming the package doesn't create anything. This screen comes back with the package named, and you still choose whether to approve it." \
       "nothing approved; waiting for a package name" ""
   fi
   printf ','
   q_opt "No — let me pick a different project" \
-    "Back to the list. A project that already has this app registered needs nothing created at all." \
+    "Goes back to the project list. A project that already has this app registered doesn't need a new app." \
     "nothing approved; your projects listed again" "" \
     "${back[@]}"
   printf ','
@@ -514,16 +514,16 @@ q_register_app() {
 # left plugged in to charge and yesterday's emulator are both connected and neither is
 # the device somebody is watching.
 q_pick_device_context() {
-  echo "Part 3 lands a real push on a real device and reads the device's own notification records to prove it arrived. Every check from here on reads the one you pick, so it should be the one you are watching."
+  echo "Part 3 sends a real push to a real device and reads that device's notification records to confirm the push arrived. Every later check reads the device you pick, so pick the one you're watching."
   echo ""
-  echo "An emulator that is not running can still be chosen — it gets started. A physical phone needs to be plugged in and authorised for adb."
+  echo "You can choose an emulator that isn't running yet. Setup starts it. A physical phone needs to be plugged in and authorised for adb."
 }
 
 q_pick_device() {
   local rows sep="" i=0 name rest
   rows="$(device_options 2>/dev/null)"
   [[ -n "$rows" ]] || return 1
-  printf '{"header":"Device","prompt":%s,' "$(jstr "Which device should the push be proved on?")"
+  printf '{"header":"Device","prompt":%s,' "$(jstr "Which device should receive the test push?")"
   printf '"context":%s,' "$(q_pick_device_context | q_arr)"
   printf '"requires":[],'
   printf '"recommended":null,'
@@ -536,8 +536,8 @@ q_pick_device() {
     # device_options says what a menu row needs; a chat option needs a sentence. The
     # format it emits is the wizard's, so the reading happens here rather than there.
     case "$rest" in
-      "not running"*) desc="Not running yet. Choosing it starts it — that is part of the check, not something to do first." ;;
-      *"·"*)          desc="Plugged in and running: ${rest##*· }. A real handset is the strongest proof available." ;;
+      "not running"*) desc="Not running yet. Choosing it starts it. You don't need to start it first." ;;
+      *"·"*)          desc="Plugged in and running: ${rest##*· }. A physical phone gives the strongest proof." ;;
       *)              desc="Running now, so the checks can read it as soon as your app is installed." ;;
     esac
     q_opt "$name" "$desc" \
@@ -546,7 +546,7 @@ q_pick_device() {
   done <<< "$rows"
   printf ','
   q_opt "None of these" \
-    "Start the emulator you want, or plug the phone in and authorise it, then say so and I will look again." \
+    "Start the emulator you want, or plug the phone in and authorise it. Then tell the skill to look again." \
     "nothing recorded; waiting for a device" ""
   printf '],'
   printf '"free_text":%s}' "$(q_free_text \
@@ -568,20 +568,20 @@ q_pick_device() {
 # this kind with no question at all, and what filled the silence was an agent trying to
 # work the emulator by itself, every run, slowly, with no way to tell whether it had.
 q_run_app_context() {
-  echo "The app has to run once on ${TARGET_DEVICE:-the device} with somebody signed in. The SDK asks Iterable for a device token at sign-in, so until that has happened there is nothing for a push to arrive at."
+  echo "The app has to run once on ${TARGET_DEVICE:-the device} with you signed in. The SDK asks Iterable for a device token at sign-in, so a push has nowhere to go until that happens."
   echo ""
   echo "Two things, both inside your own app:"
   echo ""
   if [[ -n "${ITBL_EMAIL:-}" ]]; then
     echo "  1. Sign in as $ITBL_EMAIL  ← that exact address"
   else
-    echo "  1. Sign in — then tell me which address it used, because the token is filed under it"
+    echo "  1. Sign in, then tell the skill which address you used. The token is stored under that address."
   fi
   echo "  2. Allow notifications when Android asks"
   echo ""
-  echo "I open the selected app and stop there. Nothing here taps, types, signs in or grants permission: a tap I guessed at looks exactly like a screen that was slow, and Allow is yours to give."
+  echo "The skill opens the selected app and stops there. It doesn't tap, type, sign in, or grant permission. A guessed tap looks the same as a slow screen, and only you can tap Allow."
   echo ""
-  echo "Then say so below, and every device check runs again."
+  echo "When you've done both, say so below. Every device check runs again."
 }
 
 q_run_app() {
@@ -595,16 +595,16 @@ q_run_app() {
   printf '"recommended":null,'
   printf '"options":['
   q_opt "Done — signed in, notifications allowed" \
-    "The checks read the device again: the log buffer for the token Iterable accepted, and the permission Android recorded." \
+    "The checks read the device again. They look for the token Iterable accepted in the log, and for the notification permission Android recorded." \
     "nothing changed; the device half is re-read" "" \
     "$BIN/agent"
   printf ','
   q_opt "It has no sign-in yet" \
-    "Then nothing calls setEmail, and no token can exist for any address. That is code in your app rather than anything to configure — the integration half writes it." \
+    "Then the app never calls setEmail, and no token can exist for any address. That is code in your app, not a setting. The app's integration code is what calls setEmail." \
     "nothing changed; no identity for a token to be filed under" ""
   printf ','
   q_opt "Android never asked about notifications" \
-    "From Android 13 the app has to request POST_NOTIFICATIONS itself, at runtime. Without that the push arrives and is never shown — which reads exactly like a broken integration. Also code, not configuration." \
+    "From Android 13 on, the app has to request POST_NOTIFICATIONS itself, at runtime. Without that, the push arrives and is never shown, which looks like a broken integration. This is code, not a setting." \
     "nothing changed; the permission was never put to you" ""
   printf '],'
   # The identity, because a mismatch here is the most common way a working integration
@@ -621,7 +621,7 @@ q_run_app() {
 # copy would be a second thing to keep true, and the one that goes stale is whichever
 # the developer happens to be reading.
 q_approve_context() {
-  echo "Setting up the Google half changes your own Cloud project, so it needs your yes first. Nothing has happened yet."
+  echo "Setting up the Google part changes your Cloud project, so it needs your approval first. Nothing has happened yet."
   echo ""
   echo "project   ${PID:-<none chosen yet>}"
   echo "package   ${PACKAGE:-<none chosen yet>}"
@@ -632,7 +632,7 @@ q_approve_context() {
   echo "What it will not do:"
   firebase_limits | while IFS= read -r l; do echo "  · $l"; done
   echo ""
-  echo "The JSON key it creates is a long-lived credential until you delete it. Everything it adds comes back out with $BIN/teardown."
+  echo "The JSON key this creates stays valid until you delete it. $BIN/teardown removes everything this step adds."
 }
 
 # Named only while it is still outstanding. A prerequisite listed after it has been met
@@ -640,7 +640,7 @@ q_approve_context() {
 # an accurate account of what is about to happen.
 q_approve_requires() {
   [[ "$(gate_status G1)" == green ]] && return 0
-  echo "You sign in to Google yourself: run 'gcloud auth login' in your own terminal. Neither this tool nor the agent ever sees your password."
+  echo "Sign in to Google yourself. Run 'gcloud auth login' in your terminal. Setup never sees your password."
 }
 
 q_approve_firebase() {
@@ -651,7 +651,7 @@ q_approve_firebase() {
   # recommendation here is "carry on the way you said", not an opinion about which is better.
   local manual="No — I want to do this manually" yes="Yes — the tool does it, and I agree"
   printf '{"header":"Firebase","prompt":%s,' \
-    "$(jstr "Do you wish to proceed?")"
+    "$(jstr "Do you want to proceed?")"
   printf '"context":%s,' "$(q_approve_context | q_arr)"
   printf '"requires":%s,' "$(q_approve_requires | q_arr)"
   # Follows what they already said. Somebody who answered the opening question with "set
@@ -665,17 +665,17 @@ q_approve_firebase() {
   fi
   printf '"options":['
   q_opt "$yes" \
-    "Records your yes against ${PID:-this project} and hands the Google steps to your agent. Only the changes listed above, and nothing already working gets redone." \
+    "Records your approval for ${PID:-this project} and hands the Google steps to the skill. Only the changes listed above are made, and nothing that's already working is redone." \
     "approval recorded against ${PID:-<no project>}; DRIVER=agent recorded" "" \
     "$BIN/agent approve firebase" "$BIN/agent set DRIVER=agent" "$BIN/agent"
   printf ','
   q_opt "$manual" \
-    "Fallback: you run the same setup in your own terminal, which is the one path that can host the Google sign-in in the same session instead of relaying it." \
+    "You run the same setup in your own terminal. Google sign-in stays in that terminal session instead of being handed back to this chat." \
     "nothing approved; DRIVER=developer recorded; the block to follow is printed" "" \
     "$BIN/agent set DRIVER=developer" "$BIN/handoff"
   printf ','
   q_opt "Abort the setup" \
-    "Nothing is recorded and nothing in your project changes. Coming back later costs nothing — the ladder re-reads everything from scratch." \
+    "Nothing is recorded, and nothing in your project changes. You can come back later. Setup reads the current state again from the start." \
     "nothing recorded; no calls made" ""
   printf ']}'
 }
@@ -684,13 +684,13 @@ q_approve_firebase() {
 q_iterable_context() {
   echo "Part 1 is done and verified: the service-account key exists, and FCM accepted it."
   echo ""
-  echo "Part 2 is four steps in the Iterable dashboard, in your browser — Iterable has no API for creating an API key, a mobile app, or a push integration, so there is nothing out here that can do them for you."
+  echo "Part 2 is four steps that you complete in Iterable, in your browser. Iterable has no API to create an API key, a mobile app, or a push integration, so this setup can't do those steps for you."
   echo ""
-  echo "About five minutes. One step at a time, and each one is checked by what it produced."
+  echo "This takes about five minutes. You do one step at a time, and each step is checked by what it produced."
   echo ""
-  echo "The keys never come through this conversation. You copy one in the dashboard and I take it off your clipboard straight into a 0600 file, then clear the clipboard — nothing prints it back. A key pasted into a chat is in a transcript and in every log along the way, and that cannot be undone."
+  echo "The keys never come through this conversation. You copy a key in Iterable, and the skill reads it from your clipboard into a file with mode 0600, then clears the clipboard. The key is not printed back. A key pasted into a chat stays in the transcript and in logs, and that can't be undone."
   echo ""
-  echo "Until they are in, your app has no mobile key, so the device checks have nothing to find. That is all the unfinished rows are saying, and none of it is a fault in your app."
+  echo "Until the keys are stored, your app has no mobile key, so the device checks have nothing to find. Those unfinished rows mean part 2 hasn't started. Part 1 succeeded, and your app is fine."
 }
 
 q_iterable_entry() {
@@ -702,7 +702,7 @@ q_iterable_entry() {
   printf '"recommended":%s,' "$(jstr "$start")"
   printf '"options":['
   q_opt "$start" \
-    "I show step 1, you click, and the keys go from your clipboard into the 0600 file. Somebody on step 2 wants step 2, not all four at once." \
+    "The skill shows step 1. You complete the clicks, and the keys go from your clipboard into the 0600 file. Each step is shown on its own." \
     "walk entered at step 1; nothing recorded yet" "" \
     "$BIN/iterable-keys --step 1" "$BIN/agent question iterable_step 1"
   printf ','
@@ -710,18 +710,18 @@ q_iterable_entry() {
   # and the wrong one is expensive: a US key against the EU host comes back 401, which
   # is indistinguishable from a bad key and sends everybody looking at the wrong thing.
   q_opt "Start — and this is an EU (EDC) project" \
-    "Same walk, against api.eu.iterable.com. Pick this if you sign in at app.eu.iterable.com: a key from one data centre returns 401 against the other, and that reads exactly like a wrong key." \
+    "Same steps, using api.eu.iterable.com. Choose this if you sign in at app.eu.iterable.com. A key from one data centre returns 401 from the other, which looks like a wrong key." \
     "ITBL_BASE recorded as the EU host; walk entered at step 1" "" \
     "$BIN/agent set ITBL_BASE=https://api.eu.iterable.com" \
     "$BIN/iterable-keys --step 1" "$BIN/agent question iterable_step 1"
   printf ','
   q_opt "I'll run the walk in my own terminal" \
-    "Fallback: the same four steps as a terminal walk, which takes both keys with the echo off instead of off the clipboard. It ends by running the ladder." \
+    "You complete the same four steps in your terminal. You type both keys with echo off, instead of using the clipboard. Setup runs the checks when you finish." \
     "walk handed to the developer's terminal; the agent waits" \
     "$(cmd_path iterable-keys)"
   printf ','
   q_opt "Not now — tell me where I stand" \
-    "The walk stays unstarted and you get the ladder as it is. Nothing here expires." \
+    "The Iterable steps stay unstarted, and you see the current check results. Nothing here expires." \
     "walk not entered; ladder re-read" "" \
     "$BIN/agent"
   printf ']}'
@@ -749,10 +749,10 @@ q_step_context() {
   # ragged edge; the leading blank goes because q_arr keeps every line it is given.
   "$BIN/iterable-keys" --step "$1" --relay 2>/dev/null | plain | sed 's/^  //' \
     | sed '1{/^[[:space:]]*$/d;}'
-  echo "Show the clicks above as they came out, values and all — the exact strings matter here, and a shortened version of this step is the most expensive mistake in the whole setup."
+  echo "Show the steps above exactly as written, including every value. The exact strings matter. Shortening this step is the costliest mistake in setup."
   if (( $1 == 1 )); then
     echo ""
-    echo "Do not ask for either key, and do not read the clipboard yourself — pbpaste and its kin are off limits here. --take is what moves a key, and it is the only thing in this tool that ever holds one."
+    echo "Don't ask for either key, and don't read the clipboard yourself. pbpaste and similar commands are off limits here. --take is what moves a key, and it is the only thing in this tool that ever holds one."
   fi
 }
 
@@ -788,7 +788,7 @@ q_iterable_step() {
     if [[ -z "$have_server" ]]; then
       rec="Server-side key — take it"
       q_opt "$rec" \
-        "I read it off your clipboard into $(wsp .env) at mode 0600, clear the clipboard, and print nothing but a tick. If what is on the clipboard is not a key, it says so without quoting it." \
+        "The skill reads the key from your clipboard into $(wsp .env) at mode 0600, clears the clipboard, and prints only a tick. If the clipboard doesn't contain a key, it says so without quoting the clipboard." \
         "ITBL_SERVER_KEY stored in .env (0600); clipboard cleared" "" \
         "$BIN/iterable-keys --take server" "$BIN/agent question iterable_step 1"
       sep=","
@@ -797,32 +797,32 @@ q_iterable_step() {
       printf '%s' "$sep"; sep=","
       [[ -n "$have_server" ]] && rec="Mobile key — take it"
       q_opt "Mobile key — take it" \
-        "Same thing for the key your app ships with. Copy it first: Iterable shows each key once, and this reads whatever is on the clipboard right now." \
+        "Same steps for the key your app ships with. Copy it first. Iterable shows each key once, and this reads whatever is on the clipboard right now." \
         "ITBL_MOBILE_KEY stored in .env (0600); clipboard cleared" "" \
         "$BIN/iterable-keys --take mobile" "$BIN/agent question iterable_step 1"
     fi
     if [[ -n "$have_server" && -n "$have_mobile" ]]; then
       rec="Both are in — step 2"
       q_opt "$rec" \
-        "Both keys are in the 0600 file. They get spent on a real Iterable call at the end, so this is not where they are declared correct." \
+        "Both keys are in the 0600 file. A later step uses them in a real Iterable call, so this step doesn't confirm that they're correct." \
         "walk advanced to step 2; keys stored but not yet proved" "" \
         "$BIN/iterable-keys --step 2" "$BIN/agent question iterable_step 2"
       sep=","
     fi
     printf '%s' "$sep"
     q_opt "Show step 1 again" \
-      "The step is printed again, unchanged, with the two lines that take a key. Nothing is skipped past: a key that never arrives surfaces later as a push that never sends." \
+      "The step is shown again, unchanged, including the two lines that take a key. Nothing is skipped. A missing key shows up later as a push that never sends." \
       "step 1 still open" "" \
       "$BIN/iterable-keys --step 1"
   elif ((n < 4)); then
     rec="Done — next step"
     q_opt "$rec" \
-      "Moves the walk on. Your word is what advances it; the gates still prove this step later by spending what it produced." \
+      "Moves to the next step. Your answer is what advances it. A later check still confirms this step by testing what it produced." \
       "walk advanced to step $next; nothing verified yet" "" \
       "$BIN/iterable-keys --step $next" "$BIN/agent question iterable_step $next"
     printf ','
     q_opt "It doesn't look like that" \
-      "The step is printed again, unchanged, and stays open. Only this step gets help — the dashboard moves, the values and their meanings do not. Nothing gets skipped past: a step marked done that was not done surfaces much later as a broken integration." \
+      "The step is shown again, unchanged, and stays open. Help stays on this step. The Iterable screens can change, but the values and what they mean do not. Nothing is skipped. A step marked done that wasn't done shows up later as a broken integration." \
       "step $n still open" "" \
       "$BIN/iterable-keys --step $n"
   else
@@ -834,27 +834,27 @@ q_iterable_step() {
     if [[ -n "$ITBL_EMAIL" ]]; then
       rec="Done — now prove it"
       q_opt "$rec" \
-        "Both keys get spent on a real Iterable call and $ITBL_EMAIL is looked up by name, so nothing in the last four steps is taken on trust." \
+        "Both keys are used in a real Iterable call, and $ITBL_EMAIL is looked up by name. Nothing in the last four steps is taken on trust." \
         "walk complete; ladder re-run to verify all four steps" "" \
         "$BIN/onboard"
       printf ','
       q_opt "That is the wrong address" \
-        "Type the right one below. It has to be the value the app passes to setEmail(), character for character — if they disagree, the token is filed under one user and the push goes to another." \
+        "Type the right address below. It has to match the value the app passes to setEmail(), character for character. If they differ, the token is stored for one user and the push goes to another." \
         "ITBL_EMAIL stays as it is until you give another" ""
     elif [[ -n "$seen" ]]; then
       rec="Use $seen"
       q_opt "$rec" \
-        "This is what the app on the device actually registered as — read out of its own registerDeviceToken call, so it matches by construction." \
+        "This is the address the app on the device registered. It comes from the app's own registerDeviceToken call, so it matches that registration." \
         "ITBL_EMAIL recorded as $seen" "" \
         "$BIN/agent set ITBL_EMAIL=$seen" "$BIN/onboard"
       printf ','
       q_opt "Show step 4 again" \
-        "The step is printed again, with whatever identities the device has registered." \
+        "The step is shown again, including any addresses the device has registered." \
         "step 4 still open" "" \
         "$BIN/iterable-keys --step 4"
     else
       q_opt "Show step 4 again" \
-        "The step is printed again, unchanged. The address goes in below, or on ITBL_EMAIL in the 0600 file." \
+        "The step is shown again, unchanged. Enter the address below, or set ITBL_EMAIL in the 0600 file." \
         "step 4 still open" "" \
         "$BIN/iterable-keys --step 4"
       printf ','
@@ -862,14 +862,14 @@ q_iterable_step() {
       # anyone in at all. Everything up to here still gets proved; the identity gate says
       # what is missing, which is a better place to be stuck than on a screen with no exit.
       q_opt "I don't know it yet — read the ladder" \
-        "Runs the checks on what is done. The keys still get spent for real; the test-identity row stays open and says so, rather than this screen holding everything up." \
+        "Runs the checks for what's done. The keys are still used in a real call. The test-identity row stays open and says what's missing, instead of this screen blocking the rest." \
         "ITBL_EMAIL left unset; ladder re-read" "" \
         "$BIN/onboard"
     fi
   fi
   printf ','
   q_opt "I'd rather run the rest myself" \
-    "Fallback: the whole walk in your own terminal, with both keys typed where the echo is off. Anything already in the 0600 file is kept." \
+    "You finish the remaining steps in your own terminal. You type both keys with echo off. Anything already in the 0600 file is kept." \
     "walk handed to the developer's terminal at step $n; the agent waits" \
     "$(cmd_path iterable-keys)"
   printf ']'

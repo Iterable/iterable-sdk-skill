@@ -6,59 +6,61 @@ Setup
 
 ## Prompt
 
-Do you wish to proceed?
+Do you want to proceed with setup?
 
 ## Context
 
-You need a google-services.json and the Iterable side set up. Neither can be invented, so
-this is the part that produces them — and none of it starts until you say so.
+This setup creates the `google-services.json` file and the Iterable mobile app,
+push integration, and API keys your app needs. It doesn't start until you choose
+to continue.
 
 {{part_map}}
 
-What it reads: your Firebase projects and the Android apps in each, your app's build files,
-and a connected device or emulator. Reading happens with the gcloud account you are already
-signed in as.
+How it works:
 
-What it changes in your Google project: nothing yet. When it gets there you are asked again,
-on a screen that lists every change by name, and no is a complete answer to it.
+- The skill reads your Firebase projects, the Android apps in each project, your app's
+build files, and a connected device or emulator. It uses the Google account
+already signed in to gcloud.
 
-What it never does: ask for a password, take an API key through this conversation, or write
-a placeholder google-services.json to make a build go green. If something is missing it
-says so and stops.
+- It doesn't change your Google project yet. Before any change, you'll see each
+change listed by name. You can decline, and setup stops.
 
-Part 2 is yours because Iterable has no API for it — no endpoint creates an API key, a
-mobile app, or a push integration. I walk you through those four steps and check what each
-one produced.
+- It doesn't ask for your password, accept an API key in this conversation, or
+write a placeholder `google-services.json` file so the build can succeed. If a
+required file or value is missing, setup stops and names what's missing.
+
+- Iterable has no API to create an API key, a mobile app, or a push integration, so
+the skill helps you complete these tasks in Iterable and checks the result of each step.
 
 ## Requirements
 
-You sign in to Google yourself. If 'gcloud auth login' has not been run in your terminal,
-that is the first thing you do, and neither this tool nor the agent ever sees your password.
+Sign in to Google yourself. If you haven't run `gcloud auth login` in your
+terminal yet, do so now. Setup never sees your password.
 
 ## Option: agent
 
 ### Label
 
-Yes — set it up with me here
+Yes — set it up in this chat
 
 ### Description
 
-I conduct the whole thing here: every screen the terminal wizard shows, as a question in
-this conversation. Nothing changes without its own yes first, and the two Iterable API keys
-go from your clipboard into a 0600 file without passing through this conversation — I never
-see one.
+Each step appears as a question in this conversation, using the same steps as
+terminal setup. Nothing changes until you confirm that step. Copy the two
+Iterable API keys from your clipboard into a private file on your machine
+(mode `0600`). The keys never appear in this conversation.
 
 ## Option: terminal
 
 ### Label
 
-I'd rather run the whole setup in my own terminal
+Run setup in your own terminal
 
 ### Description
 
-Fallback, and a real one: the same work and the same questions as a terminal menu, with the
-Google sign-in hosted in the same session and every prompt answered by arrow keys instead of
-by relaying. Worth it if you would rather these choices were not in a chat at all.
+You complete the same work and answer the same questions in a terminal menu.
+Google sign-in stays in that terminal session, and you answer each prompt with
+the arrow keys. Choose this option to keep these choices out of a chat.
 
 ## Option: stop
 
@@ -68,5 +70,5 @@ No — stop here
 
 ### Description
 
-Nothing runs, nothing is read, and nothing is written — not even a workspace directory in
-your repository.
+Nothing runs, and nothing is read or written. Setup doesn't create a workspace
+directory in your repository.

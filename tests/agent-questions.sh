@@ -129,21 +129,21 @@ printf '%s' "$out" | node "$TMP/shape.js" > "$TMP/o.txt" \
 
 # It is agreeing to the job, not to the next step of it, so it has to describe the job:
 # the three parts, what gets read, and that changes are a separate yes.
-for want in "Three parts" "Google" "Iterable" "Device" "What it reads" "asked again" "no is a complete answer"; do
+for want in "three distinct parts" "Google" "Iterable" "Device" "reads your Firebase projects" "Before any change" "You can decline"; do
   grep -qF -- "$want" <<< "$out" && ok "the opening says '$want'" \
     || bad "the opening never mentions '$want'"
 done
 # The two claims a developer is entitled to before agreeing, and the two we would most
 # like not to have to keep. Both are load-bearing elsewhere in this repo.
-grep -qF "ask for a password" <<< "$out" \
+grep -qF "doesn't ask for your password" <<< "$out" \
   && ok "it rules out ever asking for a password" \
   || bad "the opening never says it will not ask for a password"
-grep -qF "placeholder google-services.json" <<< "$out" \
+grep -qF "placeholder" <<< "$out" && grep -qF "google-services.json" <<< "$out" \
   && ok "and rules out faking a google-services.json to get a build green" \
   || bad "the opening never rules out fabricating the config file"
 # Said here rather than discovered at step 2 of 4, because "the tool will produce the API
 # key" is what an agent says when nothing told it otherwise — and it cannot.
-grep -qF "no endpoint creates an API key" <<< "$out" \
+grep -qF "no API to create an API key" <<< "$out" \
   && ok "and says up front that no API creates the Iterable key" \
   || bad "the opening lets the developer believe the keys get created for them"
 
@@ -176,7 +176,7 @@ grep -qF "writes nothing" <<< "$door" \
 grep -qF "APPROVAL NEEDED" <<< "$door" \
   && bad "the door question dresses itself up as the provisioning approval" \
   || ok "it does not pose as the provisioning approval — that is asked later, with a plan"
-grep -qF "separate question" <<< "$door" \
+grep -qF "A later question lists each change" <<< "$door" \
   && ok "and says so: changing things is asked separately" \
   || bad "nothing tells the developer a second, different question is coming"
 # An out that does not require being listed. A developer who does not want their estate
@@ -430,7 +430,7 @@ for n in 1 2 3 4; do
          || bad "step $n invites typed input, and the value in front of it is a key: $ft" ;;
   esac
 done
-grep -qiE 'do not read the clipboard yourself' <<< "$s1" \
+grep -qiE "do not read the clipboard yourself|don't read the clipboard yourself" <<< "$s1" \
   && ok "and step 1 tells the agent the clipboard is not its to read either" \
   || bad "nothing stops the relaying agent reading the key straight off the clipboard"
 
@@ -552,7 +552,7 @@ grep -qF "approve create-app" <<< "$reg" \
 grep -q 'CREATE_APP=1' <<< "$reg" \
   && bad "an option hands the agent CREATE_APP=1 — the flag is the environment's, not the agent's" \
   || ok "no option offers CREATE_APP=1"
-grep -qF "unless you ask for it outright" <<< "$reg" \
+grep -qF "never makes this change unless you ask for it here" <<< "$reg" \
   && ok "and it says that this is the asking the limits promised" \
   || bad "the registration screen never connects itself to the promise it is honouring"
 
@@ -699,7 +699,7 @@ grep -qiF "allow notifications" <<< "$app" \
 grep -qF "Sign in" <<< "$app" \
   && ok "and to sign in, which is what makes a token exist" \
   || bad "the screen never mentions signing in"
-grep -qE "open the selected app.*stop there" <<< "$app" \
+grep -qE "opens the selected app.*stops there" <<< "$app" \
   && ok "and says the tool opens the app but stops before interacting with it" \
   || bad "the screen does not explain the launch-only boundary"
 grep -q '"commands":\["[^"]*/bin/agent"\]' <<< "$app" \

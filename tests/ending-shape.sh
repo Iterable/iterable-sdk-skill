@@ -75,7 +75,7 @@ done
 # ------------------------------------------------------- the order of the two
 PLAIN="$(strip <<< "$END")"
 box_at="$(grep -n '┏' <<< "$PLAIN" | head -1 | cut -d: -f1)"
-hand_at="$(grep -n 'for the assistant' <<< "$PLAIN" | head -1 | cut -d: -f1)"
+hand_at="$(grep -n 'for the skill' <<< "$PLAIN" | head -1 | cut -d: -f1)"
 if [[ -n "$box_at" && -n "$hand_at" ]] && ((hand_at > box_at)); then
   ok "the instruction comes first, the handback after it"
 else
