@@ -69,6 +69,7 @@ else
 fi
 
 command -v node >/dev/null || die "node is needed to edit the host's JSON safely"
+cd "$ROOT" || die "could not enter the plugin source directory: $ROOT"
 
 # ------------------------------------------------------------------- the version
 # One version, three manifests. A disagreement here means the dir name, the host's
@@ -97,9 +98,11 @@ say "$(bold "$VERSION") — agreed across all three manifests"
 # test that quietly passed against a working tree nobody else has.
 step "Source"
 DIRTY="$(git -C "$ROOT" status --porcelain 2>/dev/null)"
+EXPORT_WORKTREE=0
 if [[ -n "$DIRTY" && "$REF" == HEAD ]]; then
   if ((FORCE)); then
-    say "$(dim "tree is dirty; --force given, so these are NOT in the build:")"
+    EXPORT_WORKTREE=1
+    say "$(dim "tree is dirty; --force given, so the current tracked and untracked non-ignored files are the build:")"
     printf '%s\n' "$DIRTY" | sed 's/^/      /'
   else
     printf '\n  \033[31m%s\033[0m\n' "uncommitted changes would not reach the build"
@@ -130,8 +133,27 @@ step "Export"
 DEST="$CACHE_ROOT/$VERSION"
 rm -rf "$DEST" "$MKT_DIR"
 mkdir -p "$DEST" "$MKT_DIR" || die "could not create the plugin directories"
-git -C "$ROOT" archive "$SHA" | tar -x -C "$DEST" || die "export to the cache failed"
-git -C "$ROOT" archive "$SHA" | tar -x -C "$MKT_DIR" || die "export to the marketplace failed"
+if ((EXPORT_WORKTREE)); then
+  export_worktree() {
+    local destination="$1"
+    (
+      cd "$ROOT" || exit
+      git ls-files -co --exclude-standard -z |
+        while IFS= read -r -d '' path; do
+          [[ -e "$path" || -L "$path" ]] && printf '%s\0' "$path"
+        done |
+        tar --null -T - -cf -
+    ) | tar -xf - -C "$destination"
+  }
+  export_worktree "$DEST" || die "export of the current worktree to the cache failed"
+  export_worktree "$MKT_DIR" ||
+    die "export of the current worktree to the marketplace failed"
+else
+  git -C "$ROOT" archive "$SHA" | tar -x -C "$DEST" ||
+    die "export to the cache failed"
+  git -C "$ROOT" archive "$SHA" | tar -x -C "$MKT_DIR" ||
+    die "export to the marketplace failed"
+fi
 say "cache       ${DEST/#$HOME/~}"
 say "marketplace ${MKT_DIR/#$HOME/~}"
 
@@ -206,14 +228,16 @@ else
 fi
 mkdir -p "$SET_DIR" || die "could not create $SET_DIR"
 node -e '
-  const fs = require("fs"), [file, key] = process.argv.slice(1);
+  const fs = require("fs"), [file, localKey, publishedKey] = process.argv.slice(1);
   let j = {};
   try { j = JSON.parse(fs.readFileSync(file, "utf8")); } catch { }
   j.enabledPlugins = j.enabledPlugins || {};
-  j.enabledPlugins[key] = true;
+  j.enabledPlugins[localKey] = true;
+  j.enabledPlugins[publishedKey] = false;
   fs.writeFileSync(file, JSON.stringify(j, null, 2) + "\n");
-' "$SET" "$PLUGIN@$MKT" || die "could not enable the plugin in $SET"
-say "enabled in ${SET/#$HOME/~}"
+' "$SET" "$PLUGIN@$MKT" "$PLUGIN@iterable" ||
+  die "could not select the local plugin in $SET"
+say "enabled $(bold "$PLUGIN@$MKT") and disabled $PLUGIN@iterable in ${SET/#$HOME/~}"
 
 # ------------------------------------------------------------------------- verify
 # Structural, not a claim that it works: whether the host loads it is the host's
@@ -221,18 +245,19 @@ say "enabled in ${SET/#$HOME/~}"
 step "Verify the export"
 MISSING=""
 check() { [[ -e "$DEST/$1" ]] || MISSING="$MISSING $1"; }
-for s in iterable-provision iterable-android iterable-react-native iterable-verify; do
+for s in iterable-provision iterable-android iterable-android-verify iterable-ios iterable-ios-verify iterable-react-native; do
   check "$s/SKILL.md"
 done
 check .claude-plugin/plugin.json
 check mcp.json
 check .mcp.json
-for c in onboard wizard gates agent provision teardown discover iterable-keys proof-push handoff config.sh; do
+check agents/ios-provisioner.md
+for c in onboard wizard gates agent provision teardown discover iterable-keys proof-push handoff config.sh ios-provision ios-prepare-proof ios-install ios-launch ios-observe ios-send ios-deliver ios-verify; do
   [[ -x "$DEST/bin/$c" || "$c" == config.sh ]] || MISSING="$MISSING bin/$c(not executable)"
   check "bin/$c"
 done
 [[ -z "$MISSING" ]] || die "the build is missing:$MISSING"
-say "four skills, both MCP files, and every entry point present and executable"
+say "six skills, the iOS specialist, both MCP files, and every entry point present and executable"
 
 INSTALLED_NAME="$(node -e 'process.stdout.write(require(process.argv[1]).name)' "$MKT_DIR/.claude-plugin/marketplace.json")"
 [[ "$INSTALLED_NAME" == "$MKT" ]] || die "the marketplace still calls itself '$INSTALLED_NAME'"

@@ -1,0 +1,526 @@
+# Eval scenarios — Iterable native iOS SDK skill.
+#
+# Run every scenario with and without `iterable-ios`. Checks are deterministic
+# regexes over the saved transcript. They guard only confirmed pitfalls.
+
+platform: ios
+skill: iterable-ios
+expectations_version: 2026-10-12-a
+
+scenarios:
+  - id: unscoped-working-integration
+    title: Discover scope before attempting a vague Iterable integration
+    prompt: >-
+      Integrate Iterable into this iOS app.
+    checks:
+      - id: asks-feature-scope
+        kind: require
+        weight: 3
+        critical: true
+        pattern: "(which|what)[\\s\\S]{0,120}?(features|Iterable to do|outcomes)[\\s\\S]{0,180}?(push|in-app|events|Inbox|Embedded|deep links)"
+        rationale: A vague integration request does not authorize the agent to choose product features.
+      - id: asks-identity
+        kind: require
+        weight: 2
+        critical: true
+        pattern: "(email|user ID|unknown-user)[\\s\\S]{0,120}?(identity|identify|identification)|identity[\\s\\S]{0,120}?(email|user ID|unknown-user)"
+        rationale: Identity mode changes SDK behavior and cannot be inferred from the easiest app field.
+      - id: asks-region-and-jwt
+        kind: require
+        weight: 3
+        critical: true
+        pattern: "(US|EU)[\\s\\S]{0,180}?JWT|JWT[\\s\\S]{0,180}?(US|EU)"
+        rationale: Region and JWT policy are required inputs for every real Mobile API key.
+      - id: requires-real-mobile-key
+        kind: require
+        weight: 3
+        critical: true
+        pattern: "(real|actual)[\\s\\S]{0,80}?Mobile API key|Mobile API key[\\s\\S]{0,140}?(required|need|configure|capture|validat)"
+        rationale: Empty-key scaffolding cannot initialize or communicate with Iterable.
+      - id: validates-mobile-key
+        kind: require
+        weight: 3
+        critical: true
+        pattern: "(validate-mobile|validat(e|es|ed|ing)[\\s\\S]{0,100}?Mobile (API )?key|invalid control)"
+        rationale: A plausible string is not evidence that the key type, region, and credential are usable.
+      - id: no-premature-completion
+        kind: forbid
+        weight: 3
+        critical: true
+        pattern: "(Integrated Iterable|integration is complete|Iterable is working)[\\s\\S]{0,200}?(empty|missing|not configured|without).{0,40}?(API key|credential)"
+        rationale: The agent must not call dormant repository wiring a working integration.
+
+  - id: guided-working-integration
+    title: Conduct a clean app from product choices to independently verified behavior
+    prompt: >-
+      Take this clean SwiftUI app from no Iterable integration to a working,
+      verified integration. Do not choose product features or identity policy
+      for me. Guide me through every decision and manual prerequisite, perform
+      everything the agent can safely perform, and tell me when the whole
+      selected integration is actually complete.
+    checks:
+      - id: uses-tool-authored-selectors
+        kind: require
+        weight: 3
+        critical: true
+        pattern: "(tool-authored|native|structured)[\\s\\S]{0,120}?selector|one (Yes/No|yes/no) question per feature"
+        rationale: The iOS path must preserve host selectors instead of reverting to an improvised prose questionnaire.
+      - id: validates-mobile-before-editing
+        kind: require
+        weight: 3
+        critical: true
+        pattern: "Mobile API key[\\s\\S]{0,180}?validat(e|ed|ion)[\\s\\S]{0,180}?(before|prior to)[\\s\\S]{0,100}?(edit|wiring|source)"
+        rationale: A dependency and empty-key guard are scaffolding, not a working Iterable integration.
+      - id: guided-proof-target
+        kind: require
+        weight: 3
+        critical: true
+        pattern: "ios-provision proof-status|proof-status[\\s\\S]{0,180}?(User A|User B|\\.app|device)"
+        rationale: Exact identities, artifact, device, environment, and visible expectations need a repeatable conductor.
+      - id: separate-proof-actors
+        kind: require
+        weight: 3
+        critical: true
+        pattern: "ios-launch[\\s\\S]{0,220}?ios-send[\\s\\S]{0,220}?ios-observe[\\s\\S]{0,220}?ios-verify"
+        rationale: Launching, sending, observing, and grading must not collapse into one self-verifying actor.
+      - id: server-key-never-enters-app
+        kind: require
+        weight: 2
+        critical: true
+        pattern: "Server-side (API )?key[\\s\\S]{0,160}?(never|must not|does not)[\\s\\S]{0,100}?(app|application|client)"
+        rationale: Remote proof needs a separate Server-side key without exposing it to the client target.
+      - id: honest-feature-completion
+        kind: require
+        weight: 3
+        critical: true
+        pattern: "integration_complete|feature_evidence_required|core verification complete; selected feature proof remains"
+        rationale: Green core gates cannot silently mark unproved selected UI, JWT, UUA, or routing features complete.
+      - id: no-build-only-success
+        kind: forbid
+        weight: 3
+        critical: true
+        pattern: "(integration is complete|Iterable is working|successfully integrated)[\\s\\S]{0,180}?(build passed|unit tests passed|dependency added)"
+        rationale: Compilation alone does not prove Iterable received identity, data, events, or push behavior.
+
+  - id: push-environments-and-proof
+    title: Configure development and production push and prove delivery
+    prompt: >-
+      Add Iterable push notifications to my SwiftUI app. I need Debug builds
+      for development and a TestFlight build for production. Configure the
+      project and tell me exactly how to prove push and logout work.
+    checks:
+      - id: debug-development-environment
+        kind: require
+        weight: 2
+        critical: true
+        pitfall: 1
+        pattern: "Debug[\\s\\S]{0,160}?(development|sandbox)"
+        rationale: Debug signing must resolve to the development APNs environment.
+      - id: release-production-environment
+        kind: require
+        weight: 3
+        critical: true
+        pitfall: 1
+        pattern: "(Release|TestFlight|distribution)[\\s\\S]{0,160}?production"
+        rationale: A sandbox-only configuration does not prove production push.
+      - id: direct-test-push
+        kind: require
+        weight: 2
+        pitfall: 4
+        pattern: "direct.{0,30}Test Push|Test Push.{0,80}device token"
+        rationale: Direct delivery isolates credential, environment, bundle, and token.
+      - id: user-targeted-proof
+        kind: require
+        weight: 3
+        critical: true
+        pitfall: 4
+        pattern: "user-targeted|Send test message"
+        rationale: Identity, logout, and switching require a user-targeted send.
+      - id: sandbox-proof-target
+        kind: require
+        weight: 2
+        critical: true
+        pattern: "((eligible|supported)[\\s\\S]{0,80}?iOS 16\\+ Simulator|physical iPhone)[\\s\\S]{0,120}?(sandbox|development)|(sandbox|development)[\\s\\S]{0,120}?((eligible|supported)[\\s\\S]{0,80}?Simulator|physical iPhone)"
+        rationale: Development delivery can use real APNs sandbox on a supported Simulator or physical iPhone.
+      - id: production-physical-device
+        kind: require
+        weight: 2
+        critical: true
+        pattern: "(production|TestFlight)[\\s\\S]{0,120}?physical iPhone|physical iPhone[\\s\\S]{0,120}?(production|TestFlight)"
+        rationale: Simulator supports only APNs sandbox; production still requires a physical iPhone.
+      - id: generated-capability-shape
+        kind: require
+        weight: 2
+        pitfall: 11
+        pattern: "((project\\.pbxproj|generated PBX|PBX dictionary)[\\s\\S]{0,220}?SystemCapabilities[\\s\\S]{0,160}?com\\.apple\\.Push|SystemCapabilities[\\s\\S]{0,160}?com\\.apple\\.Push[\\s\\S]{0,220}?(project\\.pbxproj|generated PBX|PBX dictionary))"
+        rationale: Generated projects must not rely on an unrecorded or malformed capability marker.
+      - id: generated-capability-normalizer-idempotent
+        kind: require
+        weight: 2
+        critical: true
+        pitfall: 11
+        pattern: "(normaliz|generation check)[\\s\\S]{0,180}?(twice|second run|idempotent)[\\s\\S]{0,180}?(unchanged|same bytes|succeed|pass)"
+        rationale: A one-way substitution breaks when the generator already emits the correct dictionary.
+      - id: generated-capability-normalizer-rejects-ambiguity
+        kind: require
+        weight: 2
+        critical: true
+        pitfall: 11
+        pattern: "(normaliz|generation check)[\\s\\S]{0,220}?(missing|duplicate)[\\s\\S]{0,120}?(duplicate|unknown)[\\s\\S]{0,120}?(fail|reject|error)"
+        rationale: An idempotent but permissive grep/replacement still accepts ambiguous or unsupported generated projects.
+
+  - id: recipient-bound-deep-link
+    title: Prevent an old user's notification from routing under the next user
+    prompt: >-
+      User A receives a push with a deep link, logs out, and User B signs in on
+      the same iPhone before the notification is tapped. Make sure A's old
+      notification cannot open personalized content or be attributed to B.
+    checks:
+      - id: opaque-recipient
+        kind: require
+        weight: 3
+        critical: true
+        pitfall: 2
+        pattern: "opaque[\\s\\S]{0,100}?recipient|recipient[\\s\\S]{0,100}?opaque"
+        rationale: Ownership must be carried by app-owned message data.
+      - id: custom-payload
+        kind: require
+        weight: 2
+        pitfall: 2
+        pattern: "custom (raw JSON|payload|push data)"
+        rationale: Standard push metadata has no recipient identity.
+      - id: mismatch-fallback
+        kind: require
+        weight: 3
+        critical: true
+        pitfall: 2
+        pattern: "(missing|mismatch|different)[\\s\\S]{0,140}?(fallback|catalog|discard)"
+        rationale: Unverified ownership must never route personalized content.
+      - id: no-current-user-attribution
+        kind: require
+        weight: 3
+        critical: true
+        pitfall: 2
+        pattern: "((missing|mismatch|unverified|wrong (user|recipient))[\\s\\S]{0,180}?(do not|must not|skip)[\\s\\S]{0,100}?(forward|IterableAppIntegration|push open|track)|(do not|must not|skip)[\\s\\S]{0,100}?(forward|IterableAppIntegration|push open|track)[\\s\\S]{0,180}?(missing|mismatch|unverified|wrong (user|recipient)))"
+        rationale: Rejecting navigation is insufficient if Iterable attributes the open to the current user.
+      - id: no-email-in-payload
+        kind: require
+        weight: 2
+        pitfall: 2
+        pattern: "(avoid|do not|never)[\\s\\S]{0,100}?(raw )?email[\\s\\S]{0,80}?payload"
+        rationale: Recipient proof should not add direct personal data to push payloads.
+      - id: external-url-source-policy
+        kind: require
+        weight: 2
+        pitfall: 8
+        pattern: "(onOpenURL|external (URL|custom scheme))[\\s\\S]{0,160}?(untrusted|public|ownership|fallback|discard)"
+        rationale: A valid URL shape does not prove a personalized source is trusted.
+
+  - id: recipient-bound-notification-lifecycle
+    title: Preserve recipient ownership across notification lifecycle paths
+    prompt: >-
+      My iOS app validates an opaque recipient field before opening
+      personalized push destinations. Make the policy safe for background and
+      terminated-app taps, dismiss and custom actions, silent notifications,
+      and Iterable push-open tracking. Explain the tests that prove no path
+      bypasses validation.
+    checks:
+      - id: validate-before-forwarding
+        kind: require
+        weight: 3
+        critical: true
+        pitfall: 2
+        pattern: "validat(e|ion)[\\s\\S]{0,140}?(before|prior to)[\\s\\S]{0,120}?(IterableAppIntegration|forward|push open|track)"
+        rationale: Ownership must be decided before the SDK attributes the open.
+      - id: selected-action-identifier
+        kind: require
+        weight: 2
+        critical: true
+        pitfall: 7
+        pattern: "((inspect|switch|branch|compare|handle)[\\s\\S]{0,80}?actionIdentifier|actionIdentifier[\\s\\S]{0,80}?(default|dismiss|custom))"
+        rationale: Pre-routing the default action ignores what the user actually selected.
+      - id: dismiss-preserves-navigation
+        kind: require
+        weight: 3
+        critical: true
+        pitfall: 7
+        pattern: "dismiss[\\s\\S]{0,140}?((complete|completion)[\\s\\S]{0,120}?(without|no)|(must not|does not|should not))[\\s\\S]{0,80}?(navigate|route|fallback|forward)"
+        rationale: Dismissing a notification must not unexpectedly reset app navigation.
+      - id: push-url-requires-approval
+        kind: require
+        weight: 3
+        critical: true
+        pitfall: 7
+        pattern: "(IterableActionContext|context\\.source|\\.push)[\\s\\S]{0,180}?(push|recipient)[\\s\\S]{0,180}?(approval|validated|ownership)"
+        rationale: A push URL callback must not become trusted merely because SDK completion already ran.
+      - id: launch-routing-lifetime
+        kind: require
+        weight: 3
+        critical: true
+        pitfall: 7
+        pattern: "(launchOptions|terminated)[\\s\\S]{0,180}?(defer|pending|completion|validated|remove|strip)"
+        rationale: A short initialization gate can expire before deferred SDK routing.
+      - id: silent-does-not-navigate
+        kind: require
+        weight: 2
+        pitfall: 7
+        pattern: "(content-available|silent)[\\s\\S]{0,100}?(not|must not|never)[\\s\\S]{0,80}?(navigate|route|reset)"
+        rationale: Background delivery is not a user notification response.
+      - id: foreground-recipient-policy
+        kind: require
+        weight: 3
+        critical: true
+        pitfall: 2
+        pattern: "(willPresent|foreground)[\\s\\S]{0,180}?(missing|mismatch|recipient)[\\s\\S]{0,180}?(suppress|empty (presentation )?options|completionHandler\\(\\[\\]\\)|do not present)"
+        rationale: Response validation does not stop an old user's notification from being exposed while the app is foregrounded.
+      - id: orchestration-tests
+        kind: require
+        weight: 3
+        critical: true
+        pitfall: 7
+        pattern: "(userNotificationCenter|didReceive response|IterableURLDelegate|handle\\(iterableURL)[\\s\\S]{0,220}?(test|XCTest|Simulator-injected|integration test)"
+        rationale: A dictionary-only policy test cannot prove the public lifecycle adapter.
+      - id: observable-routing-main-actor
+        kind: require
+        weight: 3
+        critical: true
+        pitfall: 15
+        pattern: "(MainActor|main actor|DispatchQueue\\.main\\.(sync|async))[\\s\\S]{0,180}?(session|identity)[\\s\\S]{0,180}?(route|navigation|destination)"
+        rationale: Dispatching only the final mutation still races when the session check reads observable state off-main.
+      - id: background-routing-test
+        kind: require
+        weight: 2
+        pitfall: 15
+        pattern: "(test|XCTest)[\\s\\S]{0,180}?(background|non-main|global queue)[\\s\\S]{0,180}?(URL|route|navigation|session)"
+        rationale: A background callback regression test proves the complete observable-state operation shares one actor boundary.
+      - id: approval-bound-to-session
+        kind: require
+        weight: 3
+        critical: true
+        pitfall: 7
+        pattern: "(approval|routing context)[\\s\\S]{0,180}?(session|generation)[\\s\\S]{0,180}?(logout|identity transition|account switch|invalidate)"
+        rationale: Reusing the same recipient ID after re-login must not revive an old response approval.
+      - id: skipped-initialization-completes
+        kind: require
+        weight: 3
+        critical: true
+        pitfall: 9
+        pattern: "(initialization|API key|isInitialized)[\\s\\S]{0,180}?(skip|missing|empty|unavailable)[\\s\\S]{0,180}?(complete (the )?(Apple|original|response|fetch)? ?callback directly|call (the )?(original )?(completion|completionHandler|fetchCompletionHandler)|completion\\(\\.noData\\))"
+        rationale: Missing credentials must not leave Apple callback completion pending.
+      - id: response-handler-ready-before-view
+        kind: require
+        weight: 3
+        critical: true
+        pitfall: 12
+        pattern: "(response handler|response collaborator|notification delegate)[\\s\\S]{0,180}?(before|during)[\\s\\S]{0,120}?(didFinishLaunching|launch completion|SwiftUI.*onAppear)"
+        rationale: A terminated-app response may arrive before the first SwiftUI view appears.
+
+  - id: privacy-data-disclosure
+    title: Describe app-supplied and SDK-managed Iterable data accurately
+    prompt: >-
+      Add a concise Privacy & Data explanation for an iOS app that identifies
+      users, updates a few profile fields, tracks business events, and supports
+      Iterable push and in-app messages. Explain local clearing and remote
+      deletion without overstating what data the SDK sends.
+    checks:
+      - id: app-supplied-data
+        kind: require
+        weight: 2
+        critical: true
+        pitfall: 10
+        pattern: "app (explicitly )?(sends|supplies|provides)[\\s\\S]{0,180}?(identity|profile|event)"
+        rationale: Product-selected fields should be described as app-supplied, not the complete SDK data set.
+      - id: sdk-managed-device-data
+        kind: require
+        weight: 3
+        critical: true
+        pitfall: 10
+        pattern: "SDK(-managed| manages| may)[\\s\\S]{0,180}?(device|push token|app|OS|notification)"
+        rationale: Push registration includes SDK-managed device and notification metadata.
+      - id: sdk-managed-engagement
+        kind: require
+        weight: 2
+        pitfall: 10
+        pattern: "(standard|SDK-managed)[\\s\\S]{0,100}?(push|in-app)[\\s\\S]{0,100}?engagement"
+        rationale: Automatic message engagement must not disappear from the disclosure.
+      - id: remote-deletion-boundary
+        kind: require
+        weight: 2
+        pattern: "(server-side|remote)[\\s\\S]{0,100}?(delet|suppress)[\\s\\S]{0,140}?(backend|support|privacy)"
+        rationale: Local clearing and logout do not delete Iterable's server-side records.
+
+  - id: restored-profile-after-initialization
+    title: Replay restored identity and targeting fields after SDK initialization
+    prompt: >-
+      My SwiftUI app restores a signed-in user and their targeting fields before
+      Iterable initialization finishes. Make the initialization ordering safe
+      and explain the regression test.
+    checks:
+      - id: coherent-pending-snapshot
+        kind: require
+        weight: 3
+        critical: true
+        pitfall: 13
+        pattern: "(queue|pending|buffer)[\\s\\S]{0,140}?(identity|user)[\\s\\S]{0,140}?(profile|favorite|targeting)"
+        rationale: Queuing identity alone loses restored targeting state.
+      - id: replay-after-initialization
+        kind: require
+        weight: 3
+        critical: true
+        pitfall: 13
+        pattern: "(after|when)[\\s\\S]{0,100}?(initialization|initialize)[\\s\\S]{0,160}?(replay|send|identify|update)"
+        rationale: The complete restored snapshot must be sent once the SDK is ready.
+      - id: initially-unconfigured-test
+        kind: require
+        weight: 2
+        pitfall: 13
+        pattern: "(test|XCTest)[\\s\\S]{0,180}?(uninitialized|not initialized|initially.*false|missing key)[\\s\\S]{0,180}?(profile|favorite|targeting)"
+        rationale: An always-initialized spy cannot reproduce the ordering defect.
+
+  - id: asynchronous-notification-permission
+    title: Keep delayed notification permission callbacks in the right session
+    prompt: >-
+      My notification settings and permission calls complete asynchronously.
+      Handle logout and account switching while they are in flight, including
+      a permission error, and explain how you would test it.
+    checks:
+      - id: bind-to-session
+        kind: require
+        weight: 3
+        critical: true
+        pitfall: 3
+        pattern: "(capture|bind|associate)[\\s\\S]{0,120}?(identity|session|generation)"
+        rationale: Each asynchronous operation must remember its initiating session.
+      - id: revalidate-on-completion
+        kind: require
+        weight: 3
+        critical: true
+        pitfall: 3
+        pattern: "(revalidate|compare|guard)[\\s\\S]{0,120}?(identity|session|generation)"
+        rationale: A stale callback must be ignored after logout or switching.
+      - id: error-visible
+        kind: require
+        weight: 2
+        pattern: "(surface|present|display|visible)[\\s\\S]{0,100}?error"
+        rationale: Authorization errors must not collapse into a silent refresh.
+      - id: delayed-callback-test
+        kind: require
+        weight: 2
+        pitfall: 3
+        pattern: "(test|XCTest)[\\s\\S]{0,140}?delayed[\\s\\S]{0,100}?(logout|switch)"
+        rationale: The race needs a deterministic regression test.
+
+  - id: contextual-notification-permission
+    title: Request notification permission after a real product value moment
+    prompt: >-
+      Ask Dog Shelter users to enable adoption alerts after they save their
+      first favorite. They must be able to choose Not Now, recover later from
+      settings, and keep the preference separate across accounts. Implement
+      and test the complete product flow without prompting at launch.
+    checks:
+      - id: accepted-action-trigger
+        kind: require
+        weight: 3
+        critical: true
+        pitfall: 14
+        pattern: "(first|initial)[\\s\\S]{0,100}?favorite[\\s\\S]{0,160}?(explanation|education|adoption alerts|permission)"
+        rationale: A settings-only control does not satisfy a contextual product requirement.
+      - id: not-now-skips-system-prompt
+        kind: require
+        weight: 3
+        critical: true
+        pitfall: 14
+        pattern: "Not Now[\\s\\S]{0,160}?(do not|does not|without|skip)[\\s\\S]{0,100}?(system prompt|requestAuthorization|permission request)"
+        rationale: Dismissing app-owned education must not spend the one-shot iOS prompt.
+      - id: identity-scoped-dismissal
+        kind: require
+        weight: 2
+        pitfall: 14
+        pattern: "(per-user|per-account|identity-scoped|keyed by)[\\s\\S]{0,120}?(Not Now|dismiss|suppress)"
+        rationale: One account's dismissal must not silently choose for the next account.
+      - id: manual-recovery
+        kind: require
+        weight: 2
+        pitfall: 14
+        pattern: "(manual|settings|toolbar)[\\s\\S]{0,120}?(notification|adoption alert)[\\s\\S]{0,120}?(later|recover|enable|open settings)"
+        rationale: Users need a durable route after dismissing or denying the contextual prompt.
+      - id: no-launch-prompt
+        kind: require
+        weight: 2
+        critical: true
+        pitfall: 14
+        pattern: "(do not|does not|never|without)[\\s\\S]{0,100}?(prompt|request)[\\s\\S]{0,80}?(launch|startup|email entry)"
+        rationale: Notification permission must follow value, not app installation.
+      - id: action-boundary-test
+        kind: require
+        weight: 2
+        pitfall: 14
+        pattern: "(test|XCTest)[\\s\\S]{0,160}?(toggleFavorite|save.*favorite|first favorite)[\\s\\S]{0,160}?(explanation|prompt|Not Now)"
+        rationale: Testing only the permission presenter misses a disconnected product flow.
+      - id: undecided-dismissal-persists
+        kind: require
+        weight: 2
+        critical: true
+        pitfall: 14
+        pattern: "((interactiveDismissDisabled|disable[\\s\\S]{0,60}?(swipe|Done))[\\s\\S]{0,140}?undecided|(swipe|Done|dismiss)[\\s\\S]{0,140}?(persist|record)[\\s\\S]{0,100}?Not Now)"
+        rationale: An undecided explanation that closes without a stored choice can recur on launch and bypass the intended per-account dismissal.
+
+  - id: push-token-boundary-diagnosis
+    title: Diagnose a missing Iterable device registration safely
+    prompt: >-
+      didRegisterForRemoteNotifications may be running, but no device appears
+      for my test user in Iterable. Give me a safe, deterministic way to find
+      whether APNs token generation or Iterable registration is failing and
+      then send a direct test push.
+    checks:
+      - id: contact-lookup-first
+        kind: require
+        weight: 3
+        critical: true
+        pitfall: 5
+        pattern: "Audience\\s*>\\s*Contact Lookup|Contact Lookup"
+        rationale: The registered profile device is the preferred token source.
+      - id: debug-only-fallback
+        kind: require
+        weight: 3
+        critical: true
+        pitfall: 5
+        pattern: "DEBUG-only|#if\\s+DEBUG|debug-only"
+        rationale: Local token diagnostics must not ship in production.
+      - id: local-only-pasteboard
+        kind: require
+        weight: 3
+        critical: true
+        pitfall: 6
+        pattern: "localOnly|local-only"
+        rationale: A copied token must not cross to another device through Universal Clipboard.
+      - id: expiring-pasteboard
+        kind: require
+        weight: 2
+        critical: true
+        pitfall: 6
+        pattern: "expirationDate|expir(e|ation)"
+        rationale: A copied token should leave the pasteboard after a short diagnostic window.
+      - id: no-persistent-storage
+        kind: require
+        weight: 2
+        pitfall: 5
+        pattern: "do not (persist|store)|never (persist|store)|persistent (app )?storage"
+        rationale: A complete device token should not become durable app data.
+      - id: no-absolute-persistence-claim
+        kind: forbid
+        weight: 1
+        pitfall: 6
+        pattern: "(never[^\\n]{0,40}persist(ed|ing)?|non-persistent)"
+        rationale: An explicit pasteboard copy is temporary system storage, even when local-only and expiring.
+      - id: no-captured-token
+        kind: require
+        weight: 2
+        pattern: "(do not|never|redact)[\\s\\S]{0,100}?(screenshot|transcript|source control|analytics)"
+        rationale: Evaluation evidence must not leak complete device tokens.
+      - id: direct-test-push-boundary
+        kind: require
+        weight: 2
+        pitfall: 4
+        pattern: "direct.{0,30}Test Push|Test Push.{0,80}device token"
+        rationale: The direct send proves the credential/token boundary once isolated.
