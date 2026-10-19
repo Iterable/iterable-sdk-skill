@@ -20,9 +20,11 @@ cd "$(dirname "$0")/.."
 ALL=0
 [[ "${1:-}" == --all ]] && ALL=1
 
-# Needs the network (Iterable's published spec). Skips on its own when it cannot
-# reach it, so --all is about being deliberate, not about it being unsafe.
-NETWORK_SUITES=" key-types-match-spec.sh "
+# Need the network: Iterable's published spec, and the Swift SDK that the iOS skill's
+# snippets build against (that one also needs Xcode and costs about a minute). Each
+# skips on its own when it cannot run, so --all is about being deliberate, not about
+# it being unsafe.
+NETWORK_SUITES=" key-types-match-spec.sh skill-snippets-ios.sh "
 
 green() { printf '\033[32m%s\033[0m' "$1"; }
 red()   { printf '\033[31m%s\033[0m' "$1"; }

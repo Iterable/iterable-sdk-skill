@@ -15,9 +15,12 @@ make screens-help
 make screens
 ```
 
-`make screens-help` lists the available scenarios and their source files.
-`make screens` renders every shared onboarding question with sample Firebase
-projects and Android devices.
+`make screens-help` lists the available Android scenarios and their source
+files. `make screens` renders every shared Android onboarding question with
+sample Firebase projects and Android devices. Native iOS selector copy
+currently lives in `bin/ios-questions.sh` and is contract-tested by
+`tests/ios-questions.sh`; pair with an engineer when reviewing that shell-owned
+surface.
 
 The preview requires Node.js. It does not require credentials, network access,
 an Iterable or Firebase project, or a connected device.
@@ -78,13 +81,14 @@ change instead of expanding the mixture of prose and behavior in shell.
 
 ## Other developer-facing text
 
-`make screens` covers the shared questions and options supplied to the terminal
-wizard and coding-agent conversation. It does not render every user-facing
-string in the onboarding program.
+`make screens` covers the shared Android questions and options supplied to the
+terminal wizard and coding-agent conversation. It does not yet render native
+iOS selectors or every user-facing string in the onboarding program.
 
 | Surface | Source |
 |---|---|
-| Shared onboarding questions | `copy/screens/*.md` and `bin/questions.sh` |
+| Shared Android onboarding questions | `copy/screens/*.md` and `bin/questions.sh` |
+| Native iOS selector questions | `bin/ios-questions.sh` |
 | Gate names and verdicts | `bin/gates`, `bin/gates-device.sh`, `bin/gates-iterable.sh` |
 | Banners, summaries, endings, and ladder headings | `bin/config.sh` |
 | Iterable dashboard instructions | `bin/iterable-keys` |
@@ -128,6 +132,27 @@ make test
 
 Use `make test-all` only when the network-backed published-spec check is
 intentionally in scope.
+
+## Local host rehearsal
+
+To test the plugin as Claude Code actually loads it, install the current
+worktree into a disposable app project:
+
+```bash
+tools/install-local /path/to/test-app --force
+```
+
+The installer exports the current tracked and untracked non-ignored files,
+enables `iterable-sdk@iterable-local` for that project, and disables the
+published `iterable-sdk@iterable` copy in the same project scope. This prevents
+two versions from contributing overlapping skills or agents during the test.
+
+Start a new Claude Code session in the test app after installation. A running
+session keeps the plugin build it loaded at startup.
+
+Without `--force`, a dirty worktree is rejected because uncommitted files would
+not be present in a normal commit-based export. Use `--force` only for an
+intentional local rehearsal; use a commit for a release-candidate test.
 
 For generated SDK reference or pipeline changes, follow [`REVIEW.md`](REVIEW.md)
 and run:

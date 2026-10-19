@@ -1,4 +1,4 @@
-.PHONY: link-agents unlink-agents test test-all screens screens-help
+.PHONY: link-agents unlink-agents test test-all screens screens-help ios-eval-check ios-eval-build
 
 AGENT_DIR := $(HOME)/.claude/agents
 
@@ -36,3 +36,9 @@ screens:
 # Usage and the complete list of scenario names accepted by `make screens KIND=...`.
 screens-help:
 	@tools/screens --help
+
+ios-eval-check:
+	@tools/ios-eval check
+
+ios-eval-build:
+	@tools/ios-eval build

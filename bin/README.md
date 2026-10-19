@@ -85,6 +85,57 @@ Shared helpers and presentation logic live in `bin/config.sh`. Device-specific
 checks live in `bin/gates-device.sh`; Iterable checks live in
 `bin/gates-iterable.sh`.
 
+### Native iOS entry points
+
+Native iOS uses a separate state machine because Apple/APNs and iOS runtime
+evidence differ from Firebase and Android device evidence.
+
+| Command | Responsibility |
+|---|---|
+| `bin/ios-provision` | Records scope and target, conducts the selected Apple setup strategy, imports credentials, and reports one `next` action |
+| `bin/ios-questions.sh` | Produces the shared host-selector objects used by the iOS conducted flow |
+| `bin/ios-prepare-proof` | Prepares or restarts a verification-only run without entering Apple, APNs, or Iterable app provisioning |
+| `bin/ios-device` | Boots the exact recorded Simulator without selecting another target |
+| `bin/ios-install` | Installs the selected existing application artifact; it never builds |
+| `bin/ios-launch` | Opens the selected app without operating its UI |
+| `bin/ios-send` | Performs API-targeted proof sends; dashboard direct-send recording is optional diagnostics only |
+| `bin/ios-prove` | Standard proof: checks preconditions and sends one marked push through Iterable, never twice. On a Simulator it reads the Simulator's own notification store and Unified Log; on a physical iPhone the developer reads back a code from the notification and the device log corroborates it when readable without elevation (untested by the maintainers) |
+| `bin/ios-apns-probe.js` | The Apple check: one silent APNs push to the app's real Simulator token, signed with the imported key, classified as ready, a named refusal, or inconclusive; a diagnostic, never delivery |
+| `bin/ios-notify-read.js` | Decodes a Simulator's notification store and classifies its `log show` output; emits only hashes, never raw tokens, nonces, or identities |
+| `bin/ios-deliver` | Instrumented runs: arms the independent observer, invokes one proof send, and returns the observer result |
+| `bin/ios-observe` | Non-interactively reads app, logs, notifications, and scoped outcomes; on a physical iPhone, waits for the marker on screen |
+| `bin/ios-verify` | Inspects an existing integration and independently reads iOS, application, and Iterable evidence |
+
+Verification starts with `ios-verify status`, even in a clean conversation; with
+no proof run it returns the one-answer proof screen. `ios-verify inspect` reads
+the project without interpreting a missing `.iterable/ios/` workspace as a
+missing SDK integration. Behavioral proof needs no app edits: existing
+identity, selected device, installed app, one targeted marker, and, on a
+Simulator, APNs delivery read from the Simulator's own records by `ios-prove`
+and re-derived by `ios-verify`. A standalone run
+proves that installed app; a new integration records its exact built artifact
+so the verifier can tie installation to the current result. Instrumented
+evaluation adds fresh users, an exact artifact, profile/event expectations,
+tap/logout behavior, and callback ordering only for a developer-requested
+benchmark or callback-level investigation; it is not another conducted-flow
+question.
+
+For push, `ios-provision` records the exact target (read from the app's build
+settings) before presenting three Apple strategies:
+
+```text
+existing-ready ─┐
+guided-manual ──┼─> APNs import -> validate-apns -> Iterable setup -> integration -> proof
+team-key ───────┘
+```
+
+`existing-ready` and `guided-manual` record developer-confirmed
+`developer_observed` evidence. `team-key` reads App Store Connect with a Team
+API key, applies only an approved plan, and records `tool_verified` evidence
+for the App ID and Push Notifications. All preserve the
+provider-first order. Changing the Bundle ID clears incompatible target-bound
+local state but never revokes Apple resources or deletes the retained `.p8`.
+
 ## State and the `next` protocol
 
 `state.tsv` is the source for the current ladder state. Exit codes describe the
@@ -252,6 +303,18 @@ developer. They are rewritten on each run so they follow the active plugin
 installation. Internal commands such as `wizard` and `provision` do not receive
 developer-facing stubs.
 
+Native iOS stores its state under `.iterable/ios/`. Phase 1 adds:
+
+| Path | Purpose |
+|---|---|
+| `target.json` | Exact application target and Bundle ID |
+| `apple-setup.json` | Selected `existing-ready`, `guided-manual`, or `team-key` strategy |
+| `apple-readiness.json` | Developer-observed existing/manual checklist, or tool-verified Team-key read-back |
+| `asc-key.json` / `asc-read.json` | Team-key path: App Store Connect key path, Key ID, Issuer ID; last read, plan, or refusal |
+| `apns.json` | Retained APNs key path plus public Key ID and Team ID metadata |
+| `apns-validation.json` | APNs sandbox probe result for that key, Key ID, and Team ID |
+| `iterable-app.json` | Whether the exact Iterable iOS app was created or already existed |
+
 ## Tests
 
 `make test` runs the offline suites. `make test-all` additionally runs checks
@@ -279,6 +342,8 @@ against Iterable's published API specification.
 Runtime agent definitions live under `agents/`:
 
 - `gcp-provisioner`: Google and Firebase provisioning.
+- `ios-provisioner`: bounded read-only Apple/APNs prerequisite investigation;
+  the main session owns the interactive iOS provisioning flow.
 - `iterable-api-client`: Iterable API interaction and verification.
 - `web-operator`: browser interaction restricted to approved console origins.
 - `gate-auditor`: read-only re-derivation of gate results.
