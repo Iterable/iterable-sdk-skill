@@ -9,6 +9,7 @@ set -uo pipefail
 
 BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TOOL_ROOT="$(cd "$BIN/.." && pwd)"
+source "$BIN/ios-project.sh"
 
 usage() {
   cat <<'EOF'
@@ -97,7 +98,7 @@ if [[ -n "$WORKSPACE_OVERRIDE" ]]; then
 elif [[ -n "${IOS_WORKSPACE:-}" ]]; then
   WORKSPACE="$IOS_WORKSPACE"
 else
-  project_root="$(git rev-parse --show-toplevel 2>/dev/null)" || project_root="$PWD"
+  project_root="$(ios_project_app_root "$PWD")" || project_root="$PWD"
   [[ "$project_root" != "$TOOL_ROOT" ]] ||
     die "run this from the iOS app being proved, not from the skill repository"
   WORKSPACE="$project_root/.iterable/ios"

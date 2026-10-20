@@ -264,6 +264,7 @@ APP_PATH="$ROOT/DogShelter.app"
 mkdir -p "$APP_PATH"
 printf 'fixture\n' > "$APP_PATH/Info.plist"
 printf 'same executable\n' > "$APP_PATH/DogShelter"
+mkdir -p "$APP_PATH/IterableSDKResources.bundle"
 printf 'iterable-ios-runtime-proof/1\n' > "$APP_PATH/IterableRuntimeProof.fixture"
 
 cat > "$WORKSPACE/scope.json" <<'EOF'
@@ -714,6 +715,7 @@ fi
 mkdir -p "$STATE/sim-app"
 printf 'fixture\n' > "$STATE/sim-app/Info.plist"
 printf 'same executable\n' > "$STATE/sim-app/DogShelter"
+mkdir -p "$STATE/sim-app/IterableSDKResources.bundle"
 mkdir -p "$STATE/sim-data/Library/Application Support/IterableProof/runs"
 cp "$STATE/runtime-proof.jsonl" \
   "$STATE/sim-data/Library/Application Support/IterableProof/runs/$RUN_ID.jsonl"
@@ -857,6 +859,132 @@ else
       process.stdout.write(`rc=${process.argv[2]}; I5=${gate?.status}: ${gate?.detail}; next=${v.next?.kind}`);
     ' "$simulator_push_complete" "$simulator_push_rc")"
 fi
+
+[[ "$(json_value "$simulator_push_complete" framework)" == native ]] &&
+  ok "the verifier reports a native app's framework" ||
+  bad "the verifier reported the wrong framework for a native app"
+
+printf '{"dependencies":{"react-native":"0.88.0","@iterable/react-native-sdk":"3.1.0"}}\n' > "$ROOT/app/package.json"
+mkdir -p "$ROOT/app/ios/DogShelter.xcworkspace"
+rn_debug="$(run_verify 2>/dev/null)"
+rn_debug_rc=$?
+if [[ "$rn_debug_rc" -eq 20 && "$(json_value "$rn_debug" framework)" == react-native ]] &&
+    node -e '
+      const gate=JSON.parse(process.argv[1]).gates.find(g=>g.id==="I5");
+      process.exit(gate?.status==="red" && gate.detail.includes("no embedded main.jsbundle") &&
+        gate.detail.includes("-workspace DogShelter.xcworkspace -scheme DogShelter -configuration Release -sdk iphonesimulator") ? 0 : 1);
+    ' "$rn_debug"; then
+  ok "a React Native Debug build without main.jsbundle is refused with the Release Simulator build command"
+else
+  bad "a React Native Debug build was accepted as the proof artifact" \
+    "rc=$rn_debug_rc $(node -e 'const g=JSON.parse(process.argv[1]).gates.find(g=>g.id==="I5");process.stdout.write(`${g?.status}: ${g?.detail}`)' "$rn_debug")"
+fi
+printf 'RNIterableAPI\n' > "$APP_PATH/main.jsbundle"
+cp "$APP_PATH/main.jsbundle" "$STATE/sim-app/main.jsbundle"
+rn_release="$(run_verify 2>/dev/null)"
+rn_release_rc=$?
+if [[ "$rn_release_rc" -eq 0 && "$(json_value "$rn_release" verdict)" == done ]]; then
+  ok "a React Native Release build with its embedded main.jsbundle completes the Simulator proof"
+else
+  bad "a React Native Release build was not accepted" "rc=$rn_release_rc $(json_value "$rn_release" next.summary)"
+fi
+rm "$STATE/sim-app/main.jsbundle"
+cp "$WORKSPACE/proof-target.json" "$ROOT/proof-target.with-app-path"
+node -e '
+  const fs=require("fs"), path=process.argv[1];
+  const t=JSON.parse(fs.readFileSync(path,"utf8"));
+  Object.assign(t,{app_path:"",proof_mode:"behavioral"});
+  fs.writeFileSync(path,JSON.stringify(t,null,2)+"\n",{mode:0o600});
+' "$WORKSPACE/proof-target.json"
+installed_gate() {
+  node -e '
+    const g=JSON.parse(process.argv[1]).gates.find(g=>g.id==="I6");
+    process.stdout.write(`${g?.status}: ${g?.detail}`);
+  ' "$1"
+}
+rn_installed_debug="$(installed_gate "$(run_verify 2>/dev/null)")"
+[[ "$rn_installed_debug" == red:*'installed react-native app has no embedded main.jsbundle'*'-configuration Release -sdk iphonesimulator'* ]] &&
+  ok "an installed React Native Debug build is refused with the Release Simulator build command" ||
+  bad "an installed React Native Debug build was accepted" "$rn_installed_debug"
+printf 'RNIterableAPI\n' > "$STATE/sim-app/main.jsbundle"
+rn_installed_release="$(installed_gate "$(run_verify 2>/dev/null)")"
+[[ "$rn_installed_release" == green:*'IterableSDKResources.bundle and RNIterableAPI in main.jsbundle; aps-environment=development'* ]] &&
+  ok "a fresh installed React Native Release build with the SDK, bundle marker and entitlement passes" ||
+  bad "an installed React Native Release build was refused" "$rn_installed_release"
+printf 'bundle without the package\n' > "$STATE/sim-app/main.jsbundle"
+rn_installed_no_js_sdk="$(run_verify 2>/dev/null)"
+[[ "$(installed_gate "$rn_installed_no_js_sdk")" == "red: "installed_app_without_sdk:*'never references RNIterableAPI'* &&
+    "$(json_value "$rn_installed_no_js_sdk" next.kind)" == build_app ]] &&
+  ok "an installed React Native app whose bundle lacks the Iterable package is refused" ||
+  bad "an installed React Native bundle without the Iterable package was accepted" "$(installed_gate "$rn_installed_no_js_sdk")"
+printf 'RNIterableAPI\n' > "$STATE/sim-app/main.jsbundle"
+touch -t 202601011200 "$STATE/sim-app/main.jsbundle"
+printf 'Iterable.initialize(key, config)\n' > "$ROOT/app/App.tsx"
+rn_installed_stale_js="$(installed_gate "$(run_verify 2>/dev/null)")"
+rm "$ROOT/app/App.tsx"
+[[ "$rn_installed_stale_js" == "red: "installed_app_older_than_source:*'main.jsbundle was built at 2026-01-01'*"$ROOT/app/App.tsx changed at"* ]] &&
+  ok "an installed React Native bundle older than a JavaScript edit is refused, naming the file and both times" ||
+  bad "a stale installed React Native bundle was accepted" "$rn_installed_stale_js"
+rm "$STATE/sim-app/main.jsbundle"
+rm -rf "$ROOT/app/package.json" "$ROOT/app/ios" "$APP_PATH/main.jsbundle"
+native_installed="$(installed_gate "$(run_verify 2>/dev/null)")"
+[[ "$native_installed" == green:*'Iterable SDK via IterableSDKResources.bundle; aps-environment=development'* &&
+    "$native_installed" != *RNIterableAPI* ]] &&
+  ok "an installed native app with the SDK passes without any React Native rule" ||
+  bad "an installed native app was held to the React Native rule" "$native_installed"
+mv "$STATE/sim-app/IterableSDKResources.bundle" "$STATE/sim-app.sdk"
+no_sdk="$(run_verify 2>/dev/null)"
+mv "$STATE/sim-app.sdk" "$STATE/sim-app/IterableSDKResources.bundle"
+[[ "$(installed_gate "$no_sdk")" == "red: "installed_app_without_sdk:*'no Iterable iOS SDK'*'never CODE_SIGNING_ALLOWED=NO'*'ios-prepare-proof restart --confirm --app-path'* &&
+    "$(json_value "$no_sdk" next.kind)" == build_app ]] &&
+  ok "an installed app without the Iterable SDK is red with the rebuild-and-record fix" ||
+  bad "an installed app without the Iterable SDK was accepted" "$(installed_gate "$no_sdk")"
+touch "$STATE/simulator-missing-entitlements"
+no_aps="$(installed_gate "$(run_verify 2>/dev/null)")"
+rm "$STATE/simulator-missing-entitlements"
+[[ "$no_aps" == "red: "installed_app_missing_aps_environment:*'no aps-environment entitlement'*'CODE_SIGNING_ALLOWED=NO'* ]] &&
+  ok "an installed app missing aps-environment is red" ||
+  bad "an installed app without aps-environment was accepted" "$no_aps"
+printf 'name: DogShelter\n' > "$ROOT/app/project.yml"
+mkdir -p "$ROOT/app/DogShelter"
+touch -t 202601011200 "$STATE/sim-app/DogShelter"
+printf 'IterableAPI.initialize(apiKey: key)\n' > "$ROOT/app/DogShelter/AppDelegate.swift"
+stale_native="$(installed_gate "$(run_verify 2>/dev/null)")"
+rm -rf "$ROOT/app/project.yml" "$ROOT/app/DogShelter"
+touch "$STATE/sim-app/DogShelter"
+[[ "$stale_native" == "red: "installed_app_older_than_source:*'DogShelter was built at 2026-01-01'*"$ROOT/app/DogShelter/AppDelegate.swift changed at"* ]] &&
+  ok "an installed app older than a source edit is red, naming the file and both times" ||
+  bad "an installed app older than its source was accepted" "$stale_native"
+cp "$ROOT/proof-target.with-app-path" "$WORKSPACE/proof-target.json"
+chmod 600 "$WORKSPACE/proof-target.json"
+printf 'an older executable\n' > "$STATE/sim-app/DogShelter"
+differs="$(run_verify 2>/dev/null)"
+printf 'same executable\n' > "$STATE/sim-app/DogShelter"
+[[ "$(installed_gate "$differs")" == "red: "installed_app_differs_from_recorded_build:*'not byte-identical'* &&
+    "$(json_value "$differs" next.kind)" == install_app ]] &&
+  ok "an installed app that differs from the recorded build is red and reinstalls the recorded one" ||
+  bad "an installed app that differs from the recorded build was accepted" "$(installed_gate "$differs")"
+printf 'name: DogShelter\n' > "$ROOT/app/project.yml"
+mkdir -p "$ROOT/app/DogShelter"
+touch -t 202601011200 "$STATE/sim-app/DogShelter" "$APP_PATH/DogShelter"
+printf 'IterableAPI.initialize(apiKey: key)\n' > "$ROOT/app/DogShelter/AppDelegate.swift"
+recorded_stale="$(run_verify 2>/dev/null)"
+rm -rf "$ROOT/app/project.yml" "$ROOT/app/DogShelter"
+touch "$STATE/sim-app/DogShelter" "$APP_PATH/DogShelter"
+[[ "$(installed_gate "$recorded_stale")" == "red: "installed_app_older_than_source:* &&
+    "$(json_value "$recorded_stale" next.kind)" == build_app ]] &&
+  ok "a stale recorded build asks for a rebuild, not a reinstall of the same build" ||
+  bad "a stale recorded build was routed to reinstall" "$(json_value "$recorded_stale" next.kind) $(installed_gate "$recorded_stale")"
+mv "$APP_PATH/IterableSDKResources.bundle" "$STATE/artifact.sdk"
+artifact_no_sdk="$(run_verify 2>/dev/null)"
+mv "$STATE/artifact.sdk" "$APP_PATH/IterableSDKResources.bundle"
+node -e '
+  const v=JSON.parse(process.argv[1]), g=v.gates.find(g=>g.id==="I5");
+  process.exit(g?.status==="red" && g.detail.includes("recorded .app has no Iterable iOS SDK") &&
+    g.detail.includes("CODE_SIGNING_ALLOWED=NO") && v.gates.find(g=>g.id==="I6")?.status==="blocked" ? 0 : 1);
+' "$artifact_no_sdk" &&
+  ok "a recorded artifact without the Iterable SDK is refused before install" ||
+  bad "a recorded artifact without the Iterable SDK was accepted"
 
 touch "$STATE/simulator-missing-entitlements"
 simulator_without_entitlements="$(run_verify 2>/dev/null)"

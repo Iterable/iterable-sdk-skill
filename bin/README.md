@@ -109,7 +109,8 @@ evidence differ from Firebase and Android device evidence.
 Verification starts with `ios-verify status`, even in a clean conversation; with
 no proof run it returns the one-answer proof screen. `ios-verify inspect` reads
 the project without interpreting a missing `.iterable/ios/` workspace as a
-missing SDK integration. Behavioral proof needs no app edits: existing
+missing SDK integration; for React Native and Expo it reads `package.json`,
+the JavaScript sources, and the native hooks in `ios/`, never `node_modules`. Behavioral proof needs no app edits: existing
 identity, selected device, installed app, one targeted marker, and, on a
 Simulator, APNs delivery read from the Simulator's own records by `ios-prove`
 and re-derived by `ios-verify`. A standalone run

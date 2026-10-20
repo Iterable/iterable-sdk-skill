@@ -38,6 +38,26 @@ If the verifier says the workspace has no context at all, `ios-verify inspect`
 reads the project without needing `.iterable/ios/`; a missing verification
 workspace is not evidence that Iterable is missing from the app.
 
+For React Native and Expo, the app root is the directory with `package.json`
+(running from `ios/` resolves to it), and `inspect` and `status` report
+`framework`. Prove a Release build: a Debug Simulator build does not embed
+`main.jsbundle` and runs only while Metro serves it, so I5 (a recorded
+artifact) or I6 (the installed app) refuses it and names the
+`xcodebuild … -configuration Release` command to run instead. Relay any
+`warnings` from `inspect`; they name the pitfall to read.
+
+I6 and `ios-prove` also read the app actually installed on the Simulator,
+before any notification check. They refuse it as
+`installed_app_without_sdk` (no Iterable SDK resource bundle or framework,
+or, for React Native and Expo, no `RNIterableAPI` in `main.jsbundle`),
+`installed_app_missing_aps_environment`,
+`installed_app_differs_from_recorded_build` (not byte-identical to the
+`--app-path` build), or `installed_app_older_than_source`. I5 applies the SDK
+and entitlement reads to a recorded artifact before install. Each one names
+the Release build command; build with signing on, never with
+`CODE_SIGNING_ALLOWED=NO`, then pass that exact `.app` to
+`ios-prepare-proof restart --confirm --app-path`.
+
 Do not run these from the plugin directory. `ios-verify` never edits the
 project or workspace. `ios-prepare-proof` writes only ignored,
 mode-restricted proof metadata; it does not enter Apple, APNs, Iterable app
