@@ -80,6 +80,30 @@ behavior, Mobile Inbox, and Embedded Messages. Initialization,
 identification, and the default Iterable in-app message display are included
 automatically. Identity, region, JWT policy, and final confirmation follow.
 
+When the Android program already ran for this app (its `.iterable/.env` holds
+a Mobile key), fresh status first asks `import_android`. Its recommended
+option runs `import-from-android --confirm`: one Mobile key and one
+Server-side key serve both platforms, so it reuses them with the Android
+region and No JWT (the Android flow requires Require JWT off), never prints
+them, and both keys are still validated again for iOS. The Android setup
+records no feature scope, so the React Native skill passes the scope its Step 0
+confirmed as `--features` with comma-separated ids — exactly the ones
+`choose_features` and `choose_more_features` record: `push-notifications`,
+`event-tracking`, `user-profiles`, `deep-linking`, `in-app-messages`,
+`mobile-inbox`, `embedded-messaging`, or `sdk-initialization` alone for
+initialization only. Pass it to `status` first (`status --features …`) so the
+`import_android` screen names the scope, and its recommended option carries the
+same list to `import-from-android`. Any other id is refused and nothing is
+recorded. The list is recorded as the `choose_features` answer with
+`scope_source: "react-native-step0"`, so those screens are skipped, and
+`confirm_scope` shows it with its origin before anything is confirmed; **Change
+the answers** asks it again. Without `--features` the feature questions follow
+as usual. **Set up iOS separately** asks everything again. In a monorepo the Android workspace sits
+at the repository root, so the search walks up from the app root to the git
+toplevel, takes the nearest `.iterable/.env`, and records that path as
+`iterable.imported_from`. Android package auto-detection does not support
+monorepos yet: there the developer types the package name.
+
 Each question has the same core fields as the Android conducted workflow:
 
 - `context`, `header`, and `prompt` are developer-facing words;
@@ -235,6 +259,17 @@ The command requires values matching `scope.json`, moves the key from the
 clipboard into `.iterable/ios/.env`, generates
 `.iterable/ios/IterableSecrets.xcconfig`, restricts both files to mode `0600`,
 and clears the clipboard. It never prints the key.
+
+Where the key goes follows the app's framework, read from `package.json` and
+`app.json` at the app root. Bare React Native gets
+`.iterable/rn/iterable.local.ts` instead of the xcconfig: it exports
+`ITERABLE_API_KEY` inside the self-ignoring workspace, and the app loads it
+with an optional `require` in `try`/`catch`, because a static import breaks
+fresh clones and CI. Expo gets `EXPO_PUBLIC_ITERABLE_API_KEY` in `.env.local`,
+written only when git ignores that file; otherwise status returns
+`fix_expo_gitignore` before any key is written. If the delivered file goes
+missing, status returns `deliver_mobile_key`, which rewrites it from the
+workspace.
 
 Next, prove that the value is a Mobile key for the recorded region:
 
@@ -481,6 +516,8 @@ to `iterable-ios` for application wiring and proof.
 The generated `.iterable/ios/IterableSecrets.xcconfig` is the secure handoff to
 Xcode. Include it from the app's committed base configuration using the correct
 relative path; do not copy or print its value.
+For React Native or Expo, the delivered module or `.env.local` is the handoff
+instead.
 
 Keep proof levels distinct:
 

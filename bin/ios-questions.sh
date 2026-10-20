@@ -37,6 +37,66 @@ ios_q_free_text() {
     "$(jstr "$1")" "$(jstr "$2")" "$(jstr "$3")"
 }
 
+ios_q_import_android() {
+  local summary="$1" features="${2:-}"
+  local scope_note="Feature scope is still asked, because the Android setup does not record it."
+  local reuse_description="Copies the Android Mobile and Server-side keys into the ignored iOS workspace and where the app reads them, without printing them."
+  local reuse_effect="keys, region, and No JWT recorded for iOS; the feature questions come next"
+  local reuse_command="$BIN/ios-provision import-from-android --confirm"
+  if [[ -n "$features" ]]; then
+    scope_note="Reusing also proposes the feature scope confirmed in the React Native skill: ${features//,/, }. It is recorded only after you confirm it on the scope screen, and Change the answers there asks it again."
+    reuse_description="Copies the Android Mobile and Server-side keys into the ignored iOS workspace and where the app reads them, without printing them, and proposes the features ${features//,/, }."
+    reuse_effect="keys, region, No JWT, and the proposed features recorded for iOS; the scope confirmation comes next"
+    reuse_command="$reuse_command --features $features"
+  fi
+  printf '{"header":"Android","prompt":%s,"selection":"single",' \
+    "$(jstr "Reuse the Iterable keys and region the Android setup already recorded for this app?")"
+  printf '"context":%s,' "$(printf '%s\n\n%s\n' "$summary" \
+    "One Mobile key and one Server-side key serve both platforms. Reusing them skips the region and JWT questions and the key-copy steps; the keys are still validated again for iOS. The Android setup requires Require JWT off, so iOS records No JWT. $scope_note" | ios_q_arr)"
+  printf '"requires":[],"recommended":%s,"before_commands":[],"options":[' \
+    "$(jstr "Reuse the Android setup")"
+  ios_q_opt "Reuse the Android setup" \
+    "$reuse_description" \
+    "$reuse_effect" \
+    "$reuse_command"
+  printf ','
+  ios_q_opt "Set up iOS separately" \
+    "Ask every iOS question and capture keys again, for example when iOS should use a different Iterable project." \
+    "nothing imported; the feature questions come next" \
+    "$BIN/ios-provision answer --field android-import --value skip"
+  printf ']}'
+}
+
+ios_q_fix_expo_gitignore() {
+  local root="$1"
+  printf '{"header":"Expo env","prompt":%s,"selection":"single",' \
+    "$(jstr "1. Open $root/.gitignore.
+2. Add the line .env*.local (the Expo template keeps it under # local env files).
+3. Save the file.
+
+Add .env*.local to .gitignore so the Mobile key in .env.local is never committed — done?")"
+  printf '"context":%s,' "$(ios_q_arr <<'EOF'
+This Expo app reads the Mobile key from EXPO_PUBLIC_ITERABLE_API_KEY in .env.local. The tool writes it there only when git already ignores that file.
+EOF
+)"
+  printf '"requires":[],"recommended":%s,"before_commands":[],"options":[' \
+    "$(jstr "Done — check again")"
+  ios_q_opt "Done — check again" \
+    "Re-reads .gitignore and continues once .env.local is ignored." \
+    "status runs again" \
+    "$BIN/ios-provision status"
+  printf ','
+  ios_q_opt "Help me — add it to .gitignore for me" \
+    "Appends .env*.local under # local env files in $root/.gitignore, then checks git ignores .env.local." \
+    ".gitignore updated; the Mobile key screen comes next" \
+    "$BIN/ios-provision ignore-expo-env --confirm"
+  printf ','
+  ios_q_opt "Stop here" \
+    "No key is written into the project." \
+    "the Mobile key stays out of the app"
+  printf ']}'
+}
+
 ios_q_choose_features() {
   printf '{"header":"Features","prompt":%s,"selection":"multiple",' \
     "$(jstr "Which Iterable features should this integration include?")"
@@ -258,7 +318,9 @@ EOF
 }
 
 ios_q_confirm_scope() {
-  local features="$1" identity="$2" region="$3" jwt="$4"
+  local features="$1" identity="$2" region="$3" jwt="$4" source="${5:-}" origin=""
+  [[ "$source" != react-native-step0 ]] ||
+    origin=" (the scope confirmed in the React Native skill)"
   local next_description="secure Mobile API-key capture"
   local option_description="Writes the confirmed non-secret decisions to the ignored iOS workspace, then continues to Mobile API-key setup."
   local option_effect="scope.json recorded; Mobile API-key setup becomes the next state"
@@ -270,7 +332,7 @@ ios_q_confirm_scope() {
   printf '{"header":"Confirm","prompt":%s,"selection":"single",' \
     "$(jstr "Use this Iterable integration scope?")"
   printf '"context":%s,' "$(ios_q_arr <<EOF
-Features: $features
+Features: $features$origin
 Identity: $identity
 Region: $region
 JWT required: $jwt
@@ -1823,13 +1885,15 @@ EOF
 ios_question() {
   case "$1" in
     choose_features) ios_q_choose_features ;;
+    import_android) ios_q_import_android "$2" "${3:-}" ;;
+    fix_expo_gitignore) ios_q_fix_expo_gitignore "$2" ;;
     choose_more_features) ios_q_choose_more_features ;;
     choose_identity) ios_q_choose_identity ;;
     choose_region) ios_q_choose_region ;;
     choose_jwt) ios_q_choose_jwt ;;
     check_jwt) ios_q_check_jwt "${2:-}" ;;
     confirm_scope)
-      ios_q_confirm_scope "$2" "$3" "$4" "$5"
+      ios_q_confirm_scope "$2" "$3" "$4" "$5" "${6:-}"
       ;;
     configure_iterable)
       ios_q_configure_iterable "$2" "$3"
