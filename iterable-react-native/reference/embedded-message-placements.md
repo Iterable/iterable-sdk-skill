@@ -2,7 +2,7 @@
 slug: embedded-message-placements
 feature: embedded-messaging
 archetype: prerequisite
-sdk_min_version: 3.1.0
+sdk_min_version: 3.2.1
 sdk_artifact: "@iterable/react-native-sdk"
 title: Defining Placements for Embedded Messages
 source_url: https://support.iterable.com/hc/articles/23060983437076
@@ -10,7 +10,7 @@ source_repo: Iterable/iterable-docs
 source_path: docs/sending-messages-by-channel/embedded-messaging/placements-for-embedded-messages/index.md
 source_ref: 275e9063f5aa922a9c282d6d34a8aebec3d15448
 source_sha: 9d3f509c00fb5c26601026bd89837ba68cfcad9c
-fetched_at: 2026-09-17T15:32:00.898Z
+fetched_at: 2026-10-19T10:21:49.719Z
 summary: Before you can create embedded message templates and campaigns, you'll
   need to decide where in your apps to display them. Places in your app or
   website that display embedded messages are called _placements_, and you'll

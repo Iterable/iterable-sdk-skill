@@ -45,6 +45,10 @@ entitlements, `POST_NOTIFICATIONS`) is still part of a React Native
 integration — it lives in this skill's own `reference/` docs, not in a
 separate skill the developer must ask for.
 
+**Read and search the project with your host's file tools** (in Claude Code,
+Read, Grep and Glob), not shell `cat`, `grep` or `find`: each shell command can
+cost the developer a permission prompt.
+
 ---
 
 ## Step 0 — Agree on scope BEFORE writing code
@@ -69,9 +73,22 @@ multi-select question tool (in Claude Code, `AskUserQuestion` with
 use it and offer **at most 4 options**; otherwise ask in plain text:
 
 - Push notifications (FCM / APNs)
-- Event tracking + user identity
+- Event tracking + user profiles (identifying the user is always included)
 - Deep links: iOS universal links, Android App Links, and custom URL schemes
 - Other (inbox, embedded) — describe in the option
+
+Each confirmed answer maps to one entry in `iterable-provision`'s feature ids,
+which the iOS phase takes as `--features` (comma-separated):
+
+| Step 0 answer | `--features` ids |
+|---|---|
+| Push notifications | `push-notifications` |
+| Event tracking + user profiles | `event-tracking,user-profiles` |
+| Deep links | `deep-linking` |
+| Other: Mobile Inbox | `mobile-inbox` |
+| Other: Embedded Messages | `embedded-messaging` |
+| Other: custom in-app handling | `in-app-messages` |
+| None of these (initialize and identify only) | `sdk-initialization` |
 
 **In-app messages are absent from that list on purpose.** By default the SDK
 displays every in-app message it receives and tracks the interactions
@@ -95,6 +112,30 @@ the plan before touching it.
 
 Confirm the scope, *then* run Preflight, *then* build.
 
+### Two platforms: Android first, then iOS
+
+When the scope covers both platforms, finish one before starting the other:
+
+1. **Android:** provision with `iterable-provision`, integrate, and prove it —
+   `iterable-android-verify` green — before any iOS work starts.
+2. **iOS:** `iterable-provision`'s iOS path offers to reuse what the Android
+   phase recorded — both Iterable keys (Mobile and Server-side), the region,
+   No JWT, and the test email. Pass the scope confirmed in Step 0 as
+   `--features <ids>` from the table above, first to `ios-provision status`,
+   so the import screen names it, and its recommended option carries it into
+   `import-from-android`. The final scope screen shows it again before
+   anything is confirmed. Pass only what the developer confirmed; without
+   `--features` the scope is asked again. The path then adds the Apple/APNs
+   prerequisites. Then write the iOS native push code
+   ([Bare iOS](#bare-ios-native-push-code)) and prove it with
+   `iterable-ios-verify`.
+
+An app is integrated when the verifier passes for **every platform in scope**;
+one green platform is half an integration.
+
+**After any rebuild, re-run that platform's verifier before asking the developer
+to act again.** Its last answer was about the build you replaced.
+
 ---
 
 ## Definition of done — finish the agreed scope, don't stub it
@@ -109,7 +150,10 @@ Within the agreed scope, an integration is finished only when:
   UUID-generation/persistence code**.
 - [ ] Native configuration required by the agreed scope is done for the
   workflow you detected (Expo plugin vs bare `ios/` + `android/`), including
-  push permission on Android 13+ when push is in scope.
+  push permission on Android 13+ and on iOS when push is in scope.
+- [ ] Each platform in scope passed its verifier: `iterable-android-verify`,
+  then `iterable-ios-verify` against a **Release** Simulator build (a Debug
+  build loads JavaScript from Metro and shows a red box without it).
 
 Only genuinely developer-supplied inputs (API key, identity model, region,
 JWT, `google-services.json` / APNs key) are legitimate pauses.
@@ -139,12 +183,12 @@ everything".
 | Input | Needed when | If missing |
 |---|---|---|
 | **Workflow** — Expo vs bare | Always | Detect from the project (Step 0). If both signals exist, ask. |
-| **Mobile API key** | Always | Ask where it lives; never hardcode into a tracked file. |
+| **Mobile API key** | Always | Never hardcode it into a tracked file. `iterable-provision` writes the copy the app reads: bare RN `.iterable/rn/iterable.local.ts`, Expo `EXPO_PUBLIC_ITERABLE_API_KEY` in a gitignored `.env.local` ([loading it](#loading-the-key)). |
 | **Identity model** — `setEmail` vs `setUserId`, and where the value comes from | Always | Ask. Never guess. |
 | **JWT?** — is the mobile key JWT-protected? | Always | Ask, and **assume yes until told otherwise** (it is on by default for client-side keys and is permanent). If yes, `authHandler` is mandatory (rule 1) **and the team needs a backend endpoint that mints the tokens** — if they don't have one, raise it as a blocker instead of signing in the app. |
 | **Data region** — US or EU | Always | Ask if their dashboard is `app.eu.iterable.com`. See pitfall #2. |
 | **`google-services.json`** (Firebase) | Android push (bare **or** Expo) | **Route into `iterable-provision`**, which downloads the real one; if it isn't installed, STOP and ask. Either way you cannot generate it. Expo: path goes in `expo.android.googleServicesFile`, not a hand-edited `android/`. |
-| **APNs key / capabilities** | Bare-workflow push on iOS | Ask. Follow `reference/push-notifications.md`. |
+| **APNs key / capabilities** | Push on iOS | Route into `iterable-provision`'s iOS path once Android is proven. Native code: [Bare iOS](#bare-ios-native-push-code); Expo: the plugin. |
 | **Development build vs Expo Go** | Expo | Expo Go cannot run this SDK (pitfall #7). If they are in Expo Go, stop and move them to a development build before debugging JS. |
 
 **Never fabricate a prerequisite to make the build pass.** Do not invent an
@@ -185,6 +229,8 @@ Once it reports `done`, **you own placing the file**: on bare RN copy
 `.iterable/artifacts/google-services.json` to `android/app/google-services.json`;
 on Expo put it where `expo.android.googleServicesFile` points, never by
 hand-editing `android/`. Show it as part of your one confirmed diff.
+In a monorepo whose app sits below the repository root, provisioning does not
+read the Android package name from the project yet; the developer types it.
 
 For the steps they do themselves, don't send them to support.iterable.com; open
 the doc that covers making it.
@@ -235,10 +281,16 @@ Firebase Console and cannot be generated.
 
 - **Latest version: always fetch it — never trust a number baked into this
   file.** Before writing a dependency line, resolve the current release from
-  npm (`@iterable/react-native-sdk`) or the SDK's
-  [CHANGELOG.md](https://github.com/Iterable/react-native-sdk/blob/master/CHANGELOG.md).
-  If the host project already pins a version, match it unless they ask to
-  upgrade. **Expo:** also resolve `@iterable/expo-plugin` from npm or its
+  npm with one call that a scoped private registry can't break:
+  `npm view @iterable/react-native-sdk version --@iterable:registry=https://registry.npmjs.org`
+  (or the SDK's
+  [CHANGELOG.md](https://github.com/Iterable/react-native-sdk/blob/master/CHANGELOG.md)).
+  If the network fails, use **3.2.1**, the version this skill's docs were
+  checked against, and say so. If the host project already pins a version,
+  match it unless they ask to upgrade. **Expo:** also resolve
+  `@iterable/expo-plugin` the same way
+  (`npm view @iterable/expo-plugin version --@iterable:registry=https://registry.npmjs.org`;
+  offline, **1.1.0**) or from its
   [CHANGELOG](https://github.com/Iterable/iterable-expo-plugin/blob/main/CHANGELOG.md).
   State **both** package versions and check they are compatible (pitfall
   #10). Do not guess Expo SDK / RN / plugin versions independently.
@@ -259,12 +311,17 @@ Firebase Console and cannot be generated.
   Do not import `NativeRNIterableAPI`, `RNIterableAPI`, or the internal
   `IterableApi` class.
 - **Native Android/iOS SDK versions come from this RN package, not from the
-  Android skill.** `@iterable/react-native-sdk` **3.1.0** pins Android
-  **`3.6.2`** and iOS **`6.6.7`**. Do not call Kotlin/Swift APIs that exist
-  only on Android `3.7.0` (the Android skill's pin) or any newer native SDK
-  than this package ships. Confirm in the RN README version table or
-  `node_modules/@iterable/react-native-sdk` (`android/build.gradle`, podspec)
-  for the version they have (pitfall #5).
+  native skills.** `@iterable/react-native-sdk` **3.2.1** pins Android
+  **`3.10.1`** and iOS **`6.7.5`**; **3.1.0** pinned `3.6.2` / `6.6.7`. Use only
+  native APIs the installed package ships, whatever the native skills pin
+  (`iterable-android` is at 3.7.0, `iterable-ios` at 6.7.5). Confirm in the RN
+  README version table or `node_modules/@iterable/react-native-sdk`
+  (`android/build.gradle`, podspec) for the version they have (pitfall #5).
+- **Skip 3.2.0.** Its Android module did not compile against its own native pin
+  (fixed in 3.2.1). 3.2.x needs React Native **0.77+** and React **18.3.1+**,
+  changes no JavaScript APIs, and turns off unknown-user activation on iOS,
+  which 3.1.0's native pin left on by default. On Expo, `@iterable/expo-plugin` stays at
+  **1.1.0**: npm's 1.2.0 is deprecated as published by accident.
 
 ---
 
@@ -301,7 +358,11 @@ Expo). Rule 8 applies whenever the app already sends push of its own.
    This is native Android setup performed as part of the React Native
    integration — read `reference/push-notifications.md` (bare) or
    `reference/expo.md` (Expo). Do not skip it, and do not wait for the
-   developer to open the Android skill.
+   developer to open the Android skill. The bare 0.88 template's manifest
+   declares only `INTERNET`, and it doesn't apply the
+   `com.google.gms.google-services` Gradle plugin — so the app builds without
+   `google-services.json` and simply never gets an FCM token. A green build is
+   not proof.
 
 4. **Only call the public JS facade in `src/index.tsx`.** Import from
    `@iterable/react-native-sdk` (`Iterable`, `IterableConfig`, in-app / inbox /
@@ -310,8 +371,8 @@ Expo). Rule 8 applies whenever the app already sends push of its own.
    `IterableApi.getInstance()`, `IterableConfig.Builder()`, or Swift
    `IterableAPI` into JS. Device attributes and unread-inbox count exist
    natively but are not on that facade (pitfall #4, SDK-593, SDK-594). This
-   package at 3.1.0 ships Android `3.6.2` / iOS `6.6.7` — do not pull Android
-   `3.7.0` APIs from the Android skill (pitfall #5).
+   package at 3.2.1 ships Android `3.10.1` / iOS `6.7.5` — native APIs newer
+   than those are not reachable (pitfall #5).
 
 5. **Never hardcode the API key into a tracked file.** Read it from a
    gitignored env file or the project's existing secrets pattern. An empty
@@ -321,16 +382,21 @@ Expo). Rule 8 applies whenever the app already sends push of its own.
    identity to the first email-shaped field you find.
 
 7. **Expo: both packages, plugin owns native configuration.** Install with
-   `npx expo install @iterable/expo-plugin @iterable/react-native-sdk`.
-   Never treat Expo Go as a valid runtime (pitfall #7). Do not hand-edit
+   `npx expo install @iterable/expo-plugin@<resolved> @iterable/react-native-sdk@<resolved>`
+   ([Quick facts](#quick-facts-always-relevant)). Never treat Expo Go as a valid runtime (pitfall #7). Do not hand-edit
    `ios/` or `android/` as the primary path (`prebuild --clean` wipes them
    — pitfall #8). If they already configure native code by hand, do **not**
    add the plugin (pitfall #9). When stating versions, give both packages
-   (pitfall #10). Trust plugin source over the support-doc options table
-   (`requestPermissionsForPushNotifications` defaults to `false` — pitfall
-   #14). On Xcode **27**, use CLI **20.2.0+** (bare) or Expo SDK **58**
-   for Device Hub launch, and host Podfile / config-plugin fixes for
-   resource-bundle deployment targets (pitfall **#12**) — not hand-edited
+   (pitfall #10). Trust plugin source over the support-doc options table:
+   `requestPermissionsForPushNotifications` defaults to `false`, so nothing
+   prompts — set it to `true` when push is in scope (pitfall #14). Run a
+   development build (`expo-dev-client`): Expo Go cannot load the
+   `RNIterableAPI` native module. `ios/` and `android/` are
+   gitignored and regenerated, so a config or plugin change needs a fresh
+   prebuild. On Xcode **27**, use CLI **20.2.0+** (bare) or Expo SDK **58**
+   for Device Hub launch; bare apps also need a `Podfile` lift of Pods
+   resource-bundle deployment targets, while an Expo SDK 58 prebuild needed none
+   in our trial — check, don't assume (pitfall **#12**). Never hand-edit
    `Pods/`.
 
 8. **If the app already sends push, forward to Iterable — never replace what's
@@ -352,6 +418,15 @@ Expo). Rule 8 applies whenever the app already sends push of its own.
    manifest rather than reasoning it out. iOS coexistence is a different
    mechanism — don't assume the Android shape transfers.
 
+9. **Deep links: `urlHandler` answers `true` for every URL the app owns, and
+   only tracking links reach `Iterable.handleAppLink`.** A falsy return makes
+   the SDK's JavaScript call `Linking.openURL(url)`; for a URL on your own
+   scheme or tracking domain that comes straight back through your `Linking`
+   listener — a loop (pitfall #16). Pass a URL to `handleAppLink` only when it
+   is `https`, on your tracking domain, with an `/a/` path, and wire `Linking`
+   only after `await Iterable.initialize(...)`. On Expo the plugin does **not**
+   configure deep links (pitfall #17). See [Deep links](#deep-links).
+
 ---
 
 ## Canonical minimum integration (start here)
@@ -360,32 +435,210 @@ Adapt this; don't bolt the pieces together from scratch. Read
 `reference/installing.md` (bare) or `reference/expo.md` (Expo) before
 writing native project files.
 
-**Expo — install both packages first** (then the JS below):
+### Install — Android first
+
+With the versions resolved in [Quick facts](#quick-facts-always-relevant):
+
+**Bare:**
 
 ```bash
-npx expo install @iterable/expo-plugin @iterable/react-native-sdk
+npm install @iterable/react-native-sdk@<resolved>
 ```
 
-Add `["@iterable/expo-plugin", {}]` to `expo.plugins` in `app.json` /
-`app.config.*`. Do not skip this, and do not treat the JS snippet as the
-whole Expo integration.
+**Expo** — through `npx expo install`, which the default Expo template's `AGENTS.md`
+also requires:
+
+```bash
+npx expo install @iterable/expo-plugin@<resolved> @iterable/react-native-sdk@<resolved>
+```
+
+- **`E401` from `npm.pkg.github.com`:** the developer's npm config maps the
+  `@iterable` scope to a private registry, and `--registry=` doesn't override a
+  scope. Check with `npm config get @iterable:registry` — **never print
+  `~/.npmrc` or any other credential file**, it holds their token — then add
+  pitfall #18's project `.npmrc` and install again.
+- **Android first.** After the install, work only in JavaScript and `android/`:
+  no `pod install`, no edit under `ios/`, no `AppDelegate` change until
+  `iterable-android-verify` is green.
+- **New Architecture: leave it on, there is nothing to configure.** React Native
+  0.82+ runs only the New Architecture: its CocoaPods scripts treat it as always
+  enabled and warn on `ENV['RCT_NEW_ARCH_ENABLED'] = '0'`, and its Gradle plugin
+  warns on `newArchEnabled=false`, then both run it anyway. SDK 3.2.1 is a
+  codegen TurboModule (`RNIterableAPISpec`) and builds its New Architecture path
+  under 0.88. So skip `reference/installing.md` → `## Configuring React Native's
+  New Architecture`, and keep the template's `newArchEnabled=true` in
+  `android/gradle.properties`: the SDK's Android module compiles its New
+  Architecture sources only when that property reads `true`.
+
+On Expo, add the plugin to `expo.plugins` in `app.json` / `app.config.*` —
+with push in scope, as
+`["@iterable/expo-plugin", { "requestPermissionsForPushNotifications": true }]`
+(pitfall #14); otherwise `["@iterable/expo-plugin", {}]`. Do not skip this, and
+do not treat the JS snippet as the whole Expo integration.
+
+### Initialize and identify
 
 ```javascript
+import { Linking } from 'react-native';
 import { Iterable, IterableConfig, IterableDataRegion } from '@iterable/react-native-sdk';
 
-export async function initializeIterable(apiKey, { userId, dataRegion } = {}) {
+// The Iterable link-tracking domain: Settings > Domains in Iterable.
+const LINK_TRACKING_DOMAIN = 'links.example.com';
+
+export function isIterableTrackingLink(url) {
+  const match = /^https:\/\/([^/?#]+)(\/[^?#]*)?/.exec(url ?? '');
+  return !!match && match[1] === LINK_TRACKING_DOMAIN && /^\/a\/[A-Za-z0-9]+/.test(match[2] ?? '');
+}
+
+// routeUrl(url) is your app's router: true for every URL on your own scheme or
+// domains (unknown paths go to a fallback screen), false only for other apps' URLs.
+export async function initializeIterable(apiKey, { userId, routeUrl }) {
   const config = new IterableConfig();
   // config.dataRegion = IterableDataRegion.EU; // EU projects (pitfall #2)
   // config.authHandler = () => fetchJwtForCurrentUser(); // JWT keys (pitfall #1)
+  config.urlHandler = (url, context) => routeUrl(url); // rule 9
   await Iterable.initialize(apiKey, config); // native init returned, not in-app ready (pitfall #6)
   if (userId) {
     Iterable.setUserId(userId); // or setEmail(...) — pick ONE (rule 6)
   }
+
+  // After initialize: on Android, handleAppLink before init returns false and the link is lost.
+  const open = (url) => {
+    if (!url) return;
+    if (isIterableTrackingLink(url)) Iterable.handleAppLink(url);
+    else routeUrl(url);
+  };
+  open(await Linking.getInitialURL());
+  const subscription = Linking.addEventListener('url', ({ url }) => open(url));
+  return () => subscription.remove();
 }
 ```
 
 **You are not done until `initialize` is actually called** from the host
 app's startup path.
+
+### Loading the key
+
+The key file is gitignored, so a fresh clone or a CI build has no key; the app
+must still build and simply skip `initialize`.
+
+```javascript
+// Bare React Native: an optional require, which Metro tolerates when the file
+// is missing. A static import breaks every build without the file.
+export function readIterableApiKey() {
+  try {
+    return require('../.iterable/rn/iterable.local').ITERABLE_API_KEY ?? '';
+  } catch {
+    return '';
+  }
+}
+```
+
+```javascript
+// Expo: inlined from .env.local at build time; write it exactly like this
+// (dot notation), or Expo doesn't inline it.
+export const ITERABLE_API_KEY = process.env.EXPO_PUBLIC_ITERABLE_API_KEY ?? '';
+```
+
+Adjust the relative path to `.iterable/` from the importing file. On Expo,
+`@iterable/expo-plugin` 1.1.0 has **no** `apiKey` option — one in `app.json` is
+ignored — and a changed `.env.local` needs a restarted bundler or a rebuild.
+
+### Bare iOS: native push code
+
+`Iterable.initialize` sets up the native SDK, but the APNs callbacks are native
+and belong in the app. The 0.88 template is scene-based: `AppDelegate.swift`
+keeps the push callbacks, `SceneDelegate.swift` keeps the URL handling.
+
+```swift
+// AppDelegate.swift — add to the template's class.
+import IterableSDK
+import UIKit
+import UserNotifications
+
+@main
+class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+  func application(
+    _ application: UIApplication,
+    didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+  ) -> Bool {
+    UNUserNotificationCenter.current().delegate = self
+    UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { _, _ in }
+    return true
+  }
+
+  func application(_ application: UIApplication,
+                   didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+    IterableAPI.register(token: deviceToken)
+  }
+
+  func application(_ application: UIApplication,
+                   didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+                   fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+    IterableAppIntegration.application(application,
+                                       didReceiveRemoteNotification: userInfo,
+                                       fetchCompletionHandler: completionHandler)
+  }
+
+  func userNotificationCenter(_ center: UNUserNotificationCenter,
+                              willPresent notification: UNNotification,
+                              withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+    completionHandler([.banner, .list, .sound, .badge])
+  }
+
+  func userNotificationCenter(_ center: UNUserNotificationCenter,
+                              didReceive response: UNNotificationResponse,
+                              withCompletionHandler completionHandler: @escaping () -> Void) {
+    IterableAppIntegration.userNotificationCenter(center,
+                                                  didReceive: response,
+                                                  withCompletionHandler: completionHandler)
+  }
+}
+```
+
+In Objective-C the calls are `[IterableAPI registerToken:deviceToken]`,
+`[IterableAppIntegration application:didReceiveRemoteNotification:fetchCompletionHandler:]`,
+and `[IterableAppIntegration userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:]`.
+
+- **Permission is asked at launch, natively** — the `requestAuthorization` line
+  above; neither the SDK nor the template asks (pitfall #22). Don't add a
+  permission package for it.
+- **Token registration is the SDK's, after identity.** There is no
+  `Iterable.registerForPush()` or any other JavaScript registration call
+  (pitfall #21). With the default `autoPushRegistration`, the SDK asks for the
+  token after `Iterable.setEmail` / `setUserId`, and `register(token:)` ignores
+  any token that arrives before an identity.
+- **Project:** the `aps-environment` entitlement (Push Notifications
+  capability), `UIBackgroundModes` → `remote-notification` (silent push, which
+  also delivers in-app messages), and, for images or buttons, a Notification
+  Service Extension target with the `Iterable-iOS-AppExtensions` pod. The
+  `iterable-ios` skill has the exact files (canonical step 1, Push
+  notifications). Add the entitlements file to the app target's
+  `CODE_SIGN_ENTITLEMENTS` build setting, for Debug and Release, in the
+  project — not as a `CODE_SIGN_ENTITLEMENTS=` argument to one `xcodebuild`.
+- **Universal links:** keep the template's `SceneDelegate` forwarding
+  `scene(_:continue:)` and `scene(_:openURLContexts:)` to `RCTLinkingManager`,
+  and passing `connectionOptions` to `startReactNative` — that is how a link
+  that launched the app reaches `Linking.getInitialURL()`. The SDK example's
+  `AppDelegate` `application(_:continue:restorationHandler:)` never fires in a
+  scene-based app; React Native ignores the app-delegate linking methods once
+  `UIApplicationSceneManifest` is declared.
+- **Proof artifact:** the Release configuration for the Simulator. It embeds
+  `main.jsbundle`; Debug loads JavaScript from Metro and shows a red box
+  without it. Build it with exactly this, from the app root:
+
+  ```bash
+  cd ios && xcodebuild -workspace <App>.xcworkspace -scheme <App> -configuration Release -sdk iphonesimulator -derivedDataPath build build
+  ```
+
+  The app is `ios/build/Build/Products/Release-iphonesimulator/<App>.app`.
+  Install that path with `xcrun simctl install <udid> <path>`, and record it
+  with `<root>/bin/ios-prepare-proof start --confirm --app-path <path>`, or
+  `restart --confirm --app-path <path>` when a run already exists. Never install a `.app` found with `find` or from another DerivedData
+  folder — it can be a stale build (pitfall #19). Never add
+  `CODE_SIGNING_ALLOWED=NO`, `CODE_SIGNING_REQUIRED=NO` or `CODE_SIGN_IDENTITY=""`:
+  an unsigned app carries no `aps-environment` and never gets a token
+  (pitfall #20).
 
 Native push / APNs / FCM / `POST_NOTIFICATIONS` steps are in the installing
 and push (or expo) reference docs — do them as part of this skill when push
@@ -397,6 +650,66 @@ Notification Service Extension) you may open
 `../iterable-ios/reference/<slug>.md`. Do not copy `iterable-ios`'s Swift
 initialization into an RN app: this package initializes the native SDK, and the
 iOS SDK version it ships (above) wins over the iOS skill's pin.
+
+### Deep links
+
+Only when deep links are in scope.
+
+- **What `urlHandler`'s answer does.** With a JS `urlHandler` set, the native
+  side always reports the URL as handled and hands it to JavaScript; on Android
+  the SDK waits `config.androidWakeDelayMs` (default **1000 ms**) before calling
+  it, so a cold-start link routes a second later. If the handler returns
+  anything falsy, the SDK's JavaScript calls `Linking.openURL(url)` — for your
+  own scheme or domains, straight back into your app (rule 9, pitfall #16).
+- **A tracking link is resolved asynchronously.** `handleAppLink` records the
+  click and follows the redirect; `urlHandler` then receives the destination —
+  or the original `/a/` URL when the request fails (offline), which it must also
+  answer `true` for.
+- **Keep tracking links out of your navigation library.** React Navigation's
+  `linking` prop takes `filter: (url) => !isIterableTrackingLink(url)`. With
+  Expo Router, export `redirectSystemPath` from `app/+native-intent.tsx` and
+  return `null` for a tracking link — no redirection occurs — letting the
+  listener above hand it to Iterable.
+- **Native entry points.** Bare iOS forwards links to `RCTLinkingManager`
+  (`reference/deep-links-and-custom-actions.md` → Step 1). That snippet starts
+  with `#import <React/RCTLinkingManager.h>`, which is Objective-C and does not
+  compile in a Swift `AppDelegate` — use `import React`. Its `urlHandler`
+  example calls `this.navigate(match[1])` without ever binding `match`; capture
+  the result of `url.match(...)` first.
+- **Expo:** the plugin (1.1.0) only sets the main activity's
+  `android:launchMode` to `singleTask`. It adds no intent filters and no
+  associated domains, whatever `reference/expo.md` says — add them yourself in
+  `app.json` (pitfall #17):
+
+  ```json
+  {
+    "expo": {
+      "ios": { "associatedDomains": ["applinks:links.example.com"] },
+      "android": {
+        "intentFilters": [
+          {
+            "action": "VIEW",
+            "autoVerify": true,
+            "data": [{ "scheme": "https", "host": "links.example.com", "pathPrefix": "/a/" }],
+            "category": ["BROWSABLE", "DEFAULT"]
+          }
+        ]
+      }
+    }
+  }
+  ```
+
+  Use your own tracking domain. The `reference/expo.md` examples list
+  `applinks:expo.dev` and `applinks:iterable.com` — domains the app cannot
+  claim — and its intent-filter JSON has a `//` comment and a trailing comma,
+  which `app.json` rejects.
+- **Iterable prerequisites** for either platform: a custom HTTPS link-tracking
+  domain (not `links.iterable.com`), the `apple-app-site-association` and
+  `assetlinks.json` uploads under **Settings > Domains** → the tracking domain →
+  **New Destination Path**, and on Android 12+ a verified App Link — an
+  unverified one opens in the browser. The native skills have the detail:
+  `iterable-ios` (Deep links and universal links) and `iterable-android` (Deep
+  links and App Links).
 
 ---
 
@@ -419,7 +732,7 @@ source — it is already on disk.**
 | If the user is asking about… | Slug |
 | ---------------------------- | ---- |
 | What the RN SDK covers, architecture, JS vs native | `overview` |
-| First-time setup, npm install, iOS + Android native project setup, `Iterable.initialize` | `installing` (bare; skip `## Upgrading the SDK` unless they are upgrading). Expo: `expo` |
+| First-time setup, npm install, iOS + Android native project setup, `Iterable.initialize` | `installing` (bare; skip `## Upgrading the SDK` unless they are upgrading, and on React Native 0.82+ skip `## Configuring React Native's New Architecture` — see [Install](#install--android-first)). Expo: `expo` |
 | Upgrading from an older RN SDK version | `installing` → `## Upgrading the SDK`, or `migrating` |
 | Expo / `expo prebuild` / config plugin | `expo` |
 | JWT, `authHandler`, JWT-enabled API keys | `authentication` |

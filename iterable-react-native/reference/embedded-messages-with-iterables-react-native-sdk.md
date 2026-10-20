@@ -2,15 +2,15 @@
 slug: embedded-messages-with-iterables-react-native-sdk
 feature: embedded-messaging
 archetype: feature
-sdk_min_version: 3.1.0
+sdk_min_version: 3.2.1
 sdk_artifact: "@iterable/react-native-sdk"
 title: Embedded Messages with Iterable's React Native SDK
 source_url: https://support.iterable.com/hc/articles/49144129810324
 source_repo: Iterable/iterable-docs
 source_path: docs/developer-and-api-docs/embedded-messaging/embedded-messages-with-iterables-react-native-sdk/index.md
-source_ref: 59c40504c91bc0b13751c5ef5f348810eb0fd4f2
+source_ref: 275e9063f5aa922a9c282d6d34a8aebec3d15448
 source_sha: 88948a289f4214d375316e4cd8ab8dca1af22120
-fetched_at: 2026-08-28T14:44:26.871Z
+fetched_at: 2026-10-19T10:21:47.491Z
 summary: This article describes the steps you'll need to follow to use
   Iterable's React Native SDK to display embedded messages in your mobile app.
   It describes only the steps necessary to use embedded messaging. To learn

@@ -2,15 +2,15 @@
 slug: migrating
 feature: integration
 archetype: integration
-sdk_min_version: 3.1.0
+sdk_min_version: 3.2.1
 sdk_artifact: "@iterable/react-native-sdk"
 title: Migrating to Iterable's React Native SDK
 source_url: https://support.iterable.com/hc/articles/360046134931
 source_repo: Iterable/iterable-docs
 source_path: docs/developer-and-api-docs/iterables-react-native-sdk/migrating/index.md
-source_ref: 59c40504c91bc0b13751c5ef5f348810eb0fd4f2
+source_ref: 275e9063f5aa922a9c282d6d34a8aebec3d15448
 source_sha: f9c8c2739e94d3d97237bc172f197bc899a2d1c1
-fetched_at: 2026-08-28T14:44:26.866Z
+fetched_at: 2026-10-19T10:21:46.913Z
 summary: This guide describes how to integrate Iterable's React Native SDK into
   an existing React Native application that interacts with Iterable.
 ---

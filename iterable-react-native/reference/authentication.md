@@ -2,15 +2,15 @@
 slug: authentication
 feature: jwt-authentication
 archetype: identity
-sdk_min_version: 3.1.0
+sdk_min_version: 3.2.1
 sdk_artifact: "@iterable/react-native-sdk"
 title: JWT Authentication with Iterable's React Native SDK
 source_url: https://support.iterable.com/hc/articles/43901001355412
 source_repo: Iterable/iterable-docs
 source_path: docs/developer-and-api-docs/iterables-react-native-sdk/authentication/index.md
-source_ref: 59c40504c91bc0b13751c5ef5f348810eb0fd4f2
+source_ref: 275e9063f5aa922a9c282d6d34a8aebec3d15448
 source_sha: 6b2543add6f9cabb69d410636adf764ec46a78bb
-fetched_at: 2026-08-28T14:44:26.816Z
+fetched_at: 2026-10-19T10:21:42.037Z
 summary: JSON Web Token (JWT) authentication adds an extra layer of security to
   your mobile app by requiring a cryptographically signed token for each API
   request. This helps prevent unauthorized access to your Iterable project and

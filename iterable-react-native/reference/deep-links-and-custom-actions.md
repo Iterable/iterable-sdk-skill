@@ -2,15 +2,15 @@
 slug: deep-links-and-custom-actions
 feature: deep-linking
 archetype: feature
-sdk_min_version: 3.1.0
+sdk_min_version: 3.2.1
 sdk_artifact: "@iterable/react-native-sdk"
 title: Deep Links and Custom Actions with Iterable's React Native SDK
 source_url: https://support.iterable.com/hc/articles/360046134911
 source_repo: Iterable/iterable-docs
 source_path: docs/developer-and-api-docs/iterables-react-native-sdk/deep-links-and-custom-actions/index.md
-source_ref: 59c40504c91bc0b13751c5ef5f348810eb0fd4f2
+source_ref: 275e9063f5aa922a9c282d6d34a8aebec3d15448
 source_sha: ee16919f6cfe9bcf16e04aee34b06b8f41be523e
-fetched_at: 2026-08-28T14:44:26.844Z
+fetched_at: 2026-10-19T10:21:44.848Z
 summary: It's often useful to link directly from your marketing campaigns to
   specific content in your mobile apps. To make this possible, Iterable supports
   _deep links_ and _custom actions_. Deep links can open a particular screen in

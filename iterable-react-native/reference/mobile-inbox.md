@@ -2,15 +2,15 @@
 slug: mobile-inbox
 feature: mobile-inbox
 archetype: feature
-sdk_min_version: 3.1.0
+sdk_min_version: 3.2.1
 sdk_artifact: "@iterable/react-native-sdk"
 title: Using a Mobile Inbox with Iterable's React Native SDK
 source_url: https://support.iterable.com/hc/articles/5422108307604
 source_repo: Iterable/iterable-docs
 source_path: docs/developer-and-api-docs/iterables-react-native-sdk/mobile-inbox/index.md
-source_ref: 59c40504c91bc0b13751c5ef5f348810eb0fd4f2
+source_ref: 275e9063f5aa922a9c282d6d34a8aebec3d15448
 source_sha: 0088f17792b5278225b686005e654262de6a4eab
-fetched_at: 2026-08-28T14:44:26.838Z
+fetched_at: 2026-10-19T10:21:44.084Z
 summary: A mobile inbox displays a list of saved in-app messages that users can
   revisit at their convenience. This way, they can access messages right when
   they're relevant—for example, maybe pulling up a coupon while shopping.

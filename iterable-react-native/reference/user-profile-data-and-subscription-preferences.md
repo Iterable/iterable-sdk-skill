@@ -2,16 +2,16 @@
 slug: user-profile-data-and-subscription-preferences
 feature: user-profiles
 archetype: identity
-sdk_min_version: 3.1.0
+sdk_min_version: 3.2.1
 sdk_artifact: "@iterable/react-native-sdk"
 title: Managing User Profile Data and Subscription Preferences with Iterable's
   React Native SDK
 source_url: https://iterable.zendesk.com/hc/articles/360046134851
 source_repo: Iterable/iterable-docs
 source_path: docs/developer-and-api-docs/iterables-react-native-sdk/user-profile-data-and-subscription-preferences/index.md
-source_ref: 59c40504c91bc0b13751c5ef5f348810eb0fd4f2
+source_ref: 275e9063f5aa922a9c282d6d34a8aebec3d15448
 source_sha: 1fa754a89e67cfe38db325cc0e0e2cf2ecd6880f
-fetched_at: 2026-08-28T14:44:26.855Z
+fetched_at: 2026-10-19T10:21:45.847Z
 summary: As you learn new things about your mobile app's users, you may want to
   save data to their Iterable profiles. Your marketing team can then use this
   information to send them personalized messages.

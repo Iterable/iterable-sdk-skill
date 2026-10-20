@@ -2,15 +2,15 @@
 slug: push-notifications
 feature: push-notifications
 archetype: feature
-sdk_min_version: 3.1.0
+sdk_min_version: 3.2.1
 sdk_artifact: "@iterable/react-native-sdk"
 title: Push Notifications with Iterable's React Native SDK
 source_url: https://iterable.zendesk.com/hc/articles/360046134871
 source_repo: Iterable/iterable-docs
 source_path: docs/developer-and-api-docs/iterables-react-native-sdk/push-notifications/index.md
-source_ref: 59c40504c91bc0b13751c5ef5f348810eb0fd4f2
+source_ref: 275e9063f5aa922a9c282d6d34a8aebec3d15448
 source_sha: cd2ea10bb40d789aed557a58d5946ab34fb682e5
-fetched_at: 2026-08-28T14:44:26.827Z
+fetched_at: 2026-10-19T10:21:43.013Z
 summary: Iterable's React Native SDK provides methods to track push
   notification-related events and to access a push notification's payload, as
   described below.

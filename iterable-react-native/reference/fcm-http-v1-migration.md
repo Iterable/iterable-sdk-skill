@@ -2,7 +2,7 @@
 slug: fcm-http-v1-migration
 feature: push-notifications
 archetype: prerequisite
-sdk_min_version: 3.1.0
+sdk_min_version: 3.2.1
 sdk_artifact: "@iterable/react-native-sdk"
 title: "Mobile Push Notifications: Migrating to the FCM HTTP v1 API"
 source_url: https://support.iterable.com/hc/articles/26143681644564
@@ -10,7 +10,7 @@ source_repo: Iterable/iterable-docs
 source_path: docs/sending-messages-by-channel/push-notification/mobile-push-notifications-migrating-to-the-fcm-http-v1-api/index.md
 source_ref: 275e9063f5aa922a9c282d6d34a8aebec3d15448
 source_sha: 72ab970eba676b48e10caa249676e03f51799a8e
-fetched_at: 2026-09-17T15:32:00.093Z
+fetched_at: 2026-10-19T10:21:49.121Z
 summary: If any of your Iterable projects use Firebase Cloud Messaging (FCM) to
   send mobile or web push notifications, migrate them to the FCM HTTP v1 API
   **before July 22, 2024** (Google has changed the deadline from June 20 to July

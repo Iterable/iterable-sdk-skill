@@ -2,15 +2,15 @@
 slug: tracking-events
 feature: event-tracking
 archetype: feature
-sdk_min_version: 3.1.0
+sdk_min_version: 3.2.1
 sdk_artifact: "@iterable/react-native-sdk"
 title: Tracking Events and Purchases with Iterable's React Native SDK
 source_url: https://support.iterable.com/hc/articles/360046134891
 source_repo: Iterable/iterable-docs
 source_path: docs/developer-and-api-docs/iterables-react-native-sdk/tracking-events/index.md
-source_ref: 59c40504c91bc0b13751c5ef5f348810eb0fd4f2
+source_ref: 275e9063f5aa922a9c282d6d34a8aebec3d15448
 source_sha: 381795f3d7eabb6b0cf97de20ead603d22ff4cf9
-fetched_at: 2026-08-28T14:44:26.850Z
+fetched_at: 2026-10-19T10:21:45.382Z
 summary: When users take particular actions in your mobile apps—open push
   notifications, complete their profiles, close in-app messages, etc.—Iterable's
   React Native SDK can save corresponding events, of custom or pre-defined

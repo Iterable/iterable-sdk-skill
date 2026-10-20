@@ -2,15 +2,15 @@
 slug: overview
 feature: integration
 archetype: integration
-sdk_min_version: 3.1.0
+sdk_min_version: 3.2.1
 sdk_artifact: "@iterable/react-native-sdk"
 title: Overview of Iterable's React Native SDK
 source_url: https://support.iterable.com/hc/articles/360045714072
 source_repo: Iterable/iterable-docs
 source_path: docs/developer-and-api-docs/iterables-react-native-sdk/overview/index.md
-source_ref: 59c40504c91bc0b13751c5ef5f348810eb0fd4f2
+source_ref: 275e9063f5aa922a9c282d6d34a8aebec3d15448
 source_sha: e8d2268f9774c59a5afee18ad77a5b20aba0a284
-fetched_at: 2026-08-28T14:44:26.800Z
+fetched_at: 2026-10-19T10:21:40.833Z
 summary: Iterable's [React Native
   SDK](https://github.com/iterable/react-native-sdk) helps you integrate
   Iterable into iOS and Android applications built with [React

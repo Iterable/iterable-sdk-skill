@@ -2,15 +2,15 @@
 slug: in-app-messages
 feature: in-app-messages
 archetype: feature
-sdk_min_version: 3.1.0
+sdk_min_version: 3.2.1
 sdk_artifact: "@iterable/react-native-sdk"
 title: In-App Messages with Iterable's React Native SDK
 source_url: https://support.iterable.com/hc/articles/360045714172
 source_repo: Iterable/iterable-docs
 source_path: docs/developer-and-api-docs/iterables-react-native-sdk/in-app-messages/index.md
-source_ref: 59c40504c91bc0b13751c5ef5f348810eb0fd4f2
+source_ref: 275e9063f5aa922a9c282d6d34a8aebec3d15448
 source_sha: f16e23544e5cb8db400eda069e97955e7458e89e
-fetched_at: 2026-08-28T14:44:26.833Z
+fetched_at: 2026-10-19T10:21:43.538Z
 summary: Iterable's React Native SDK makes it possible to display in-app
   messages, customize them, and track events related to their usage.
 ---

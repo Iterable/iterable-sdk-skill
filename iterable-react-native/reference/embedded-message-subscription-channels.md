@@ -2,7 +2,7 @@
 slug: embedded-message-subscription-channels
 feature: embedded-messaging
 archetype: prerequisite
-sdk_min_version: 3.1.0
+sdk_min_version: 3.2.1
 sdk_artifact: "@iterable/react-native-sdk"
 title: Adding an Embedded Message Subscription Channel and Type to Your Iterable
   Project
@@ -11,7 +11,7 @@ source_repo: Iterable/iterable-docs
 source_path: docs/sending-messages-by-channel/embedded-messaging/embedded-messaging-subscription-channels-and-types/index.md
 source_ref: 275e9063f5aa922a9c282d6d34a8aebec3d15448
 source_sha: b4ece97017a56433619bad04118c3532f518cca3
-fetched_at: 2026-09-17T15:32:01.452Z
+fetched_at: 2026-10-19T10:21:50.181Z
 summary: Before creating embedded messages templates and campaigns in Iterable,
   you'll need to add an embedded messaging subscription channel with an opt-out
   message type to your Iterable project.

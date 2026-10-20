@@ -11,7 +11,12 @@
 #
 # Expo is one article in this set, not a separate platform. The second
 # package for Expo projects (`@iterable/expo-plugin`) is recorded in
-# SKILL.md / PITFALLS.md, not in `sdk.tag` (that pin is the RN SDK).
+# SKILL.md / PITFALLS.md, not in `sdk.tag` (that pin is the RN SDK). It stays
+# at 1.1.0: npm's 1.2.0 is deprecated ("Published accidentally; use 1.1.0
+# instead") and built from the same commit.
+#
+# 3.2.1, not 3.2.0: 3.2.0's Android module did not compile against its own
+# native pin (CHANGELOG 3.2.1).
 
 platform: react-native
 
@@ -22,7 +27,7 @@ source:
 
 sdk:
   repo: Iterable/react-native-sdk
-  tag: 3.1.0
+  tag: 3.2.1
   artifact: "@iterable/react-native-sdk"
   changelog_path: CHANGELOG.md
 

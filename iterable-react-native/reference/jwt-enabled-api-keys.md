@@ -2,7 +2,7 @@
 slug: jwt-enabled-api-keys
 feature: jwt-authentication
 archetype: prerequisite
-sdk_min_version: 3.1.0
+sdk_min_version: 3.2.1
 sdk_artifact: "@iterable/react-native-sdk"
 title: JWT-Enabled API Keys
 source_url: https://support.iterable.com/hc/articles/360050801231
@@ -10,7 +10,7 @@ source_repo: Iterable/iterable-docs
 source_path: docs/developer-and-api-docs/api/jwt-enabled-api-keys/index.md
 source_ref: 275e9063f5aa922a9c282d6d34a8aebec3d15448
 source_sha: 27e742891fb5f2f842cb0ecfbe403aa9ee5bbbab
-fetched_at: 2026-09-17T15:31:59.465Z
+fetched_at: 2026-10-19T10:21:48.559Z
 summary: Iterable's API supports authentication with JSON Web Token
   (JWT)-enabled API keys.
 ---
