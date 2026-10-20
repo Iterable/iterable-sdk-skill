@@ -6,6 +6,10 @@ Setup
 
 ## Prompt
 
+This setup creates your app's `google-services.json` file and a push-only service
+account and key, then walks you through the Iterable API keys, mobile app and push
+integration. Each change is listed for your approval before it happens.
+
 Do you want to proceed with setup?
 
 ## Context
