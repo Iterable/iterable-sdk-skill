@@ -67,16 +67,20 @@ hot-path subset; the full list lives here and is loaded on demand.
   `setEmail(email, onSuccess, onFailure)`. Chain dependent calls inside
   `onSuccess`. The SDK always provides a proper callback for ordering.
 
-## 5. Custom deep-link scheme dropped silently
+## 5. A URL scheme is missing from `setAllowedProtocols`
 
-- **Symptom:** Iterable push opens the app, but the URL never reaches the
-  app's `UrlHandler`.
-- **Cause:** The SDK's default allowed-protocols list is `https` and
-  `http`. A custom scheme like `myapp://` is rejected before the handler
-  fires.
+- **Symptom:** A push, in-app, or embedded link opens the app (or nothing), and
+  the URL never reaches the app's `urlHandler`.
+- **Cause:** Before calling any handler the SDK checks the scheme, and only
+  `https` passes without being listed — the default `allowedProtocols` is an
+  empty array, so `http` is **not** implicit. The check compares the text
+  before `://` exactly (`url.split("://")[0].equals(...)`): it is
+  case-sensitive, and a URL with no `//` — `tel:`, `mailto:`, `sms:` — never
+  matches anything, listed or not.
 - **Fix:**
-  `IterableConfig.Builder().setAllowedProtocols(arrayOf("myapp"))`. The list
-  is additive — `http`/`https` stay allowed automatically.
+  `IterableConfig.Builder().setAllowedProtocols(arrayOf("http", "myapp"))`,
+  in the exact case your links use. Don't send `tel:` / `mailto:` links
+  through Iterable's URL path; use a custom action for them.
 
 ## 6. `registerForPush()` called explicitly with auto-registration on
 
@@ -352,27 +356,25 @@ hot-path subset; the full list lives here and is loaded on demand.
   that silently does nothing. Never commit a placeholder; never disable a
   required plugin to compile.
 
-## 20. Link tap routed to a handler that isn't set (silently dropped)
+## 20. Link tap routed to a handler that isn't set
 
 - **Symptom:** A push notification (or in-app / embedded message) opens the
-  app but never navigates — the deep link silently does nothing. A registered
-  `urlHandler` is never called for these taps.
-- **Cause:** Iterable routes an action by its **type / URL scheme**, not
-  through one catch-all handler. Plain `http`/`https` links (and push actions
-  of type `openUrl`) go to `IterableConfig.urlHandler` → `handleIterableURL()`.
-  Links whose scheme is `action://` or `itbl://`, **and push actions whose
-  type is a custom action**, go to `IterableConfig.customActionHandler` →
-  `handleIterableCustomAction()`. (`iterable://` URLs are SDK-reserved and
-  handled internally.) If the handler an action routes to has **not** been set,
-  the action is silently dropped — no crash, no log. So an integration that
-  registers only `urlHandler` looks complete but loses every custom-action
-  link; "opens the app but doesn't navigate" is the only symptom.
+  app but never navigates, or opens something other than the app's handler.
+- **Cause:** Iterable routes an action by its **type / URL scheme**. URLs
+  (push actions of type `openUrl`, `https` links, and listed schemes) go to
+  `IterableConfig.urlHandler` → `handleIterableURL()`. `action://` and `itbl://`
+  links, **and push actions whose type is a custom action**, go to
+  `IterableConfig.customActionHandler` → `handleIterableCustomAction()`
+  (`iterable://` URLs are SDK-reserved). The two fail differently:
+  - **No `customActionHandler`:** the action is dropped — no crash, no log.
+  - **No `urlHandler`, or one that returns `false`:** the URL is not dropped.
+    The SDK fires an `ACTION_VIEW` intent for it, which can come straight back
+    into the app (pitfall #24).
 - **Fix:** Register **both** `urlHandler` and `customActionHandler` on
   `IterableConfig`, unless you've confirmed the dashboard only ever sends
-  `openUrl` / plain-URL actions. Don't assume one handler catches everything.
-  When a link opens the app but doesn't navigate, suspect a missing
-  `customActionHandler` first — the dashboard template likely carries the link
-  in the action *type* rather than as an `openUrl`.
+  `openUrl` / plain-URL actions. When a link opens the app but doesn't
+  navigate, suspect a missing `customActionHandler` first — the template likely
+  carries the link in the action *type* rather than as an `openUrl`.
 
 ## 21. Setting `CommerceItem.categories` after construction (compiles, crashes at runtime)
 
@@ -500,3 +502,33 @@ hot-path subset; the full list lives here and is loaded on demand.
   *their* pushes as well as Iterable's on Android 13+, and looks exactly like
   "the Iterable change broke our push." Check the grant before accepting that
   diagnosis, and don't accept a culprit inside your own diff without evidence.
+
+## 24. A link bounces between the SDK and the app
+
+- **Symptom:** Tapping a link reopens the app over and over, or the screen
+  flickers between the same activity — sometimes only offline.
+- **Cause:** When `urlHandler` is unset or returns `false`, the SDK fires an
+  `ACTION_VIEW` intent for the URL and, when several apps match, pins it to the
+  app itself. If the app's own intent filter claims that URL — its scheme, or
+  the tracking domain — the activity receives it again, hands it to
+  `handleAppLink`, and the cycle repeats. A tracking-link redirect that fails
+  passes the original `/a/` URL to the handler, so the loop also runs offline.
+- **Fix:** Make `urlHandler` return `true` for every scheme and host the app
+  claims, the tracking domain included, and send unknown paths to a fallback
+  screen; return `false` only for other apps' URLs. Pass a URL to
+  `handleAppLink` only when it is `https`, on your tracking domain, and
+  `IterableApi.isIterableDeeplink` agrees (the check in `SKILL.md` → Deep links
+  and App Links).
+
+## 25. The App Links reference uses names that don't compile
+
+- **Symptom:** Code copied from `reference/android-app-links.md` fails to build:
+  unresolved `getAndTrackDeeplink` or `isIterableDeepLink`, or "overrides
+  nothing" on `onCreate()`.
+- **Cause:** At 3.7.0 the SDK exports the instance method
+  `IterableApi.getInstance().getAndTrackDeepLink(url, handler)` (capital `L`)
+  and the static `IterableApi.isIterableDeeplink(url)` (lower-case `l`). The
+  article calls them the other way round, and declares `onCreate()` without the
+  `Bundle` parameter.
+- **Fix:** Use the names in `SKILL.md` → Deep links and App Links, and
+  `onCreate(savedInstanceState: Bundle?)`.

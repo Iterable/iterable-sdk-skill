@@ -361,12 +361,21 @@ app already had. Full explanations and the remaining ~15 traps are in
    `updateUser`, `track`, etc. inside `onSuccess`. Delays are fragile under
    real network conditions and will break in production.
 
-5. **Custom deep-link schemes need `setAllowedProtocols(arrayOf("yourscheme"))`.**
-   Without this the SDK refuses to dispatch the URL to your `UrlHandler` and
-   silently drops the link. Also register **both** `urlHandler` and
-   `customActionHandler` — `action://`/`itbl://` links and custom-action push
-   types route to the latter, and a tap to an unset handler is silently dropped
-   (PITFALLS #20).
+5. **Deep links: list every non-`https` scheme, answer `true` for your own
+   links, and send only tracking links to `handleAppLink`.**
+   - Only `https` passes the SDK's URL gate without being listed. `http` and
+     your own scheme need `setAllowedProtocols(arrayOf("http", "myapp"))`,
+     spelled exactly — the match is case-sensitive on the text before `://`,
+     so `tel:` and `mailto:` links never pass at all (pitfall #5).
+   - When `urlHandler` is unset or returns `false`, the SDK fires an
+     `ACTION_VIEW` intent — pinned to your own app when it also matches — which
+     lands back in your own intent filter and loops. Return `true` for every
+     scheme and host the app claims, the tracking domain included (pitfall #24).
+   - Register `customActionHandler` too: `action://` / `itbl://` links and
+     custom-action push types go there, and an unset one drops them
+     (pitfall #20).
+   - Pass only `https` links on your tracking domain with an `/a/` path to
+     `handleAppLink` — see [Deep links and App Links](#deep-links-and-app-links).
 
 6. **Never hardcode the API key into a tracked file.** A *mobile* API key is
    safe to embed in the compiled app — that's its intended use — but it must
@@ -528,6 +537,86 @@ handles one that arrives *after*. Two ways to get this wrong:
   captures one value, so the account switch never reaches Iterable and events
   land on the previous user — pitfall #3, which is about exactly this.
 
+### Deep links and App Links
+
+Only when deep links are in scope. The manifest filter claims the tracking
+domain's `/a/` links; `android:autoVerify="true"` asks Android to verify them,
+and on Android 12+ an unverified link opens in the browser instead of the app.
+
+```xml
+<!-- AndroidManifest.xml, inside the activity that handles links -->
+<intent-filter android:autoVerify="true">
+    <action android:name="android.intent.action.VIEW" />
+    <category android:name="android.intent.category.DEFAULT" />
+    <category android:name="android.intent.category.BROWSABLE" />
+    <data android:scheme="https" android:host="links.example.com" android:pathPrefix="/a/" />
+</intent-filter>
+```
+
+```kotlin
+// The Iterable link-tracking domain: Settings > Domains, and the host in the intent filter.
+const val LINK_TRACKING_DOMAIN = "links.example.com"
+
+fun isIterableTrackingLink(url: String): Boolean {
+    val uri = Uri.parse(url)
+    return uri.scheme == "https" && uri.host == LINK_TRACKING_DOMAIN &&
+        IterableApi.isIterableDeeplink(url)
+}
+
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        // ...setContent { } / setContentView(...)...
+        handleLink(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleLink(intent)
+    }
+
+    private fun handleLink(intent: Intent?) {
+        val url = intent?.takeIf { it.action == Intent.ACTION_VIEW }?.dataString ?: return
+        setIntent(Intent(Intent.ACTION_MAIN)) // don't replay the link from Recents
+        if (isIterableTrackingLink(url)) {
+            // handleAppLink returns false, dropping the link, until init has finished.
+            IterableApi.onSDKInitialized { IterableApi.getInstance().handleAppLink(url) }
+        } else {
+            AppRouter.open(this, url)
+        }
+    }
+}
+```
+
+`handleAppLink` tracks the click, follows the redirect, and hands the
+destination to your `urlHandler` (`IterableActionSource.APP_LINK`). If the
+request fails — offline, or an error response — the handler gets the original
+tracking URL, so it must answer `true` for that too. `handleAppLink` called
+before initialization returns `false` and the link is lost; Android doesn't hold
+it for later, which is why the snippet waits in `onSDKInitialized` (callbacks
+run on the main thread). If the app skips initialization — no API key — that
+callback never runs, so route the link yourself in that build.
+
+Names the SDK actually exports at 3.7.0: the static
+`IterableApi.isIterableDeeplink(url)` and the instance
+`IterableApi.getInstance().getAndTrackDeepLink(url, handler)`. The bundled
+`reference/android-app-links.md` spells them `IterableApi.getAndTrackDeeplink`
+(static) and `getInstance().isIterableDeepLink`, and its `onCreate()` takes no
+`Bundle` — none of those compile (pitfall #25).
+
+**Iterable prerequisites** (`reference/android-app-links.md`, and Iterable's
+"Configuring Deep Links for Email or SMS"):
+
+1. A custom link-tracking domain with HTTPS — not `links.iterable.com` or
+   `links.eu.iterable.com`.
+2. In Iterable, **Settings > Domains** → edit the tracking domain → **New
+   Destination Path** → **Edit Configuration** → upload `assetlinks.json`
+   (one file per tracking domain) — and an `apple-app-site-association` file,
+   which Iterable uses to decide which links to rewrite as `/a/` deep links even
+   when there is no iOS app.
+3. Check `https://<tracking domain>/.well-known/assetlinks.json` lists your
+   package and signing-certificate fingerprint.
+
 The full per-feature docs (push, in-app, inbox, embedded, deep links, events,
 profiles, UUA) are in `reference/` — see the routing table below.
 
@@ -581,7 +670,9 @@ the version they're on.
 | ---------------------------- | ---- |
 | First-time setup, dependencies, gradle setup, `IterableApi.initializeInBackground`, `IterableConfig` builder | `android-sdk` (read `## Installing the SDK`; skip `## Upgrading the SDK`) |
 | Upgrading an existing integration from an older SDK version | `android-sdk` → `## Upgrading the SDK`. Entries run newest-first (`### Upgrading to 3.10.0` down to `3.2.0`); read every entry **newer than** the version they're on and stop there. Ask their current version first — don't guess it. |
-| Configuration deep-dive (every `IterableConfig` option, `setDataRegion`, allowed protocols, log level) | `configure-the-android-sdk` |
+| `IterableConfig` options: `setDataRegion`, log level, handlers | `android-sdk` → `### Step 5: Set SDK configuration options` |
+| Allowed URL protocols (`setAllowedProtocols`) | `android-sdk` → `#### Step 5.3: Set allowed URL protocols` — then rule 5: only `https` is implicit |
+| Unknown User Activation configuration and consent | `configure-the-android-sdk` |
 | FCM push, notification channels, `POST_NOTIFICATIONS`, device registration | `setting-up-android-push-notifications` |
 | The app **already has** its own `FirebaseMessagingService`, or a second push provider (OneSignal, Braze, a home-grown one) | `setting-up-android-push-notifications` → `#### Handling Firebase push messages and tokens`. Forward, don't replace — rule 8 and pitfall #23. |
 | Push behavior overview (silent push, foreground vs background, deep link from notification) | `push-notification-overview` |
@@ -589,8 +680,9 @@ the version they're on.
 | Mobile inbox UI, `IterableInboxFragment`, default rendering | `setting-up-mobile-inbox-on-android` |
 | Mobile inbox theming, custom cells, swipe actions | `customizing-mobile-inbox-on-android` |
 | Embedded messaging, placements, `IterableEmbeddedView` | `embedded-messages-with-iterables-android-sdk` |
-| Deep linking, App Links, `UrlHandler`, `setAllowedProtocols` | `deep-linking-with-partners` |
-| Android App Links (verified domains, `assetlinks.json`) | `android-app-links` |
+| Deep links: `urlHandler` and `customActionHandler` routing | `embedded-messages-with-iterables-android-sdk` → `### Step 4.1: Define a URL handler`, `in-app-messages-on-android`, and rule 5 |
+| Android App Links (verified domains, `assetlinks.json`, `handleAppLink`) | `android-app-links`, with the corrected names in [Deep links and App Links](#deep-links-and-app-links) |
+| Branch or AppsFlyer deep links | `deep-linking-with-partners` (links out to those integrations) |
 | `track`, `trackPurchase`, `updateCart`, custom event payloads | `tracking-events-with-iterables-mobile-sdks` |
 | `setEmail`, `setUserId`, login / logout flow, user identity | `identifying-the-user` |
 | `updateUser`, profile data fields, JSON merging | `updating-user-profiles` |

@@ -42,7 +42,7 @@ pitfalls:
     features: [integration, user-profiles]
 
   - id: 5
-    title: Custom deep-link scheme dropped silently
+    title: URL scheme missing from setAllowedProtocols
     triggers:
       - "setAllowedProtocols"
       - "custom URL scheme"
@@ -163,7 +163,7 @@ pitfalls:
     features: [integration, push-notifications]
 
   - id: 20
-    title: Link tap routed to a handler that isn't set (silently dropped)
+    title: Link tap routed to a handler that isn't set
     triggers:
       - "setUrlHandler"
       - "setCustomActionHandler"
@@ -204,3 +204,20 @@ pitfalls:
       - "OneSignal"
       - "Braze"
     features: [push-notifications, integration]
+
+  - id: 24
+    title: Link bounces between the SDK and the app
+    triggers:
+      - "handleAppLink"
+      - "ACTION_VIEW"
+      - "isIterableDeeplink"
+      - "loop"
+    features: [deep-links, integration]
+
+  - id: 25
+    title: App Links reference uses names that don't compile
+    triggers:
+      - "getAndTrackDeeplink"
+      - "isIterableDeepLink"
+      - "android-app-links"
+    features: [deep-links]
