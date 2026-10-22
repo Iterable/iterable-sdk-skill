@@ -156,21 +156,27 @@ Missing proof metadata is not evidence that the SDK integration is missing.
 A React Native app runs the Android path and then the iOS path, one after the
 other, under the `iterable-react-native` skill:
 
-1. Record the scope once — features, identity mode, region, JWT policy. Both
-   platforms use that one record.
-2. **Android first.** The Android ladder provisions Firebase and Iterable, the
-   skill writes the integration, and `iterable-android-verify` proves a push.
-   No iOS step starts before that verdict is green.
-3. **iOS second.** The iOS provider path offers to reuse both Iterable keys,
-   the region, No JWT, and the test email from the Android setup, carries over
-   the feature scope from step 1 (passed with `--features`, shown again for
+1. Confirm the scope once, in the skill's Step 0 — features and identity mode.
+   The Android ladder records none of it. The iOS path receives those answers
+   as `--features` / `--identity`, marks their origin (`scope_source` /
+   `identity_source` = `react-native-step0`), and shows them again before
+   recording them. Region and JWT policy come from the Android setup.
+2. **Android first.** The Android ladder provisions Firebase and Iterable,
+   `ios-provision import-from-android --confirm` copies the Mobile key into the
+   file the JavaScript app reads (it runs no Apple step), the skill writes the
+   integration, and `iterable-android-verify` proves a push. No iOS step starts
+   before that verdict is green.
+3. **iOS second.** The iOS provider path already holds both Iterable keys, the
+   region, No JWT, and the test email from that import, carries over the
+   feature scope from step 1 (passed with `--features`, shown again for
    confirmation), and adds the Apple/APNs prerequisites. The skill writes the
    native push code (bare) or relies on the Expo plugin, and
    `iterable-ios-verify` proves a push on a Release Simulator build.
 4. The app is integrated when the verifier has passed for every platform in
    scope. One green platform is not done.
 
-The Mobile key reaches the app as a gitignored file the tool writes — bare
+The Mobile key reaches the app as a gitignored file the tool writes during the
+Android phase — bare
 React Native `.iterable/rn/iterable.local.ts`, Expo `EXPO_PUBLIC_ITERABLE_API_KEY`
 in `.env.local` — and the app loads it so that a checkout without the file
 still builds.

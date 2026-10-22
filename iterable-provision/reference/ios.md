@@ -122,7 +122,10 @@ recommended option passes the same `--features` and `--identity` to
 `import-from-android`, which records them as `carry-scope` would. A carried
 identity takes precedence over the Android test email. Without the flags the
 feature questions follow as usual. **Set up iOS separately** asks everything
-again. In a monorepo the Android workspace sits
+again. A React Native app usually ran `import-from-android --confirm` without
+flags during its Android phase, to deliver the Mobile key to the JavaScript
+app; `import_android` is then already answered, and the Step 0 flags passed
+to `status` return the `carry_scope` screen instead. In a monorepo the Android workspace sits
 at the repository root, so the search walks up from the app root to the git
 toplevel, takes the nearest `.iterable/.env`, and records that path as
 `iterable.imported_from`. Android package auto-detection does not support

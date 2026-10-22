@@ -180,13 +180,17 @@ doc for a native step.
 
 When the scope covers both platforms, finish one before starting the other:
 
-1. **Android:** provision with `iterable-provision`, integrate, and prove it —
-   `iterable-android-verify` green — before any iOS work starts.
-2. **iOS:** `iterable-provision`'s iOS path offers to reuse what the Android
-   phase recorded — both Iterable keys (Mobile and Server-side), the region,
-   No JWT, and the test email. Pass the scope confirmed in Step 0 as
-   `--features <ids>` from the table above, first to `ios-provision status`,
-   so the import screen names it, and its recommended option carries it into
+1. **Android:** provision with `iterable-provision`, deliver the Mobile key to
+   the JavaScript app ([placing it](#if-they-dont-have-an-input-yet)), integrate,
+   and prove it — `iterable-android-verify` green — before any iOS work starts.
+   The key import runs no Apple step, so it is not iOS work.
+2. **iOS:** `iterable-provision`'s iOS path already holds what that import
+   copied — both Iterable keys (Mobile and Server-side), the region, No JWT,
+   and the test email. Pass the scope confirmed in Step 0 as
+   `--features <ids>` from the table above, first to `ios-provision status`:
+   it comes back as one `carry_scope` screen whose **Use these answers**
+   records it. If the import never ran, the `import_android` screen names the
+   scope instead and its recommended option carries it into
    `import-from-android`. The final scope screen shows it again before
    anything is confirmed. Pass only what the developer confirmed; without
    `--features` the scope is asked again. The path then adds the Apple/APNs
@@ -247,7 +251,7 @@ everything".
 | Input | Needed when | If missing |
 |---|---|---|
 | **Workflow** — Expo vs bare | Always | Detect from the project (Step 0). If both signals exist, ask. |
-| **Mobile API key** | Always | Never hardcode it into a tracked file. `iterable-provision` writes the copy the app reads: bare RN `.iterable/rn/iterable.local.ts`, Expo `EXPO_PUBLIC_ITERABLE_API_KEY` in a gitignored `.env.local` ([loading it](#loading-the-key)). |
+| **Mobile API key** | Always | Never hardcode it into a tracked file. The Android program keeps it in `.iterable/.env`, which the app does not read; `ios-provision import-from-android --confirm` writes the copy the app reads — bare RN `.iterable/rn/iterable.local.ts`, Expo `EXPO_PUBLIC_ITERABLE_API_KEY` in a gitignored `.env.local` — during the Android phase ([placing it](#if-they-dont-have-an-input-yet), [loading it](#loading-the-key)). |
 | **Identity model** — `setEmail` vs `setUserId`, and where the value comes from | Always | [Project type first](#identity-project-type-first). Never guess. |
 | **JWT?** — is the mobile key JWT-protected? | Always | Ask, and **assume yes until told otherwise** (it is on by default for client-side keys and is permanent). If yes, `authHandler` is mandatory (rule 1) **and the team needs a backend endpoint that mints the tokens** — if they don't have one, raise it as a blocker instead of signing in the app. |
 | **Data region** — US or EU | Always | Ask if they sign in at `app.eu.iterable.com` (`european-data-center`). See pitfall #2. |
@@ -295,6 +299,20 @@ placing the file**: on bare RN copy
 `.iterable/artifacts/google-services.json` to `android/app/google-services.json`;
 on Expo put it where `expo.android.googleServicesFile` points, never by
 hand-editing `android/`. Show it as part of your one confirmed diff.
+
+**The Mobile key, in the same step.** The Android program keeps it in
+`.iterable/.env`, which the JavaScript app never reads. Deliver it with the iOS
+program's import, which runs before any Apple step and never prints the key: from the
+app root, run `<root>/bin/ios-provision import-from-android --confirm`. It writes
+`.iterable/rn/iterable.local.ts` (bare) or `EXPO_PUBLIC_ITERABLE_API_KEY` in
+`.env.local` (Expo) at mode `0600`, and starts the self-ignoring `.iterable/ios/`
+workspace the iOS phase reuses. On Expo it writes `.env.local` only when git already
+ignores it, and does not say when it skipped — so run `git check-ignore -q .env.local`
+first and, if that fails, add `.env*.local` to `.gitignore` in the confirmed diff
+before the import. Check the result without reading the key: `test -f
+.iterable/rn/iterable.local.ts`, or `grep -c '^EXPO_PUBLIC_ITERABLE_API_KEY='
+.env.local`. Leave the JSON's `next` alone: it is the iOS scope screen, which
+belongs to the iOS phase. The import runs once per app.
 In a monorepo whose app sits below the repository root, provisioning does not
 read the Android package name from the project yet; the developer types it.
 

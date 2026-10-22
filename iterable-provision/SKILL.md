@@ -129,12 +129,13 @@ Inspect the app before invoking a program:
 - For an iOS target owned by a React Native or Expo integration, keep the
   React Native skill in charge of application code. Use the iOS provisioning
   path only for the Apple and Iterable prerequisites it explicitly needs. Run
-  the Android program first: the iOS path then offers to reuse its Mobile and
-  Server-side keys, region, No JWT policy, and test email, plus the feature
-  scope the React Native skill confirmed when passed with `--features`, and
-  writes the Mobile key where the JavaScript app reads it
-  (bare React Native `.iterable/rn/iterable.local.ts`, Expo
-  `EXPO_PUBLIC_ITERABLE_API_KEY` in a gitignored `.env.local`).
+  the Android program first. Its `import-from-android --confirm` reuses the
+  Android Mobile and Server-side keys, region, No JWT policy, and test email,
+  and writes the Mobile key where the JavaScript app reads it (bare React
+  Native `.iterable/rn/iterable.local.ts`, Expo `EXPO_PUBLIC_ITERABLE_API_KEY`
+  in a gitignored `.env.local`). It runs no Apple step, so the React Native
+  skill runs it during the Android phase; the feature scope that skill
+  confirmed follows in the iOS phase, passed with `--features`.
 
 Do not run the Android gate ladder against an iOS project. Its Firebase,
 `adb`, package-name, and FCM conclusions do not apply to APNs.
