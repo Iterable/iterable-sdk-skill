@@ -1,8 +1,8 @@
 # Iterable SDK skills
 
 > **Private beta.** Use of these skills is subject to Iterable's
-> [Beta Terms](https://iterable.com/legal/beta-terms/). This documentation is
-> confidential, may contain inaccuracies, and may change during the beta.
+> [Beta Terms](https://iterable.com/legal/beta-terms/). This documentation may
+> contain inaccuracies and may change during the beta.
 
 Use these skills with Claude Code, Cursor, or Codex to integrate Iterable's
 native Android, native iOS, or React Native SDK. The workflows gather and prove
