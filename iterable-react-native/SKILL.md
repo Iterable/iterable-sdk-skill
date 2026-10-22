@@ -709,6 +709,35 @@ and `[IterableAppIntegration userNotificationCenter:didReceiveNotificationRespon
   `CODE_SIGNING_ALLOWED=NO`, `CODE_SIGNING_REQUIRED=NO` or `CODE_SIGN_IDENTITY=""`:
   an unsigned app carries no `aps-environment` and never gets a token
   (pitfall #20).
+- **Proof identity marker (temporary):** when push is in scope, add this to
+  `AppDelegate.swift` and call it as the last line of
+  `application(_:didFinishLaunchingWithOptions:)`, before `return true`. At
+  proof time the verifier relaunches the app with `-iterableProofIdentity YES`
+  and reads the identity from the Simulator's log, as in `iterable-ios`
+  (*The proof identity marker*). It reads the native SDK, not JavaScript: the
+  identity is stored natively once `Iterable.initialize` and `setEmail` /
+  `setUserId` have run, and the app delegate starts before the JavaScript
+  bundle does, so it checks once a second until the SDK holds an identity. The
+  launch argument gates it, because the proved build is Release.
+
+  ```swift
+  // AppDelegate.swift — temporary: remove once the push is proved.
+  import os
+
+  private func logIterableProofIdentity(attempt: Int = 0) {
+    guard UserDefaults.standard.bool(forKey: "iterableProofIdentity") else { return }
+    if let identity = IterableAPI.userId ?? IterableAPI.email {
+      os_log("ITBL_PROOF identity=%{public}@", identity)
+    } else if attempt < 30 {
+      DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+        self.logIterableProofIdentity(attempt: attempt + 1)
+      }
+    }
+  }
+  ```
+
+  Remove it once the push is proved, as the last step of the handoff;
+  `ios-verify inspect` warns `proof_identity_marker_present` while it remains.
 
 Native push / APNs / FCM / `POST_NOTIFICATIONS` steps are in the installing
 and push (or expo) reference docs — do them as part of this skill when push

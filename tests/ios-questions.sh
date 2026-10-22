@@ -420,6 +420,19 @@ else
   bad "the JWT screen asks about a key that does not exist yet or leaves a relay dead end"
 fi
 
+identity_verified() {
+  proof_question_identity_and_confirm "Bundle: com.example.dogshelter" user-id SIM-1 \
+    "$(proof_identity_steps user-id SIM-1 simulator DogShelter)" \
+    "The app's proof marker logged U-1, and Iterable has this Simulator's current device token on that user." \
+    U-1 "It is offered because the app's proof marker logged it." "" "" com.example.dogshelter
+}
+identity_unverified() {
+  proof_question_identity_and_confirm "Bundle: com.example.dogshelter" user-id SIM-1 \
+    "$(proof_identity_steps user-id SIM-1 simulator DogShelter)" \
+    "The agent proposed U-2, but Iterable doesn't have this Simulator's token on it yet; sign in or relaunch, then check again." \
+    "" "" "$BIN/ios-prepare-proof status --identity-candidate U-2" \
+    "$BIN/ios-prepare-proof read-identity --confirm --identity-candidate U-2" com.example.dogshelter
+}
 screen_dump() {
   local kind
   for kind in choose_features choose_more_features choose_identity choose_region choose_jwt; do
@@ -464,6 +477,8 @@ screen_dump() {
   printf 'proof_identity\t%s\n' "$(proof_question_identity_and_confirm "Bundle: com.example.dogshelter" email SIM-1)"
   printf 'proof_identity\t%s\n' "$(proof_question_identity_and_confirm "Bundle: com.example.dogshelter" user-id SIM-1 \
     "$(proof_identity_steps user-id SIM-1 simulator DogShelter)")"
+  printf 'proof_identity\t%s\n' "$(identity_verified)"
+  printf 'proof_identity\t%s\n' "$(identity_unverified)"
   printf 'proof_artifact\t%s\n' "$(ios_q_proof_artifact com.example.dogshelter \
     /dd/Build/Products/Debug-iphonesimulator/DogShelter.app 2026-10-22T09:00:00Z "not installed" build)"
   printf 'proof_device\t%s\n' "$(ios_q_proof_device '[]' 27.0)"
@@ -954,6 +969,27 @@ if node -e '
   ok "the artifact screen binds the build when it is fresher and keeps the installed app as the other option"
 else
   bad "the artifact screen does not bind the newest build, or lost the installed-app option"
+fi
+carries "proof identity (verified)" "$(identity_verified)" \
+  "The app's proof marker logged U-1, and Iterable has this Simulator's current device token on that user."
+carries "proof identity (unverified)" "$(identity_unverified)" \
+  "The agent proposed U-2, but Iterable doesn't have this Simulator's token on it yet"
+if node -e '
+  const [v, u, plain] = process.argv.slice(1).map(JSON.parse);
+  const label = "Use U-1: Iterable has this Simulator\u0027s current device token on that user";
+  const use = v.options.find(o => o.label === label);
+  const relaunch = u.options.find(o => o.label === "Relaunch the app to read the identity it signs in with");
+  const check = u.options.find(o => o.label === "Check again");
+  process.exit([v, u, plain].every(q => q.options.length >= 2 && q.options.length <= 4) &&
+    v.recommended === label && use.commands[0].endsWith("/ios-prepare-proof start --confirm --identity U-1") &&
+    !v.options.some(o => o.label === "Check again") &&
+    u.recommended === relaunch?.label && relaunch.description.includes("-iterableProofIdentity YES") &&
+    check?.commands[0].endsWith("--identity-candidate U-2") &&
+    plain.recommended === null && !plain.options.some(o => /^(Use U|Relaunch|Check again)/.test(o.label)) ? 0 : 1);
+' "$(identity_verified)" "$(identity_unverified)" "$(proof_question_identity_and_confirm "Bundle: x" email SIM-1)"; then
+  ok "the identity screen recommends only a token-verified identity, else the relaunch, and stays within four options"
+else
+  bad "the identity screen offered an unverified identity, or exceeded four options"
 fi
 carries "proof_device (deployment target)" "$(ios_q_proof_device '[]' 27.0)" \
   "Only booted Simulators on iOS 27.0 or later are offered"

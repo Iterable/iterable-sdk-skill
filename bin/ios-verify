@@ -214,6 +214,7 @@ inspect_project() {
     next_kind=review_integration
     summary='The source scan could not find both Iterable dependency and initialization signals in non-test files. Review the selected application target before attempting proof.'
   fi
+  warnings="$(ios_project_proof_marker_warning "$project_root" "$warnings")"
   printf '{'
   printf '"tool":"iterable-ios-inspect","contract":2,"read_only":true,"signals_are_heuristic":true,'
   printf '"project_root":%s,"framework":%s,"verification_workspace_exists":%s,' \
@@ -2822,6 +2823,7 @@ EXISTING_PUSH='[]'
 if [[ "$NEXT_KIND" == done && "$EXISTING_PUSH" != '[]' ]]; then
   NEXT_SUMMARY="$NEXT_SUMMARY $(node "$BIN/existing-push.js" follow-up <<< "$EXISTING_PUSH")"
 fi
+[[ "$NEXT_KIND" != done ]] || NEXT_SUMMARY="$NEXT_SUMMARY$(ios_project_proof_marker_note "$APP_ROOT")"
 PUSH_PROVEN=false
 if [[ "$PUSH_REQUIRED" == true &&
     "$(gate_status I12)" == green &&

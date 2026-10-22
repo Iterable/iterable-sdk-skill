@@ -56,6 +56,7 @@ const legacyURLs = one(swift, "app-delegate URL methods", (b) => b.includes("res
 const permission = one(swift, "permission request", (b) => b.includes("func requestNotificationPermission"));
 const nse = one(swift, "Notification Service Extension", (b) => b.includes("ITBNotificationServiceExtension {}"));
 const events = one(swift, "events and profiles", (b) => b.startsWith("IterableAPI.track(event:"));
+const marker = one(swift, "IterableProofMarker.swift", (b) => b.startsWith("// IterableProofMarker.swift"));
 const base = one(plain, "Config/Base.xcconfig", (b) => b.startsWith("ITERABLE_API_KEY =\n"));
 const secrets = one(plain, "Config/Secrets.xcconfig", (b) => b.startsWith("ITERABLE_API_KEY = <mobile key>"));
 const info = one(xml, "Config/Info.plist", (b) => b.includes("ITERABLE_API_KEY"));
@@ -74,6 +75,9 @@ w("SwiftUIApp/ExampleApp.swift", swiftUIApp);
 w("SwiftUIApp/Permission.swift", "import UIKit\nimport UserNotifications\n\n" + permission);
 w("SwiftUIApp/Events.swift", "import IterableSDK\n\nfunc sampleEvents() {\n    let product = (id: \"42\", name: \"Mug\")\n"
   + events.trim().split("\n").map((l) => "    " + l).join("\n") + "\n}\n");
+// The marker is called where the skill says: after initialize and after identify.
+const markerCall = "func proofMarkerCallSite() {\n    IterableProofMarker.log()\n}\n";
+w("SwiftUIApp/IterableProofMarker.swift", marker + "\n" + markerCall);
 w("SwiftUIApp/Stubs.swift", appStubs + 'import SwiftUI\nstruct ContentView: View { var body: some View { Text("") } }\n');
 
 // In the class body, not an extension: a signature that only "nearly matches" a
@@ -91,6 +95,7 @@ w("UIKitApp/IterableIntegration.swift", integration);
 w("UIKitApp/AppDelegate.swift", uikitDelegate);
 w("UIKitApp/SceneDelegate.swift", "import UIKit\nimport IterableSDK\n\nfinal class SceneDelegate: UIResponder, UIWindowSceneDelegate {\n    var window: UIWindow?\n\n" + sceneBody + "\n}\n");
 w("UIKitApp/Stubs.swift", appStubs);
+w("UIKitApp/IterableProofMarker.swift", marker + "\n" + markerCall);
 w("NotificationService/NotificationService.swift", nse);
 console.log("OK");
 JS

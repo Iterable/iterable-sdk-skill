@@ -998,6 +998,40 @@ Run `ios-verify status`: gate I12 reads the device record from Iterable. Act on
 its gates. **After any rebuild, re-run the verifier before asking the developer
 to act again.** Its last answer was about the build you replaced.
 
+### The proof identity marker (temporary)
+
+When push is in scope, add this file and call `IterableProofMarker.log()` on
+the line after `IterableAPI.initialize(...)` in `start` and after the
+`setEmail` / `setUserId` call in `identify`. At proof time the verifier
+relaunches the app with `-iterableProofIdentity YES`, reads the identity from
+the Simulator's log, and offers it once Iterable holds this Simulator's device
+token on that user, so nobody has to dig out a generated user ID. A normal
+launch prints nothing; the launch argument, not `#if DEBUG`, gates it, because
+a Release build can be the one proved.
+
+```swift
+// IterableProofMarker.swift — temporary: remove once the push is proved.
+import Foundation
+import os
+import IterableSDK
+
+enum IterableProofMarker {
+    static func log() {
+        guard UserDefaults.standard.bool(forKey: "iterableProofIdentity"),
+              let identity = IterableAPI.userId ?? IterableAPI.email else { return }
+        os_log("ITBL_PROOF identity=%{public}@", identity)
+    }
+}
+```
+
+Once the push is proved, delete the file and both calls, and list that removal
+as the last step of the handoff; `ios-verify inspect` and the verifier's done
+summary warn `proof_identity_marker_present` until it is gone. If you already
+know the signed-in identity from device evidence (the app's log, a debugger
+read), pass it as `<root>/bin/ios-prepare-proof status --identity-candidate
+<value>`; the tool checks it against Iterable and offers it. Never type an
+identity into the proof screen on the developer's behalf.
+
 An iOS 16+ Simulator on macOS 13+ (Apple silicon or T2 Mac) receives real APNs
 **sandbox** pushes; production and TestFlight need a physical iPhone. When a
 push is missing, find the first failed boundary — signing/token, Iterable

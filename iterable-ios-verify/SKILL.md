@@ -26,13 +26,26 @@ Run the verifier first:
 ```
 
 When no proof run exists, `next.kind` is `prepare_proof` and `next.question`
-already carries the proof screen: the detected bundle, the prefilled device
+already carries the proof screen: the detected bundle and the prefilled device
 (a single eligible booted Simulator is selected for you; the developer still
-sees and confirms it), and one free-text answer for the identity the app is
-signed in with. Running the screen's command records the run. On a Simulator
+sees and confirms it). When the workspace knows a build of the app with the
+Iterable SDK (one an earlier run recorded, or a product under the app's own
+`-derivedDataPath`), an **App build** screen comes first and recommends binding
+that exact `.app` unless the installed copy was built later; never append
+`--app-path` by hand. The identity screen then offers **Use <value>: Iterable
+has this Simulator's current device token on that user** only when Iterable
+holds this Simulator's current APNs token on that user. Its candidates are the
+integration's `ITBL_PROOF` marker (its **Relaunch the app to read the identity
+it signs in with** option relaunches the app with `-iterableProofIdentity YES`),
+the SDK's own log lines, and `--identity-candidate`. If you already know the
+signed-in identity from device evidence, run `ios-prepare-proof status
+--identity-candidate <value>`; never type it as the developer's answer. Typing
+stays available. Running the screen's command records the run. On a Simulator
 its `next.command` is `ios-prove --confirm`; run it, then run
 `ios-verify status` again. For an integrated, signed-in app on a booted
 Simulator that is the whole path: four tool calls and one developer answer.
+Once the push is proved, the `ITBL_PROOF` marker is removed from the app;
+`inspect` and the done summary warn `proof_identity_marker_present` until it is.
 
 If the verifier says the workspace has no context at all, `ios-verify inspect`
 reads the project without needing `.iterable/ios/`; a missing verification
@@ -123,7 +136,7 @@ When `next.kind` is:
 
 | `next.kind` | What you do |
 |---|---|
-| `prepare_proof` | Show `next.question` (or run `ios-prepare-proof status` if it is null) and conduct it. The developer types the identity; the device is shown prefilled. If you built and installed the app in this session, append `--app-path <the .app you installed>` to the start command so the proof is tied to that build. Behavioral proof is automatic; do not add a proof-mode question. |
+| `prepare_proof` | Show `next.question` (or run `ios-prepare-proof status` if it is null) and conduct it, one screen at a time: the App build screen when one appears, then the identity screen. The device is shown prefilled. The developer chooses the offered identity or types one; pass any identity you read from the device as `--identity-candidate`, never as their answer. Behavioral proof is automatic; do not add a proof-mode question. |
 | `prove_push` | Run `ios-prove --confirm` exactly once, then re-run the verifier. It checks the device and Iterable first and sends nothing if a precondition fails, and it never sends twice for a run. On a Simulator it moves the app out of the foreground and reads the Simulator's own store and log. On a physical iPhone, first relay the summary: the developer leaves the app (Home Screen or Lock Screen) before the send. |
 | `readback_code` | Physical iPhone only. Show `next.question`: the developer reads the six-character code from the Iterable iOS proof notification on the phone and types it; run its command with exactly what they typed (the command pipes the code in on stdin), or the "I do not see it" option. Never guess, derive, or retype a code yourself; the tool never shows it to you. Three wrong codes close the run. If the notification shows the literal text `{{proofCode}}`, Iterable did not merge the code: report that instead of a code. |
 | `fix_apple_push` | Apple refused pushes for this app on this device (I13). Relay `next.summary`: it names the cause (App ID not enabled for Push on the team or a key restricted to other Bundle IDs, a Bundle ID mismatch, or a sandbox/production mismatch) with the Apple Developer pages and steps. After the developer fixes it, run `next.command` (`ios-verify check-apple`) to ask Apple again. Nothing was sent through Iterable. |

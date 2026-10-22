@@ -158,3 +158,39 @@ ios_project_existing_push() {
     true; } |
     node "$(dirname "${BASH_SOURCE[0]}")/existing-push.js" scan ios "$root" 2>/dev/null || printf '[]'
 }
+
+# Relative paths of app sources that still hold the temporary ITBL_PROOF
+# identity marker, one per line. The marker is proof scaffolding, so inspect and
+# the done summary keep naming it until it is removed.
+ios_project_proof_marker_files() {
+  local root="$1" ios_dir
+  ios_dir="$(ios_project_ios_dir "$root")"
+  [[ -n "$ios_dir" ]] || ios_dir="$root"
+  {
+    ios_project_find_native "$ios_dir" \( -name '*.swift' -o -name '*.m' -o -name '*.mm' -o -name '*.h' \)
+    [[ -z "$(ios_project_js_kind "$root")" ]] ||
+      ios_project_find_js "$root" \( -name '*.js' -o -name '*.jsx' -o -name '*.ts' -o -name '*.tsx' \)
+  } | xargs -0 grep -l 'ITBL_PROOF' 2>/dev/null | sed "s|^$root/||" | sort -u
+}
+
+# Prints <warnings> with a proof_identity_marker_present entry added when the
+# marker is still in the app source.
+ios_project_proof_marker_warning() {
+  local root="$1" warnings="$2" files
+  files="$(ios_project_proof_marker_files "$root")"
+  [[ -n "$files" ]] || { printf '%s' "$warnings"; return 0; }
+  node -e '
+    const [warnings, files] = [JSON.parse(process.argv[1]), process.argv[2].split("\n")];
+    warnings.push({kind: "proof_identity_marker_present", files,
+      summary: `The temporary ITBL_PROOF identity marker is still in the app (${files.join(", ")}). It logs only when the app is launched with -iterableProofIdentity YES, but it is proof scaffolding: remove it once the push is proved.`});
+    process.stdout.write(JSON.stringify(warnings));
+  ' "$warnings" "$files"
+}
+
+# A sentence for the done summary while the marker remains, or nothing.
+ios_project_proof_marker_note() {
+  local files
+  files="$(ios_project_proof_marker_files "$1" | paste -sd, - | sed 's/,/, /g')"
+  [[ -z "$files" ]] ||
+    printf ' Remove the temporary ITBL_PROOF identity marker now that the proof is done (proof_identity_marker_present: %s).' "$files"
+}

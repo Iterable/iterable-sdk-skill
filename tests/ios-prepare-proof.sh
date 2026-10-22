@@ -475,6 +475,149 @@ else
     "no_sdk=$(json_value "$no_sdk" next.kind) other=$(json_value "$other" next.kind)"
 fi
 
+# The identity the app signed in with, from the device, offered only once Iterable
+# holds this Simulator's current APNs token on that user.
+IDBIN="$ROOT/idbin"
+IDAPP="$ROOT/idapp"
+IDSPACE="$IDAPP/.iterable/ios"
+IDSTATE="$ROOT/idstate"
+IDDEVICES="$ROOT/iddevices"
+IDINSTALLED="$ROOT/idinstalled/DogShelter.app"
+mkdir -p "$IDBIN" "$IDSPACE" "$IDSTATE" "$IDDEVICES" "$IDINSTALLED/IterableSDK_IterableSDK.bundle"
+printf 'name: DogShelter\ntargets:\n  DogShelter:\n    platform: iOS\n' > "$IDAPP/project.yml"
+app_bundle "$IDINSTALLED" com.example.dogshelter integrated 202610221000
+bash tests/fixtures/ios-prove/simulate register "$IDDEVICES" SIM-ID-1 com.example.dogshelter development >/dev/null
+cat > "$IDBIN/xcrun" <<XEOF
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$IDSTATE/xcrun-calls"
+case "\$*" in
+  "simctl list devices --json")
+    printf '{"devices":{"com.apple.CoreSimulator.SimRuntime.iOS-26-2":[{"udid":"SIM-ID-1","name":"iPhone 17","state":"Booted","isAvailable":true}]}}\n' ;;
+  "simctl get_app_container SIM-ID-1 com.example.dogshelter app") printf '%s\n' "$IDINSTALLED" ;;
+  "simctl spawn SIM-ID-1 log show "*) cat "$IDSTATE/log.ndjson" 2>/dev/null; printf '{"count":0,"finished":1}\n' ;;
+  "simctl launch --terminate-running-process SIM-ID-1 com.example.dogshelter -iterableProofIdentity YES")
+    cat "$IDSTATE/marker.ndjson" >> "$IDSTATE/log.ndjson" 2>/dev/null; printf 'com.example.dogshelter: 4242\n' ;;
+  *devicectl*) printf '{"result":{"devices":[]}}\n' ;;
+  *) exit 2 ;;
+esac
+XEOF
+cat > "$IDBIN/curl" <<XEOF
+#!/usr/bin/env bash
+cat >/dev/null
+url="\${@: -1}"
+printf '%s\n' "\$url" >> "$IDSTATE/curl-calls"
+device() { printf '{"user":{"userId":"%s","dataFields":{"devices":[{"appPackageName":"com.example.dogshelter","endpointEnabled":true,"token":"%s"}]}}}\n200' "\$1" "\$(node -e 'process.stdout.write(Buffer.alloc(80,Number(process.argv[1])).toString("hex"))' "\$2")"; }
+case "\$url" in
+  */api/users/byUserId/SIGNED-IN-1) device SIGNED-IN-1 17 ;;
+  */api/users/byUserId/OTHER-PHONE-2) device OTHER-PHONE-2 34 ;;
+  */api/users/byUserId/TWIN-4) device TWIN-4 17 ;;
+  */api/users/byUserId/*) printf '{"msg":"No user exists with userId x","code":"BadParams"}\n400' ;;
+  *) printf '{"msg":"unexpected"}\n500' ;;
+esac
+XEOF
+cp "$SIMBIN/xcodebuild" "$SIMBIN/sw_vers" "$SIMBIN/uname" "$IDBIN/"
+chmod +x "$IDBIN"/*
+printf '{"features":["push-notifications","sdk-initialization"],"identity_mode":"user-id","data_region":"US","jwt_enabled":false}\n' > "$IDSPACE/scope.json"
+for file in target.json .env server-validation.json; do cp "$WORKSPACE/$file" "$IDSPACE/$file"; done
+chmod 600 "$IDSPACE"/scope.json "$IDSPACE"/target.json "$IDSPACE"/.env "$IDSPACE"/server-validation.json
+run_id() {
+  env PATH="$IDBIN:$PATH" ITERABLE_IOS_TEST_MODE=1 IOS_CORE_SIMULATOR_DEVICES_ROOT="$IDDEVICES" \
+    IOS_PROOF_IDENTITY_WAIT=0 IOS_WORKSPACE="$IDSPACE" bin/ios-prepare-proof "$@" 2>/dev/null
+}
+run_id_line() {
+  env PATH="$IDBIN:$PATH" ITERABLE_IOS_TEST_MODE=1 IOS_CORE_SIMULATOR_DEVICES_ROOT="$IDDEVICES" \
+    IOS_PROOF_IDENTITY_WAIT=0 IOS_WORKSPACE="$IDSPACE" bash -c "$1" 2>/dev/null
+}
+curl_calls() { [[ -f "$IDSTATE/curl-calls" ]] && wc -l < "$IDSTATE/curl-calls" | tr -d ' ' || printf 0; }
+sdk_line() { # <userId>
+  printf '{"timestamp":"2026-10-22 10:25:29.091000+0100","eventMessage":"❤️ 10:25:29.0910:0x13f009480:RequestProcessorUtil:attemptSend():39: No user exists with userId %s"}\n' "$1"
+}
+offers_identity() { grep -q 'device token on that user","description' <<< "$1"; }
+use_label() { printf 'Use %s: Iterable has this Simulator'"'"'s current device token on that user' "$1"; }
+
+quiet="$(run_id status)"
+if [[ "$(json_value "$quiet" next.kind)" == confirm_proof && "$(curl_calls)" == 0 &&
+      "$(json_value "$quiet" next.question.recommended)" == "Relaunch the app to read the identity it signs in with" ]] &&
+    ! offers_identity "$quiet"; then
+  ok "with no identity candidates the screen asks Iterable nothing and offers the relaunch"
+else
+  bad "no candidates still reached Iterable or offered an identity" "curl=$(curl_calls) rec=$(json_value "$quiet" next.question.recommended)"
+fi
+
+{ printf '{"eventMessage":"❤️ 10:25:29.0910:0x1:RequestProcessorUtil:attemptSend():39: No user exists with email dogs@example.com"}\n'
+  printf '{"eventMessage":"Signed in. No user exists with userId SIGNED-IN-1 yet, retrying"}\n'; } > "$IDSTATE/log.ndjson"
+foreign="$(run_id status)"
+if [[ "$(curl_calls)" == 0 ]] && ! offers_identity "$foreign"; then
+  ok "an email echoed in a user-ID app, or a line the SDK did not log, is never looked up"
+else
+  bad "a log line that is not the SDK's, or the other identity type, became a candidate" "curl=$(curl_calls)"
+fi
+
+sdk_line SIGNED-IN-1 > "$IDSTATE/log.ndjson"
+offered="$(run_id status)"
+use="$(option_command "$offered" "$(use_label SIGNED-IN-1)")"
+if [[ "$(json_value "$offered" next.question.recommended)" == "$(use_label SIGNED-IN-1)" &&
+      "$use" == *"/ios-prepare-proof start --confirm --identity SIGNED-IN-1" &&
+      "$(curl_calls)" == 1 && ! -e "$IDSPACE/proof-target.json" ]] &&
+    prompt_has "$offered" "The app's log mentions SIGNED-IN-1, and Iterable has this Simulator's current device token on that user." &&
+    ! grep -q 'SIGNED-IN-1' "$IDSPACE/proof-discovery.json" 2>/dev/null; then
+  ok "an SDK log line naming a user who holds this Simulator's token is offered, and nothing is recorded"
+else
+  bad "the SDK log identity was not offered, or was recorded without a tap" \
+    "rec=$(json_value "$offered" next.question.recommended) curl=$(curl_calls)"
+fi
+run_id_line "$use" >/dev/null
+[[ "$(json_value "$(cat "$IDSPACE/proof-target.json" 2>/dev/null)" identity)" == SIGNED-IN-1 ]] &&
+  ok "choosing it starts the run with that identity, as typing would" ||
+  bad "choosing the offered identity did not record it"
+rm -f "$IDSPACE/proof-target.json" "$IDSPACE/proof-discovery.json"
+
+sdk_line OTHER-PHONE-2 > "$IDSTATE/log.ndjson"
+: > "$IDSTATE/curl-calls"
+elsewhere="$(run_id status --identity-candidate NOBODY-3)"
+check="$(option_command "$elsewhere" "Check again")"
+if ! offers_identity "$elsewhere" &&
+    prompt_has "$elsewhere" "The app's log mentions OTHER-PHONE-2, but Iterable doesn't have this Simulator's token on it yet; sign in or relaunch, then check again." &&
+    prompt_has "$elsewhere" "The agent proposed NOBODY-3, but Iterable doesn't have this Simulator's token on it yet" &&
+    [[ "$check" == *"/ios-prepare-proof status --identity-candidate NOBODY-3" && "$(curl_calls)" == 2 ]]; then
+  ok "a user without this Simulator's token, or no user at all, is named but never offered, and Check again keeps the proposal"
+else
+  bad "a candidate Iterable cannot tie to this Simulator was offered" "$(json_value "$elsewhere" next.question.prompt)"
+fi
+
+: > "$IDSTATE/log.ndjson"
+agent="$(run_id status --identity-candidate SIGNED-IN-1)"
+[[ "$(json_value "$agent" next.question.recommended)" == "$(use_label SIGNED-IN-1)" ]] &&
+  prompt_has "$agent" "The agent proposed SIGNED-IN-1, and Iterable has this Simulator's current device token on that user." &&
+  ok "an agent's --identity-candidate is offered under the same token rule" ||
+  bad "the agent's candidate skipped or failed the token check" "$(json_value "$agent" next.question.recommended)"
+
+twins="$(run_id status --identity-candidate SIGNED-IN-1 --identity-candidate TWIN-4)"
+! offers_identity "$twins" &&
+  prompt_has "$twins" "Iterable has this Simulator's token on more than one of these: SIGNED-IN-1, TWIN-4. Type the one the app is signed in with." &&
+  ok "when two candidates hold this Simulator's token, neither is offered" ||
+  bad "an ambiguous token match offered one identity" "$(json_value "$twins" next.question.recommended)"
+
+printf '{"eventMessage":"ITBL_PROOF identity=SIGNED-IN-1"}\n' > "$IDSTATE/marker.ndjson"
+: > "$IDSTATE/xcrun-calls"
+relaunch="$(option_command "$quiet" "Relaunch the app to read the identity it signs in with")"
+marked="$(run_id_line "$relaunch")"
+if grep -qx 'simctl launch --terminate-running-process SIM-ID-1 com.example.dogshelter -iterableProofIdentity YES' "$IDSTATE/xcrun-calls" &&
+    [[ "$relaunch" == *"/ios-prepare-proof read-identity --confirm" &&
+      "$(json_value "$marked" next.question.recommended)" == "$(use_label SIGNED-IN-1)" ]] &&
+    prompt_has "$marked" "Relaunched com.example.dogshelter with -iterableProofIdentity YES; its proof marker logged the identity below." &&
+    prompt_has "$marked" "The app's proof marker logged SIGNED-IN-1, and Iterable has this Simulator's current device token on that user."; then
+  ok "the relaunch passes -iterableProofIdentity YES, and the marker's identity is offered once Iterable has the token"
+else
+  bad "the relaunch did not pass the proof argument or its marker was not offered" "$(grep launch "$IDSTATE/xcrun-calls")"
+fi
+printf '{"eventMessage":"ITBL_PROOF identity=OTHER-PHONE-2"}\n' > "$IDSTATE/log.ndjson"
+unmarked="$(run_id status)"
+! offers_identity "$unmarked" &&
+  prompt_has "$unmarked" "The app's proof marker logged OTHER-PHONE-2, but Iterable doesn't have this Simulator's token on it yet" &&
+  ok "a marker identity whose user lacks this Simulator's token is not offered" ||
+  bad "a marker identity was offered without the token match"
+
 if bin/ios-prepare-proof --help | grep -q "ios-provision capture-server" &&
     ! bin/ios-prepare-proof --help | grep -q "capture-mobile"; then
   ok "verify-only help delegates credentials without exposing provisioning"

@@ -633,6 +633,20 @@ else
   bad "an Iterable-only integration reported an existing-push follow-up" "$iterable_only"
 fi
 rm -rf "$ROOT/app/App"
+# The done summary names the temporary ITBL_PROOF identity marker until it is removed.
+printf 'import os\nfunc logProof(_ v: String) { os_log("ITBL_PROOF identity=%%{public}@", v) }\n' > "$ROOT/app/ProofMarker.swift"
+touch -t 202001010000 "$ROOT/app/ProofMarker.swift"
+marked_done="$(run_verify 2>/dev/null)"
+rm "$ROOT/app/ProofMarker.swift"
+unmarked_done="$(run_verify 2>/dev/null)"
+if [[ "$(json_value "$marked_done" next.kind)" == done &&
+      "$(json_value "$marked_done" next.summary)" == *"Remove the temporary ITBL_PROOF identity marker now that the proof is done (proof_identity_marker_present: ProofMarker.swift)."* &&
+      "$(json_value "$unmarked_done" next.kind)" == done &&
+      "$(json_value "$unmarked_done" next.summary)" != *ITBL_PROOF* ]]; then
+  ok "the done summary asks for the ITBL_PROOF marker's removal while it remains"
+else
+  bad "the done summary ignored the proof marker" "$(json_value "$marked_done" next.summary)"
+fi
 
 mv "$APP_PATH/IterableRuntimeProof.fixture" "$STATE/IterableRuntimeProof.fixture"
 node -e '

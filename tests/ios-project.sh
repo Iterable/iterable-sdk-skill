@@ -392,6 +392,30 @@ native_inspect="$(inspect "$NATIVE")"
   ok "a native app reports framework native and gets no React Native build advice" ||
   bad "a native app reported the wrong framework" "$native_inspect"
 
+# The temporary ITBL_PROOF identity marker is proof scaffolding: inspect names it
+# until it is removed, in native code and in a React Native app's native code.
+cat > "$NATIVE/Native/Sources/IterableProofMarker.swift" <<'EOF'
+import os
+func logProof(_ identity: String) { os_log("ITBL_PROOF identity=%{public}@", identity) }
+EOF
+marked="$(inspect "$NATIVE")"
+cat > "$RN/ios/RNApp/ProofMarker.swift" <<'EOF'
+import os
+func logProof(_ identity: String) { os_log("ITBL_PROOF identity=%{public}@", identity) }
+EOF
+rn_marked="$(inspect "$RN")"
+rm "$NATIVE/Native/Sources/IterableProofMarker.swift" "$RN/ios/RNApp/ProofMarker.swift"
+cleared="$(inspect "$NATIVE")"
+if [[ "$(warning_kinds "$marked")" == proof_identity_marker_present &&
+      "$(warning_kinds "$rn_marked")" == proof_identity_marker_present &&
+      "$marked" == *'Native/Sources/IterableProofMarker.swift'* &&
+      "$rn_marked" == *'ios/RNApp/ProofMarker.swift'* &&
+      -z "$(warning_kinds "$cleared")" ]]; then
+  ok "inspect warns proof_identity_marker_present while ITBL_PROOF is in the source, and stops once it is removed"
+else
+  bad "the proof marker warning is missing or outlives the marker" "$(warning_kinds "$marked") / $(warning_kinds "$rn_marked") / $(warning_kinds "$cleared")"
+fi
+
 cat > "$ROOT/fakebin/xcrun" <<'EOF'
 #!/usr/bin/env bash
 case "$*" in

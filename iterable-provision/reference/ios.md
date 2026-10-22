@@ -596,10 +596,13 @@ build of the app — one an earlier run recorded, or a product under the app's
 own `-derivedDataPath` — that carries the Iterable SDK, it asks which copy the
 run tests and recommends binding that exact `.app` unless the installed copy
 was built later; the installed app stays an option. Otherwise it reuses the
-installed app and generates one targeted marker. The identity is typed: the
-SDK keeps it in the Keychain and never logs it, and Iterable has no lookup by
-device token, so the screen says where to read it, including a Simulator
-debugger read of the running app.
+installed app and generates one targeted marker. On a Simulator the identity
+screen offers an identity only when Iterable holds this Simulator's current
+APNs token on that user; candidates come from the integration's `ITBL_PROOF`
+marker (read after relaunching the app with `-iterableProofIdentity YES`), the
+SDK's own "No user exists with userId|email" log lines, and
+`--identity-candidate`. Otherwise the screen says where to read the identity
+and the developer types it.
 For a new integration completed in the current flow, it also requires the
 exact built `.app`, so installation and proof are linked to that artifact. Its
 confirmation runs through the preparation actor; do not reconstruct the

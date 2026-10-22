@@ -38,7 +38,8 @@ Usage:
   ios-provision ignore-expo-env --confirm [--workspace PATH]
   ios-provision capture-server [--replace] --confirm [--workspace PATH]
   ios-provision validate-server [--workspace PATH]
-  ios-provision proof-status [--workspace PATH]
+  ios-provision proof-status [--identity-candidate VALUE ...] [--workspace PATH]
+  ios-provision proof-read-identity --confirm [--identity-candidate VALUE ...] [--workspace PATH]
   ios-provision proof-answer [--field FIELD --value VALUE | --clear] [--workspace PATH]
   ios-provision record-proof --proof-mode behavioral|instrumented
     --bundle-id ID --identity-type email|user-id --identity VALUE
@@ -99,6 +100,11 @@ expectations, and a second marker. Neither mode asserts that an outcome
 happened. restart-proof preserves standard identity/device choices while
 rotating run-scoped state; instrumented restart also creates fresh identities
 and baselines.
+On a Simulator, proof-status offers an identity only after Iterable shows this
+Simulator's current APNs token on that user. Candidates come from the app's
+ITBL_PROOF marker, the Iterable SDK's own log lines, and --identity-candidate;
+with none, it makes no request. proof-read-identity relaunches the app with
+-iterableProofIdentity YES so the marker logs the identity it signs in with.
 
 experimental-apns-* is an explicit opt-in path that pins Fastlane Spaceship and
 uses unsupported Apple web-session endpoints. It never revokes existing keys,
@@ -460,6 +466,8 @@ read_args() {
   PROOF_LOGOUT_EXPECT=""
   PROOF_PROFILE_FIELDS=()
   PROOF_EVENTS=()
+  PROOF_IDENTITY_CANDIDATES=()
+  PROOF_RELAUNCH=false
   APPLE_ID=""
   OUTPUT_DIR=""
   EXPERIMENTAL=false
@@ -675,6 +683,15 @@ read_args() {
         (($# >= 2)) || die "--identity needs a value"
         PROOF_IDENTITY="$2"
         shift 2
+        ;;
+      --identity-candidate)
+        (($# >= 2)) || die "--identity-candidate needs a value"
+        PROOF_IDENTITY_CANDIDATES+=("$2")
+        shift 2
+        ;;
+      --identity-candidate=*)
+        PROOF_IDENTITY_CANDIDATES+=("${1#*=}")
+        shift
         ;;
       --identity=*)
         PROOF_IDENTITY="${1#*=}"
@@ -1330,8 +1347,8 @@ proof_artifact_compare() {
   fi
 }
 
-# The SDK keeps the identity in the Keychain and never logs it, and Iterable has no
-# lookup by device token, so the developer reads it; on a Simulator, from app memory.
+# How to find the identity by hand when no candidate is verified: Iterable has no
+# lookup by device token, and the SDK only logs it when a request fails.
 proof_identity_steps() {
   local identity_type="$1" device="$2" device_kind="$3" executable="$4"
   local call=userId setter="IterableAPI.userId or setUserId" lead="If the app generates it on the device"
@@ -1348,6 +1365,129 @@ proof_identity_steps() {
     printf "lldb --batch -p \"\$(pgrep -f 'Devices/%s/.*/%s\\\\.app/%s( |\$)')\" -o 'expr -l objc -O -- [NSClassFromString(@\"IterableSDK.IterableAPI\") %s]' -o detach" \
       "$device" "${executable:-<App>}" "${executable:-<App>}" "$call"
   fi
+}
+
+# Prints "<source>\t<type>\t<value>", newest first, for each identity the app's own
+# log names: the integration's ITBL_PROOF marker, or the SDK echoing Iterable's
+# "No user exists with userId|email <value>" for a request sent before the user existed.
+proof_log_identities() {
+  local device="$1" executable="$2" since="${3:-}"
+  local -a window=(--last 24h)
+  [[ "$executable" =~ ^[A-Za-z0-9\ ._-]+$ ]] || return 0
+  [[ -z "$since" ]] || window=(--start "$since")
+  xcrun simctl spawn "$device" log show "${window[@]}" --style ndjson --predicate \
+    "process == \"$executable\" AND (eventMessage BEGINSWITH \"ITBL_PROOF identity=\" OR eventMessage CONTAINS \"No user exists with\")" \
+    2>/dev/null | node -e '
+      const marker=[], sdk=[];
+      for (const line of require("fs").readFileSync(0,"utf8").split("\n")) {
+        if (!line.startsWith("{")) continue;
+        let entry; try { entry=JSON.parse(line) } catch { continue }
+        const message=String(entry.eventMessage||"");
+        const own=message.match(/^ITBL_PROOF identity=(.+)$/);
+        if (own) { marker.push(["-", own[1].trim()]); continue; }
+        if (!/^(\u2764\uFE0F?|\u{1F49B}|\u{1F49A}) /u.test(message)) continue;
+        for (const hit of message.matchAll(/No user exists with (userId|email) ([^\s"\x27,;]+)/g))
+          sdk.push([hit[1]==="email" ? "email" : "user-id", hit[2].replace(/\.+$/,"")]);
+      }
+      const out=[], seen=new Set();
+      for (const [source,list] of [["marker",marker],["sdk-log",sdk]])
+        for (const [type,value] of list.reverse())
+          if (value && !seen.has(value)) { seen.add(value); out.push([source,type,value].join("\t")); }
+      process.stdout.write(out.join("\n"));
+    '
+}
+
+proof_server_key() {
+  local region="$1" key hash
+  [[ -f "$MOBILE_ENV" && -f "$SERVER_VALIDATION" ]] || return 0
+  key="$(sed -n 's/^ITERABLE_SERVER_KEY=//p' "$MOBILE_ENV" | head -1)"
+  [[ -n "$key" ]] || return 0
+  hash="$(printf '%s' "$key" | shasum -a 256 | awk '{print $1}')"
+  node -e '
+    const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
+    process.exit(v.valid===true && v.data_region===process.argv[2] && v.key_sha256===process.argv[3] ? 0 : 1);
+  ' "$SERVER_VALIDATION" "$region" "$hash" 2>/dev/null && printf '%s' "$key"
+}
+
+# Prints "<verdict>\t<source>\t<value>" for at most three candidates: match when
+# Iterable holds this Simulator's current APNs token on that user, as I12 checks.
+# No candidates means no Iterable request.
+proof_identity_checks() {
+  local device="$1" bundle="$2" executable="$3" identity_type="$4" region="$5"
+  local source type value token="" key="" verdict devices count=0 logged
+  local -a candidates=()
+  logged="$(proof_log_identities "$device" "$executable")"
+  while IFS=$'\t' read -r source type value; do
+    [[ -n "$value" ]] || continue
+    [[ "$type" == - || "$type" == "$identity_type" ]] || continue
+    candidates+=("$source"$'\t'"$value")
+  done < <(
+    grep '^marker' <<< "$logged"
+    for value in "${PROOF_IDENTITY_CANDIDATES[@]+"${PROOF_IDENTITY_CANDIDATES[@]}"}"; do
+      [[ "$value" == *$'\n'* || "$value" == *$'\t'* ]] || printf 'agent\t-\t%s\n' "$value"
+    done
+    grep '^sdk-log' <<< "$logged"
+  )
+  local -a kept=()
+  local seen=$'\n'
+  for value in "${candidates[@]+"${candidates[@]}"}"; do
+    source="${value%%$'\t'*}"
+    value="${value#*$'\t'}"
+    [[ "$value" != *$'\n'* && "$value" != *$'\t'* && ${#value} -le 500 ]] || continue
+    [[ "$identity_type" != email || "$value" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[A-Za-z]{2,}$ ]] || continue
+    [[ "$seen" != *$'\n'"$value"$'\n'* ]] || continue
+    seen="$seen$value"$'\n'
+    kept+=("$source"$'\t'"$value")
+    ((++count < 3)) || break
+  done
+  ((${#kept[@]})) || return 0
+  token="$(node "$BIN/ios-notify-read.js" store "$(ios_simulator_devices_root)" "$device" "$bundle" 2>/dev/null |
+    node -e 'let i="";process.stdin.on("data",c=>i+=c).on("end",()=>{try{process.stdout.write(String(JSON.parse(i).registration?.token_sha256||""))}catch{}})')"
+  [[ -z "$token" ]] || key="$(proof_server_key "$region")"
+  for value in "${kept[@]}"; do
+    source="${value%%$'\t'*}"
+    value="${value#*$'\t'}"
+    if [[ -z "$token" ]]; then
+      verdict=notoken
+    elif [[ -z "$key" ]]; then
+      verdict=nokey
+    else
+      proof_user_get "$key" "$region" "$identity_type" "$value"
+      if [[ "$PROOF_HTTP_CODE" == 200 ]]; then
+        devices="$(printf '%s' "$PROOF_HTTP_BODY" |
+          node "$BIN/ios-notify-read.js" iterable-devices "$bundle" "$token" 2>/dev/null)"
+        [[ "$devices" == *'"token_match":true'* ]] && verdict=match || verdict=absent
+      elif [[ "$PROOF_HTTP_CODE" == 400 ]] && grep -Eqi 'no user exists|not found' <<< "$PROOF_HTTP_BODY"; then
+        verdict=absent
+      else
+        verdict="unreadable:$PROOF_HTTP_CODE"
+      fi
+      PROOF_HTTP_BODY=""
+    fi
+    printf '%s\t%s\t%s\n' "$verdict" "$source" "$value"
+  done
+  unset key
+}
+
+# Relaunches the installed app so the integration's marker logs the identity it
+# signs in with, and waits briefly for that line. Prints a note for the screen.
+proof_relaunch_for_identity() {
+  local device="$1" bundle="$2" executable="$3" started waited=0 wait="${IOS_PROOF_IDENTITY_WAIT:-20}"
+  started="$(ios_simulator_log_time "$(node -e 'process.stdout.write(new Date().toISOString())')" 2000)"
+  xcrun simctl launch --terminate-running-process "$device" "$bundle" -iterableProofIdentity YES >/dev/null 2>&1 || {
+    printf 'The Simulator could not relaunch %s, so nothing new was logged.' "$bundle"
+    return 0
+  }
+  while :; do
+    proof_log_identities "$device" "$executable" "$started" | grep -q '^marker' && {
+      printf 'Relaunched %s with -iterableProofIdentity YES; its proof marker logged the identity below.' "$bundle"
+      return 0
+    }
+    ((waited < wait)) || break
+    sleep 2
+    waited=$((waited + 2))
+  done
+  printf 'Relaunched %s with -iterableProofIdentity YES, but no ITBL_PROOF line appeared within %ss: this build has no proof marker, or the app has not identified a user yet.' "$bundle" "$wait"
 }
 
 proof_devices_json() {
@@ -1458,12 +1598,23 @@ proof_devices_json() {
 }
 
 proof_question_identity_and_confirm() {
-  local summary="$1" identity_type="$2" device="$3" steps="${4:-}" noun="email address"
+  local summary="$1" identity_type="$2" device="$3" steps="${4:-}" findings="${5:-}"
+  local verified="${6:-}" verified_how="${7:-}" check="${8:-}" relaunch="${9:-}" bundle="${10:-the app}"
+  local noun="email address" use="" quoted rec=null shown=0
   [[ "$identity_type" == email ]] || noun="user ID"
+  [[ -z "$findings" ]] || summary="$summary
+
+$findings"
   [[ -z "$steps" ]] || summary="$summary
 
 To find the $noun:
 $steps"
+  if [[ -n "$verified" ]]; then
+    use="Use $verified: Iterable has this Simulator's current device token on that user"
+    rec="$(jstr "$use")"
+  elif [[ -n "$relaunch" ]]; then
+    rec="$(jstr "Relaunch the app to read the identity it signs in with")"
+  fi
   printf '{"header":"Proof run","prompt":%s,"selection":"single",' \
     "$(jstr "$summary
 
@@ -1472,17 +1623,43 @@ Check which $noun the app is signed in with: typing it starts the proof run. Whi
 Use the identity the app itself passes to Iterable. Nothing is sent until the proof step runs, and that one push goes only to this identity on this device.
 EOF
 )"
-  printf '"requires":[],"recommended":null,"before_commands":[],"options":['
+  printf '"requires":[],"recommended":%s,"before_commands":[],"options":[' "$rec"
+  if [[ -n "$verified" ]]; then
+    printf -v quoted '%q' "$verified"
+    ios_q_opt "$use" \
+      "Records $verified as the proof identity and starts the run, exactly as typing it would. $verified_how" \
+      "records the identity and starts the run; ios-prove later sends one marked push to it on $device" \
+      "$BIN/ios-prepare-proof start --confirm --identity $quoted"
+    printf ','
+    shown=1
+  elif [[ -n "$relaunch" ]]; then
+    ios_q_opt "Relaunch the app to read the identity it signs in with" \
+      "Relaunches $bundle on this Simulator with the launch argument -iterableProofIdentity YES, so the integration's ITBL_PROOF marker logs the identity it signs in with. Nothing is recorded until you choose it here." \
+      "the app restarts on the Simulator; this screen comes back with what it logged" \
+      "$relaunch"
+    printf ','
+    shown=1
+  fi
+  if [[ -z "$verified" && -n "$check" ]]; then
+    ios_q_opt "Check again" \
+      "Reads the app's log and Iterable again, for example after you sign in or relaunch the app. Nothing is recorded." \
+      "this screen comes back with a fresh check" \
+      "$check"
+    printf ','
+    shown=$((shown + 1))
+  fi
   ios_q_opt "I don't have a test user yet — help me" \
     "Shows how to sign in to the app with a test identity you control, then you answer with it." \
     "opens the test-user guide; nothing is recorded yet" \
     "$BIN/ios-provision question --kind help_proof_identity_start"
   printf ','
-  ios_q_opt "Use a different device" \
-    "Clears the prefilled device so you can pick another booted Simulator or iPhone." \
-    "returns to device selection" \
-    "$BIN/ios-prepare-proof answer --field device --clear"
-  printf ','
+  if ((shown < 2)); then
+    ios_q_opt "Use a different device" \
+      "Clears the prefilled device so you can pick another booted Simulator or iPhone." \
+      "returns to device selection" \
+      "$BIN/ios-prepare-proof answer --field device --clear"
+    printf ','
+  fi
   ios_q_opt "Stop here" \
     "No proof run is created and nothing is sent." \
     "the integration remains unproved"
@@ -1716,14 +1893,62 @@ Tap expectation: ${tap_expect:-not applicable}
 Logout expectation: $logout_expect"
       fi
       if [[ "$proof_mode" == behavioral && -z "$identity" ]]; then
-        local executable="" app
-        for app in "$app_path" "$installed" "$built"; do
+        local executable="" app findings="" verified="" verified_how="" check="" relaunch="" flags=""
+        local candidate quoted_candidate verdict source value how note matches=0 ambiguous=""
+        [[ -n "$installed" || "$device_kind" != simulator ]] ||
+          installed="$(xcrun simctl get_app_container "$device" "$bundle" app 2>/dev/null)"
+        for app in "$installed" "$app_path" "$built"; do
           [[ -n "$app" && -z "$executable" ]] || continue
           executable="$(plutil -extract CFBundleExecutable raw -o - "$app/Info.plist" 2>/dev/null)"
         done
+        for candidate in "${PROOF_IDENTITY_CANDIDATES[@]+"${PROOF_IDENTITY_CANDIDATES[@]}"}"; do
+          printf -v quoted_candidate '%q' "$candidate"
+          flags="$flags --identity-candidate $quoted_candidate"
+        done
+        if [[ "$device_kind" == simulator ]]; then
+          [[ "$PROOF_RELAUNCH" != true || -z "$installed" ]] ||
+            findings="$(proof_relaunch_for_identity "$device" "$bundle" "$executable")"
+          while IFS=$'\t' read -r verdict source value; do
+            [[ -n "$value" ]] || continue
+            check="$BIN/ios-prepare-proof status$flags"
+            case "$source" in
+              marker) how="the app's proof marker logged it"; note="The app's proof marker logged $value" ;;
+              agent) how="the agent proposed it"; note="The agent proposed $value" ;;
+              *) how="the Iterable SDK's log mentions it"; note="The app's log mentions $value" ;;
+            esac
+            case "$verdict" in
+              match)
+                matches=$((matches + 1))
+                ambiguous="${ambiguous:+$ambiguous, }$value"
+                [[ -n "$verified" ]] || {
+                  verified="$value"
+                  verified_how="It is offered because $how, and Iterable has this Simulator's current device token on that user."
+                }
+                note="$note, and Iterable has this Simulator's current device token on that user."
+                ;;
+              absent) note="$note, but Iterable doesn't have this Simulator's token on it yet; sign in or relaunch, then check again." ;;
+              notoken) note="$note, but this Simulator has no APNs token for $bundle yet, so Iterable cannot be checked; open the app, allow notifications, then check again." ;;
+              nokey) note="$note, but the workspace has no Server-side key validated for the $data_region region, so Iterable cannot be checked." ;;
+              *) note="$note, but Iterable could not be read (HTTP ${verdict#*:}); check again." ;;
+            esac
+            findings="${findings:+$findings
+}$note"
+          done < <(proof_identity_checks "$device" "$bundle" "$executable" "$identity_type" "$data_region")
+          if ((matches > 1)); then
+            findings="${findings:+$findings
+}Iterable has this Simulator's token on more than one of these: $ambiguous. Type the one the app is signed in with."
+            verified=""
+          fi
+          [[ -z "$installed" ]] || relaunch="$BIN/ios-prepare-proof read-identity --confirm$flags"
+        elif ((${#PROOF_IDENTITY_CANDIDATES[@]})); then
+          findings="Proposed identities are checked against a Simulator's APNs token, which a physical iPhone does not expose, so none is offered here."
+        fi
         question="$(proof_question_identity_and_confirm "$summary_text" "$identity_type" "$device" \
-          "$(proof_identity_steps "$identity_type" "$device" "$device_kind" "$executable")")"
+          "$(proof_identity_steps "$identity_type" "$device" "$device_kind" "$executable")" \
+          "$findings" "$verified" "$verified_how" "$check" "$relaunch" "$bundle")"
         summary="Type the identity the app is signed in with; that starts the run on the device shown."
+        [[ -z "$verified" ]] ||
+          summary="Iterable has this Simulator's current device token on $verified: the developer can choose it, or type the identity the app is signed in with."
       else
         question="$(ios_question confirm_proof "$summary_text")"
         summary="Review the exact proof target before the live freshness checks create the run."
@@ -4365,9 +4590,10 @@ json_array_from_args() {
   '
 }
 
-proof_user_exists() {
-  local key="$1" region="$2" identity_type="$3" identity="$4"
-  local base encoded path out code body
+# The same user read the verifier's I12 gate makes. Sets PROOF_HTTP_CODE and
+# PROOF_HTTP_BODY.
+proof_user_get() {
+  local key="$1" region="$2" identity_type="$3" identity="$4" base encoded path out
   [[ "$region" == EU ]] &&
     base="https://api.eu.iterable.com" ||
     base="https://api.iterable.com"
@@ -4379,8 +4605,15 @@ proof_user_exists() {
   fi
   out="$(curl_with_secret_header "Api-Key: $key" \
     -sS -w $'\n%{http_code}' "$base$path" 2>&1)" || true
-  code="${out##*$'\n'}"
-  body="${out%$'\n'*}"
+  PROOF_HTTP_CODE="${out##*$'\n'}"
+  PROOF_HTTP_BODY="${out%$'\n'*}"
+}
+
+proof_user_exists() {
+  local code body
+  proof_user_get "$@"
+  code="$PROOF_HTTP_CODE"
+  body="$PROOF_HTTP_BODY"
   case "$code" in
     200)
       printf 'true'
@@ -5377,6 +5610,12 @@ case "$COMMAND" in
     deliver_mobile_key_cmd
     ;;
   proof-status)
+    proof_status_json
+    ;;
+  proof-read-identity)
+    [[ "$CONFIRM" == true ]] ||
+      die "proof-read-identity requires --confirm: it relaunches the app on the Simulator"
+    PROOF_RELAUNCH=true
     proof_status_json
     ;;
   proof-answer)
