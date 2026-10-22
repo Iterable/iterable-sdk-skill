@@ -14,7 +14,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
 CLIENT_TEMPLATE_ID="itbl-onboard-g16-proof"
 
 [[ -n "$ITBL_SERVER_KEY" ]] || { echo "no server-side key. Get one with: $BIN/iterable-keys --step 1" >&2; exit 1; }
-[[ -n "$ITBL_EMAIL" ]] || { echo "no ITBL_EMAIL set — the proof needs a user to send to" >&2; exit 1; }
+[[ -n "$(itbl_identity)" ]] || { echo "no ITBL_EMAIL or ITBL_USER_ID set — the proof needs a user to send to" >&2; exit 1; }
 
 # The marker is what makes the arrival attributable. Without it G16 can only say
 # "an Iterable push is on screen"; with it, it can say this send arrived.
@@ -52,7 +52,7 @@ fi
 
 sent_at="$(node -e 'process.stdout.write(String(Date.now()))')"
 itbl_post "$ITBL_SERVER_KEY" /api/templates/push/proof \
-  "$(node -e 'process.stdout.write(JSON.stringify({templateId:Number(process.argv[1]),recipientEmail:process.argv[2]}))' "$tid" "$ITBL_EMAIL")" \
+  "$(node -e 'process.stdout.write(JSON.stringify({templateId:Number(process.argv[1]),[process.argv[2]]:process.argv[3]}))' "$tid" "$(itbl_recipient_field)" "$(itbl_identity)")" \
   || { echo "proof send failed: $(itbl_err "$ITBL_BODY")" >&2; exit 1; }
 
 save_resolved ITBL_PROOF_TEMPLATE_ID "$tid"
@@ -60,7 +60,7 @@ save_resolved ITBL_PROOF_MARKER "$MARKER"
 save_resolved ITBL_PROOF_SENT_AT "$sent_at"
 
 echo
-echo "  Sent template $tid to $ITBL_EMAIL, marked $MARKER."
+echo "  Sent template $tid to $(itbl_identity), marked $MARKER."
 if [[ -n "$PRIOR_PROOF" ]]; then
   echo
   echo "  $(bold "An earlier proof is still in the shade.") Android will bundle this one with"

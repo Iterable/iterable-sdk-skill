@@ -55,17 +55,17 @@ g10() {
 # Iterable's own docs send you to Audience > User Lookup for this; the same data
 # is on the user profile, so it needs no dashboard.
 g15() {
-  [[ -n "$ITBL_EMAIL" ]] || { echo "no test user set (ITBL_EMAIL)"; return 1; }
+  [[ -n "$(itbl_identity)" ]] || { echo "no test user set (ITBL_EMAIL, or ITBL_USER_ID for a user ID)"; return 1; }
   local out
-  itbl_get "$ITBL_SERVER_KEY" "/api/users/getByEmail?email=$(urlenc "$ITBL_EMAIL")" || true
+  itbl_get "$ITBL_SERVER_KEY" "$(itbl_user_path)" || true
   # "No user exists" is neither a defect nor a bad key: the app has not run and
   # registered a token yet. Gate rule 2 — a not-yet state reported as a failure
   # blames the customer for work that is merely pending. Returns 2, not 1.
   # The other reading of the same answer, and the more common one: the app signs in
   # as somebody else. Naming both is the difference between a next step and a
   # mystery, and nothing on this side can tell them apart.
-  if [[ "$ITBL_CODE" == 400 ]] && grep -qi 'no user exists' <<< "$ITBL_BODY"; then
-    echo "no user yet — nothing has registered $ITBL_EMAIL (is that what the app signs in as?)"
+  if itbl_no_user "$ITBL_CODE" "$ITBL_BODY"; then
+    echo "no user yet — nothing has registered $(itbl_identity) (is that what the app signs in as?)"
     return 2
   fi
   out="$(classify_itbl_response "$ITBL_CODE" "$ITBL_BODY")" || { echo "$out"; return 1; }
@@ -96,11 +96,11 @@ g15() {
 # G17 — Iterable agrees it sent the push. Corroborates G16 from the server side:
 # the device saying it arrived and Iterable saying it sent are separate claims.
 g17() {
-  [[ -n "$ITBL_EMAIL" ]] || { echo "no test user set (ITBL_EMAIL)"; return 1; }
+  [[ -n "$(itbl_identity)" ]] || { echo "no test user set (ITBL_EMAIL, or ITBL_USER_ID for a user ID)"; return 1; }
   local out
-  itbl_get "$ITBL_SERVER_KEY" "/api/events/$(urlenc "$ITBL_EMAIL")?limit=50" || true
-  if [[ "$ITBL_CODE" == 400 ]] && grep -qi 'no user exists' <<< "$ITBL_BODY"; then
-    echo "no user yet — nothing has been sent to $ITBL_EMAIL"
+  itbl_get "$ITBL_SERVER_KEY" "$(itbl_events_path)" || true
+  if itbl_no_user "$ITBL_CODE" "$ITBL_BODY"; then
+    echo "no user yet — nothing has been sent to $(itbl_identity)"
     return 2
   fi
   out="$(classify_itbl_response "$ITBL_CODE" "$ITBL_BODY")" || { echo "$out"; return 1; }
