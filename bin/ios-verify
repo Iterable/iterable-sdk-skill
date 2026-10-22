@@ -201,7 +201,7 @@ inspect_project() {
   warnings="$(node -e '
     const warnings=JSON.parse(process.argv[1]), found=JSON.parse(process.argv[2]);
     if (found.length) warnings.push({kind:"existing_push_path",pitfall:"iterable-ios/PITFALLS.md#23",
-      summary:`The app has its own push handling besides Iterable: ${found.map(f=>`${f.detail} (${f.file})`).join("; ")}. Prove that path still works after the Iterable integration: the developer triggers a notification the app itself sends, not an Iterable one, and confirms it shows. ios-verify cannot prove it; with push in scope, status lists existing-push-coexistence under feature_evidence_required.`,
+      summary:`The app has its own push handling besides Iterable: ${found.map(f=>`${f.detail} (${f.file})`).join("; ")}. Ask the developer whether to keep these notifications alongside Iterable or use Iterable notifications only. If they keep both, status reports existing-push-coexistence in verification_limitations as an optional after-integration check; it never blocks Iterable proof.`,
       evidence:found});
     process.stdout.write(JSON.stringify(warnings));
   ' "$warnings" "$existing_push")"
@@ -2820,9 +2820,7 @@ fi
 EXISTING_PUSH='[]'
 [[ "$PUSH_REQUIRED" != true ]] || EXISTING_PUSH="$(ios_project_existing_push "$APP_ROOT")"
 if [[ "$NEXT_KIND" == done && "$EXISTING_PUSH" != '[]' ]]; then
-  NEXT_SUMMARY="$NEXT_SUMMARY The app also has its own push handling ($(node -e '
-    process.stdout.write(JSON.parse(process.argv[1]).map(f=>`${f.detail} in ${f.file}`).join("; "));
-  ' "$EXISTING_PUSH")), and nothing here proves it still works: the developer triggers a notification the app itself sends, not an Iterable one, and confirms it shows. Until then existing-push-coexistence stays in feature_evidence_required."
+  NEXT_SUMMARY="$NEXT_SUMMARY $(node "$BIN/existing-push.js" follow-up <<< "$EXISTING_PUSH")"
 fi
 PUSH_PROVEN=false
 if [[ "$PUSH_REQUIRED" == true &&
@@ -2858,12 +2856,12 @@ FEATURE_EVIDENCE_REQUIRED="$(node -e '
     }
   }
   if (process.argv[2]==="true") separate.push("jwt-authentication");
-  if (process.argv[4]!=="[]") separate.push("existing-push-coexistence");
   process.stdout.write(JSON.stringify(separate));
-' "$FEATURES" "$JWT_ENABLED" "$PROOF_MODE" "$EXISTING_PUSH")"
+' "$FEATURES" "$JWT_ENABLED" "$PROOF_MODE")"
 VERIFICATION_LIMITATIONS="$(node -e '
+  const followUp=process.argv[5]!=="[]" ? ["existing-push-coexistence"] : [];
   if (process.argv[1]!=="behavioral") {
-    process.stdout.write("[]");
+    process.stdout.write(JSON.stringify(followUp));
     process.exit(0);
   }
   const limitations=[
@@ -2878,9 +2876,10 @@ VERIFICATION_LIMITATIONS="$(node -e '
   if (process.argv[2]!=="true") {
     limitations.push("current-source-build-not-linked");
   }
-  process.stdout.write(JSON.stringify(limitations));
+  process.stdout.write(JSON.stringify([...limitations,...followUp]));
 ' "$PROOF_MODE" "$([[ -n "$APP_PATH" ]] && printf true || printf false)" "$TOKEN_CORRELATED" \
-  "$([[ "$PROOF_MODE" == behavioral && "$RECORDED_DEVICE_KIND" == physical ]] && printf true || printf false)")"
+  "$([[ "$PROOF_MODE" == behavioral && "$RECORDED_DEVICE_KIND" == physical ]] && printf true || printf false)" \
+  "$EXISTING_PUSH")"
 SOURCE_BUILD_LINKED=false
 VERIFICATION_SUBJECT=existing-installed-application
 if [[ -n "$APP_PATH" ]]; then

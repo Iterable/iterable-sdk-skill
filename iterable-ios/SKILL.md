@@ -57,8 +57,12 @@ about facts you could read:
 4. **Existing push.** Search for `UNUserNotificationCenter.current().delegate`,
    `didRegisterForRemoteNotificationsWithDeviceToken`, `FirebaseMessaging`,
    `OneSignal`, and other providers. If anything already handles
-   notifications, show the developer what you found and agree a coexistence
-   plan before touching it (rule 8).
+   notifications, show the developer what you found and ask: "Keep your app's
+   own notifications working alongside Iterable's, or use Iterable
+   notifications only?" **Keep both:** forward only Iterable payloads (rule 8).
+   **Iterable only:** propose, in the one diff they confirm, how the old
+   provider stops receiving or showing pushes. Don't delete the provider's code
+   unless they confirm that diff.
 
 Then ask which features they want. Use the host's question tool (Claude Code:
 `AskUserQuestion` with `multiSelect: true`; Cursor: `AskQuestion` with
@@ -218,8 +222,9 @@ For the agreed scope, finish the wiring rather than leaving snippets:
   visible on that user.
 - [ ] Push delivery is proved with `iterable-ios-verify`, or the handoff says
   exactly which boundary is still unproved.
-- [ ] An app that already had push still shows its own notifications, or the
-  handoff says that is unproved (rule 8).
+- [ ] If the app kept its own push, the handoff offers the optional
+  after-integration check (rule 8). Iterable's proof alone completes the
+  integration.
 
 When you hand over, say it plainly: an AI agent wrote this code and
 configuration, it can be wrong in ways that still compile, and only what a real
@@ -314,17 +319,20 @@ non-trivial code.
    OneSignal swizzle these callbacks; see
    [pitfall 23](PITFALLS.md#23-another-sdk-owns-or-swizzles-the-notification-callbacks).
 
-   **Then prove the app's own push still works.** The verifier proves
-   Iterable's path only. When the app already had push, `ios-verify inspect`
-   warns `existing_push_path`, and `done` keeps `existing-push-coexistence` in
-   `feature_evidence_required`. Before you call the integration done, the
-   developer triggers one of the app's own notifications (the action that makes
-   its backend or provider send one) and confirms it shows. A test build with a
-   changed Bundle ID or team may be unreachable from the app's provider. If so,
-   say plainly that the app's own push is unproved. `xcrun simctl push` can't
-   stand in. Even with `mutable-content: 1` and no `itbl` key, it doesn't run
-   the Notification Service Extension (seen on the iOS 26.2 and 27.0 Simulators
-   with Xcode 27), and it skips the provider and APNs.
+   **If the app kept its own push, offer an optional after-integration
+   check.** Iterable's proof alone completes the integration. When the app
+   already had push, `ios-verify inspect` warns `existing_push_path`, and
+   `done` lists `existing-push-coexistence` in `verification_limitations`,
+   never in `feature_evidence_required`. Once Iterable's proof passes, offer
+   the check: the developer triggers one of the app's own notifications (the
+   action that makes its backend or provider send one) and confirms it shows.
+   Run it only if they ask, and don't offer it if they chose Iterable only. It
+   has to be the developer's trigger, because `xcrun simctl push` can't
+   exercise the app's own path. Even with `mutable-content: 1` and no `itbl`
+   key, it doesn't run the Notification Service Extension (seen on the iOS 26.2
+   and 27.0 Simulators with Xcode 27), and it skips the provider and APNs. A
+   test build with a changed Bundle ID or team may be unreachable from the
+   app's provider. If so, say the check can't run on this build.
 
 ---
 

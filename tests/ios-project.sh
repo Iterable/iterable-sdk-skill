@@ -295,8 +295,9 @@ coexist_warning="$(inspect "$COEXIST")"
 [[ "$coexist_warning" == *'"kind":"existing_push_path"'* &&
     "$coexist_warning" == *'didRegisterForRemoteNotificationsWithDeviceToken does more than forward to Iterable'* &&
     "$coexist_warning" == *'userNotificationCenter willPresent does more than forward to Iterable'* &&
-    "$coexist_warning" == *'existing-push-coexistence'* ]] &&
-  ok "the existing-push warning names each callback and the evidence status will ask for" ||
+    "$coexist_warning" == *'keep these notifications alongside Iterable or use Iterable notifications only'* &&
+    "$coexist_warning" == *'existing-push-coexistence in verification_limitations as an optional after-integration check'* ]] &&
+  ok "the existing-push warning names each callback, the keep-or-replace question, and the optional check" ||
   bad "the existing-push warning is missing or vague" "$coexist_warning"
 
 FCM="$ROOT/native-fcm"

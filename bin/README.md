@@ -83,7 +83,9 @@ front end.
 
 Shared helpers and presentation logic live in `bin/config.sh`. Device-specific
 checks live in `bin/gates-device.sh`; Iterable checks live in
-`bin/gates-iterable.sh`.
+`bin/gates-iterable.sh`. `bin/existing-push.js` finds an app's own push path in
+its source for both platforms; a done verdict only offers an optional check
+for it, and no gate reads it.
 
 ### Native iOS entry points
 

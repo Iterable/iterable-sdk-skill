@@ -1329,6 +1329,11 @@ next_action() {
   elif [[ -f "$WS/state.tsv" ]]; then
     a_owner=none; a_kind=done
     a_summary="a push reached the device — nothing left to do"
+    # Offered, never a gate: whether the app's own push still shows is the developer's call.
+    local follow
+    follow="$(node "$BIN/existing-push.js" scan android "${PROJECT_ROOT:-$(dirname "$WS")}" 2>/dev/null |
+      node "$BIN/existing-push.js" follow-up 2>/dev/null)"
+    [[ -z "$follow" ]] || a_summary="$a_summary. $follow"
   else
     a_owner=agent; a_kind=run_ladder; a_cmd="$BIN/agent"
     a_summary="nothing has been checked yet"

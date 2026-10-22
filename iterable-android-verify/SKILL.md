@@ -87,7 +87,7 @@ upstream is broken tests a system that is still wrong.
 | `send_proof` | Announce it, then run `<root>/bin/proof-push`. It sends one marked push and deliberately does not check whether it arrived. Then re-run `<root>/bin/agent`. |
 | `campaign_send` | Server-side corroboration needs `ITBL_CAMPAIGN_ID`; without it there is nothing to read. Optional. |
 | `iterable_keys`, `provision`, `choose_target`, … | Not this skill's half—hand back to `iterable-provision`. |
-| `done` | The push arrived. Say which push, on which device, and how long after the send. |
+| `done` | The push arrived. Say which push, on which device, and how long after the send. If `next.summary` also says the app has its own push path, relay that line and offer the optional after-integration check: the developer triggers one of the app's own notifications and confirms it shows. Run it only if they ask. It never changes the verdict. |
 
 ## When the developer says nothing arrived and the check says it did
 

@@ -75,9 +75,13 @@ and 3), but don't re-derive their integration from scratch.
 `FirebaseMessagingService` and `com.google.firebase.MESSAGING_EVENT` before
 scoping push work. If either is present the app has a push channel of its own —
 often transactional (order status, shipping, security codes) and more important
-to the business than the marketing push being added. That is an integration
-constraint, not a thing to replace: rule 8 has the shape. Say what you found
-and confirm the plan before editing their service.
+to the business than the marketing push being added. Say what you found and
+ask: "Keep your app's own notifications working alongside Iterable's, or use
+Iterable notifications only?" **Keep both** (recommend it when their push is
+transactional): their service forwards only Iterable payloads to Iterable
+(rule 8). **Iterable only:** propose, in the one diff they confirm, how their
+service and provider stop handling pushes, and touch nothing until they
+confirm it.
 
 Confirm the scope, *then* run Preflight for the inputs that scope needs, *then*
 build. "Finish, don't stub" (below) applies to **the scope you agreed on** —
@@ -459,6 +463,10 @@ app already had. Full explanations and the remaining ~15 traps are in
 
 8. **If the app already has its own `FirebaseMessagingService`, forward to
    Iterable from it — never replace, delete, or `tools:node="remove"` it.**
+   That is Step 0's **Keep both** answer, the default to recommend when their
+   push is transactional. For **Iterable only**, propose in the one confirmed
+   diff how their service and provider stop handling pushes, and touch nothing
+   until the developer confirms it.
    Before touching push, grep for `FirebaseMessagingService` and
    `com.google.firebase.MESSAGING_EVENT`. FCM delivers to **one** service, and
    the SDK registers `IterableFirebaseMessagingService` at
@@ -487,6 +495,12 @@ app already had. Full explanations and the remaining ~15 traps are in
    (`app/build/intermediates/merged_manifests/.../AndroidManifest.xml`) rather
    than assuming. See `setting-up-android-push-notifications` → `#### Handling
    Firebase push messages and tokens`, and pitfall #23.
+
+   If they kept their push, offer one optional check after
+   `iterable-android-verify` proves Iterable's push: they trigger one of the
+   app's own notifications and confirm it shows. Run it only if they ask.
+   Iterable's proof alone completes the integration; the verifier's `done`
+   summary carries the offer when it finds the app's own push path.
 
 ---
 

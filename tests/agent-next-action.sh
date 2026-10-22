@@ -26,6 +26,7 @@ export WS="$TMP/ws"; mkdir -p "$WS/artifacts"
 # PATH is replaced rather than prefixed, so removing a stub really removes the
 # binary. Prefixing left the developer's own adb one entry further down, and the
 # missing-tool case passed by accident against a machine that had everything.
+REAL_NODE="$(command -v node)"
 STUB="$TMP/bin"; mkdir -p "$STUB"
 for c in node gcloud adb; do printf '#!/bin/sh\nexit 0\n' > "$STUB/$c"; chmod +x "$STUB/$c"; done
 export PATH="$STUB:/usr/bin:/bin"
@@ -392,6 +393,121 @@ DRIVER=agent
 # -------------------------------------------------------------------------- done
 state "$(row G16 green tool "Push arrives on device" "arrived 2s after send")"
 expect none done "a push reached the device" "all green — nothing left"
+
+# ------------------------------------------------------------ the app's own push
+# An app that keeps its own push gets one optional line on done, and nothing else moves.
+NODE_BIN="$TMP/node-bin"; mkdir -p "$NODE_BIN"; ln -s "$REAL_NODE" "$NODE_BIN/node"
+OWN="$TMP/own-push"
+mkdir -p "$OWN/app/src/main/java/com/example" "$OWN/app/build/generated"
+cat > "$OWN/app/src/main/java/com/example/AppMessagingService.kt" <<'EOF'
+package com.example
+class AppMessagingService : FirebaseMessagingService() {
+    override fun onMessageReceived(message: RemoteMessage) {
+        if (IterableFirebaseMessagingService.handleMessageReceived(this, message)) return
+        OrderNotifications.show(this, message.data)
+    }
+    override fun onNewToken(token: String) {
+        IterableFirebaseMessagingService.handleTokenRefresh()
+        OrderApi.registerToken(token)
+    }
+}
+EOF
+cat > "$OWN/app/src/main/AndroidManifest.xml" <<'EOF'
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <application>
+    <service android:name=".AppMessagingService" android:exported="false">
+      <intent-filter><action android:name="com.google.firebase.MESSAGING_EVENT" /></intent-filter>
+    </service>
+  </application>
+</manifest>
+EOF
+printf 'class Decoy : FirebaseMessagingService() { override fun onNewToken(t: String) { Decoy.send(t) } }\n' \
+  > "$OWN/app/build/generated/Decoy.kt"
+SIGNAL="$TMP/onesignal"
+mkdir -p "$SIGNAL/app"
+printf "dependencies {\n  implementation 'com.iterable:iterableapi:3.6.2'\n  implementation 'com.onesignal:OneSignal:[5.0.0, 5.99.99]'\n}\n" > "$SIGNAL/app/build.gradle"
+ONLY="$TMP/iterable-only"
+mkdir -p "$ONLY/app/src/main/java/com/example" "$ONLY/app/src/test/java"
+cat > "$ONLY/app/build.gradle" <<'EOF'
+dependencies {
+  implementation 'com.iterable:iterableapi:3.6.2'
+  implementation 'com.google.firebase:firebase-messaging:24.1.0'
+  // implementation 'com.onesignal:OneSignal:5.1.0'
+}
+EOF
+cat > "$ONLY/app/src/main/java/com/example/ForwardingService.java" <<'EOF'
+package com.example;
+public class ForwardingService extends FirebaseMessagingService {
+    @Override public void onMessageReceived(RemoteMessage message) {
+        Log.d("push", "received");
+        IterableFirebaseMessagingService.handleMessageReceived(this, message);
+    }
+    @Override public void onNewToken(String token) {
+        super.onNewToken(token);
+        IterableFirebaseMessagingService.handleTokenRefresh();
+    }
+}
+EOF
+cat > "$ONLY/app/src/main/AndroidManifest.xml" <<'EOF'
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <application>
+    <service android:name=".ForwardingService" android:exported="false">
+      <intent-filter><action android:name="com.google.firebase.MESSAGING_EVENT" /></intent-filter>
+    </service>
+    <service android:name="com.iterable.iterableapi.IterableFirebaseMessagingService" android:exported="false">
+      <intent-filter><action android:name="com.google.firebase.MESSAGING_EVENT" /></intent-filter>
+    </service>
+    <!-- <service android:name=".OldService"><intent-filter><action android:name="com.google.firebase.MESSAGING_EVENT" /></intent-filter></service> -->
+  </application>
+</manifest>
+EOF
+printf 'class OnlyInTests : FirebaseMessagingService() { override fun onNewToken(t: String) { Spy.send(t) } }\n' \
+  > "$ONLY/app/src/test/java/OnlyInTests.kt"
+RN_ANDROID="$TMP/rn-android"
+mkdir -p "$RN_ANDROID/android/app"
+printf '{"dependencies":{"react-native":"0.88.0","@iterable/react-native-sdk":"3.0.0","@react-native-firebase/messaging":"23.0.0"}}\n' > "$RN_ANDROID/package.json"
+printf "dependencies { implementation 'com.iterable:iterableapi:3.6.2' }\n" > "$RN_ANDROID/android/app/build.gradle"
+
+signals_of() {
+  "$REAL_NODE" bin/existing-push.js scan android "$1" |
+    "$REAL_NODE" -e 'let i="";process.stdin.on("data",c=>i+=c).on("end",()=>process.stdout.write(JSON.parse(i).map(f=>`${f.signal}:${f.file}`).sort().join(" ")))'
+}
+want_signals() {
+  local got; got="$(signals_of "$2")"
+  [[ "$got" == "$3" ]] && ok "$(printf '%-44s %s' "$1" "${3:-none}")" || bad "$1" "got: ${got:-none}"
+}
+want_signals "an app's own service and its intent filter" "$OWN" \
+  "messaging_event_filter:app/src/main/AndroidManifest.xml messaging_service:app/src/main/java/com/example/AppMessagingService.kt"
+want_signals "OneSignal in the app's Gradle file" "$SIGNAL" "push_sdk:app/build.gradle"
+want_signals "a React Native push library in package.json" "$RN_ANDROID" "push_sdk:package.json"
+want_signals "Iterable-only: a forwarding service, Iterable's own" "$ONLY" ""
+
+done_with() {
+  local owner kind gate cmd summary
+  IFS="$NEXT_SEP" read -r owner kind gate cmd summary <<< "$(PROJECT_ROOT="$1" PATH="$NODE_BIN:$PATH" next_action)"
+  printf '%s|%s|%s' "$owner" "$kind" "$summary"
+}
+LINE="a push reached the device — nothing left to do. Iterable push is proven. The app also has its own push path ("
+OFFER="). If the developer wants, offer the optional after-integration check that the app's own notifications still show."
+own_done="$(done_with "$OWN")"
+[[ "$own_done" == "none|done|$LINE"*"AppMessagingService handles onMessageReceived and onNewToken itself"*"$OFFER" ]] &&
+  ok "$(printf '%-44s %s' "done offers the optional check, still done" "none/done")" ||
+  bad "done did not carry the optional line" "$own_done"
+[[ "$(done_with "$ONLY")" == "none|done|a push reached the device — nothing left to do" ]] &&
+  ok "$(printf '%-44s %s' "an Iterable-only app's done has no follow-up" "none/done")" ||
+  bad "an Iterable-only app got a follow-up" "$(done_with "$ONLY")"
+cp "$WS/state.tsv" "$TMP/state.before"
+state "$(row G16 pending tool "Push arrives on device" "no push yet")"
+pending_own="$(done_with "$OWN")"
+[[ "$pending_own" == "agent|send_proof|"* && "$pending_own" != *"own push path"* ]] &&
+  ok "$(printf '%-44s %s' "the app's own push never changes a step" "agent/send_proof")" ||
+  bad "the app's own push changed a pending step" "$pending_own"
+cp "$TMP/state.before" "$WS/state.tsv"
+before="$(shasum < "$WS/state.tsv")"; done_with "$OWN" >/dev/null
+[[ "$(shasum < "$WS/state.tsv")" == "$before" ]] &&
+  ! grep -q 'existing-push' bin/gates bin/gates-device.sh bin/gates-iterable.sh &&
+  ok "$(printf '%-44s %s' "no gate reads it, and state.tsv is untouched" "gates unchanged")" ||
+  bad "the existing-push check reached the gates" "$(grep -l 'existing-push' bin/gates*)"
 
 echo
 ((FAILED)) && { echo "  FAILED"; exit 1; }

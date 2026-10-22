@@ -597,16 +597,25 @@ coexisting="$(run_verify 2>/dev/null)"
 coexisting_rc=$?
 if [[ "$coexisting_rc" -eq 0 &&
       "$(json_value "$coexisting" verdict)" == done &&
-      "$(json_value "$coexisting" integration_complete)" == false ]] &&
+      "$(json_value "$coexisting" integration_complete)" == true ]] &&
     node -e '
       const v=JSON.parse(process.argv[1]);
-      process.exit(v.feature_evidence_required.includes("existing-push-coexistence") &&
-        v.next.summary.includes("App/AppDelegate.swift") &&
-        v.next.summary.includes("triggers a notification the app itself sends") ? 0 : 1);
+      process.exit(!v.feature_evidence_required.includes("existing-push-coexistence") &&
+        v.verification_limitations.includes("existing-push-coexistence") ? 0 : 1);
     ' "$coexisting"; then
-  ok "done keeps the app's own push path as evidence still required, naming what the developer does"
+  ok "with Iterable proved, the app's own push path is an optional follow-up, not required evidence"
 else
-  bad "done read as complete although the app has its own push path" "$coexisting"
+  bad "the app's own push path blocked a proved Iterable integration" "$coexisting"
+fi
+if node -e '
+      const s=JSON.parse(process.argv[1]).next.summary;
+      process.exit(s.includes("Iterable push is proven. The app also has its own push path (") &&
+        s.includes("App/AppDelegate.swift") &&
+        s.includes("If the developer wants, offer the optional after-integration check that the app'"'"'s own notifications still show.") ? 0 : 1);
+    ' "$coexisting"; then
+  ok "done names the app's own push path and offers the optional after-integration check"
+else
+  bad "done did not offer the optional check for the app's own push path" "$(json_value "$coexisting" next.summary)"
 fi
 cat > "$ROOT/app/App/AppDelegate.swift" <<'EOF'
 import IterableSDK
@@ -619,9 +628,9 @@ EOF
 iterable_only="$(run_verify 2>/dev/null)"
 if [[ "$(json_value "$iterable_only" integration_complete)" == true &&
       "$iterable_only" != *existing-push-coexistence* ]]; then
-  ok "an Iterable-only token callback does not add existing-push evidence"
+  ok "an Iterable-only token callback reports no existing-push follow-up"
 else
-  bad "an Iterable-only integration was asked to prove another push path" "$iterable_only"
+  bad "an Iterable-only integration reported an existing-push follow-up" "$iterable_only"
 fi
 rm -rf "$ROOT/app/App"
 
@@ -651,6 +660,11 @@ node -e '
 ' "$WORKSPACE/sends/development/user-targeted.json" "$WORKSPACE/proof/development/user-targeted.json" "$readback" "$WORKSPACE/observations/readback.json"
 behavioral_complete="$(run_verify 2>/dev/null)"
 behavioral_complete_rc=$?
+mkdir -p "$ROOT/app/App"
+printf 'func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {\n    PushRelay.shared.register(deviceToken)\n}\n' \
+  > "$ROOT/app/App/AppDelegate.swift"
+behavioral_coexisting="$(run_verify 2>/dev/null)"
+rm -rf "$ROOT/app/App"
 cp "$STATE/instrumented-manifest.json" "$WORKSPACE/sends/development/user-targeted.json"
 cp "$STATE/instrumented-receipt.json" "$WORKSPACE/proof/development/user-targeted.json"
 chmod 600 "$WORKSPACE/sends/development/user-targeted.json" "$WORKSPACE/proof/development/user-targeted.json"
@@ -680,6 +694,17 @@ if [[ "$behavioral_complete_rc" -eq 0 &&
   ok "behavioral core proof completes without app instrumentation and states its limits"
 else
   bad "behavioral proof still required the evaluation runtime harness"
+fi
+if node -e '
+      const [a,b]=process.argv.slice(1).map(JSON.parse);
+      process.exit(b.verification_limitations.includes("existing-push-coexistence") &&
+        !a.verification_limitations.includes("existing-push-coexistence") &&
+        JSON.stringify(b.feature_evidence_required)===JSON.stringify(a.feature_evidence_required) &&
+        b.integration_complete===a.integration_complete && b.verdict===a.verdict ? 0 : 1);
+    ' "$behavioral_complete" "$behavioral_coexisting"; then
+  ok "behavioral proof reports the app's own push path as a limitation and changes nothing else"
+else
+  bad "the app's own push path changed the behavioral verdict or went unreported" "$behavioral_coexisting"
 fi
 mv "$STATE/IterableRuntimeProof.fixture" "$APP_PATH/IterableRuntimeProof.fixture"
 node -e '
@@ -823,9 +848,9 @@ non_push_coexisting="$(run_verify 2>/dev/null)"
 rm -rf "$ROOT/app/App"
 if [[ "$(json_value "$non_push_coexisting" integration_complete)" == true &&
       "$non_push_coexisting" != *existing-push-coexistence* ]]; then
-  ok "without push in scope, the app's own push path is not Iterable's evidence to collect"
+  ok "without push in scope, no existing-push follow-up is reported"
 else
-  bad "a non-push scope was asked to prove the app's own push path" "$non_push_coexisting"
+  bad "a non-push scope reported an existing-push follow-up" "$non_push_coexisting"
 fi
 
 touch "$STATE/simulator-shutdown"

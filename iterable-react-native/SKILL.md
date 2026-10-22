@@ -107,9 +107,12 @@ out of the upgrade, then follow the upgrade row in the
 **And check whether the app already sends push without Iterable.** Look for
 `@react-native-firebase/messaging` or another push SDK in `package.json`, and
 for `FirebaseMessagingService` / `com.google.firebase.MESSAGING_EVENT` under
-`android/`. If any is present, that channel is an integration constraint rather
-than something to replace — rule 8 has the shape. Say what you found and confirm
-the plan before touching it.
+`android/`. If any is present, say what you found and ask: "Keep your app's own
+notifications working alongside Iterable's, or use Iterable notifications
+only?" **Keep both:** forward only Iterable payloads (rule 8). **Iterable
+only:** propose, in the one diff they confirm, how the old provider stops
+receiving or showing pushes. Don't delete the provider's code unless they
+confirm that diff.
 
 Confirm the scope, *then* run Preflight, *then* build.
 
@@ -460,8 +463,10 @@ Expo). Rule 8 applies whenever the app already sends push of its own.
    `Pods/`.
 
 8. **If the app already sends push, forward to Iterable — never replace what's
-   there.** Check before scoping push work: grep `android/` for
-   `FirebaseMessagingService` and `com.google.firebase.MESSAGING_EVENT`, and
+   there.** The one exception is a Step 0 "Iterable only" answer, and only in
+   the diff the developer confirmed. Check before scoping push work: grep
+   `android/` for `FirebaseMessagingService` and
+   `com.google.firebase.MESSAGING_EVENT`, and
    `package.json` for `@react-native-firebase/messaging`, `react-native-onesignal`,
    or another push SDK. RN apps commonly already have a transactional channel,
    and it usually matters more to the business than the marketing push being
@@ -663,10 +668,11 @@ and `[IterableAppIntegration userNotificationCenter:didReceiveNotificationRespon
 - **Permission is asked at launch, natively** — the `requestAuthorization` line
   above; neither the SDK nor the template asks (pitfall #22). Don't add a
   permission package for it.
-- **The app already has iOS push?** Forward from its callbacks as `iterable-ios`
-  rule 8 says, then prove its own push still shows. `ios-verify` keeps
-  `existing-push-coexistence` in `feature_evidence_required`, because only the
-  developer can prove it.
+- **The app already has iOS push?** If the developer keeps it (Step 0), forward
+  from its callbacks as `iterable-ios` rule 8 says. `ios-verify` then lists
+  `existing-push-coexistence` in `verification_limitations`. After Iterable's
+  proof passes, offer the optional check that the app's own notifications still
+  show, and run it only if they ask. It never blocks the integration.
 - **Token registration is the SDK's, after identity.** There is no
   `Iterable.registerForPush()` or any other JavaScript registration call
   (pitfall #21). With the default `autoPushRegistration`, the SDK asks for the
