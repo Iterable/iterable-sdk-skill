@@ -262,11 +262,10 @@ When blocked on any of these, **surface it to the developer and pause that
 part of the work** — don't silently degrade the integration to keep compiling.
 
 **A green build is not the deliverable, and this is the way it actually fails.**
-Observed in a live demo: the Firebase project had no Android app registered, so there
-was no real `google-services.json`. The push work should have stopped there. Instead
-it kept going, made the build pass, knew the Firebase half was unfinished, and then
-ended the turn without naming a way forward. Two rules from that, and they are not
-negotiable:
+The typical case: the Firebase project has no Android app registered, so there is no
+real `google-services.json`. The push work should stop there. The failure is to keep
+going, make the build pass, know the Firebase half is unfinished, and then end the
+turn without naming a way forward. Two rules, and they are not negotiable:
 
 - **A missing prerequisite stops the push work, immediately** — before the Gradle
   edit, not after. Do the parts of the agreed scope that genuinely don't depend on it

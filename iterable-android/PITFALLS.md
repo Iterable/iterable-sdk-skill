@@ -221,7 +221,7 @@ hot-path subset; the full list lives here and is loaded on demand.
   load that file **explicitly** — this is the part that's easy to miss:
   **`local.properties` is NOT exposed as Gradle project properties.** A
   project's existing `getPropertyIfDefined`/`hasProperty`-style helper (or the
-  `OPEN_EXCHANGE_RATES_API_KEY` pattern many repos already have) *looks* like
+  `SOME_SERVICE_API_KEY` pattern many repos already have) *looks* like
   it reads `local.properties` but does not — it only sees `gradle.properties` /
   `-P` flags, so it silently yields an empty key. Read the file yourself with
   `Properties()`.

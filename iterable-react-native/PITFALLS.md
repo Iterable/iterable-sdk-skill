@@ -123,11 +123,11 @@ iOS (on Expo, #14).
 
   Concrete gaps still open on 3.2.1:
 
-  - **SDK-594:** `getUnreadInboxMessagesCount` is on the TurboModule spec and
+  - **Unread inbox count:** `getUnreadInboxMessagesCount` is on the TurboModule spec and
     implemented natively. `IterableInAppManager` exposes `getMessages` /
     `getInboxMessages` / `showMessage` / `setReadForMessage` and **no**
     unread-count wrapper.
-  - **SDK-593:** `setDeviceAttribute` is used internally to stamp
+  - **Device attributes:** `setDeviceAttribute` is used internally to stamp
     `reactNativeSDKVersion` at init. It is not on the TurboModule spec and
     not on `Iterable`.
   - `logout` is **not** a Spec method. The public call is `Iterable.logout()`
@@ -135,9 +135,10 @@ iOS (on Expo, #14).
     `setEmail(null)` and `setUserId(null)`).
 - **Fix:** Only import from `@iterable/react-native-sdk`. Do not import
   `NativeRNIterableAPI`, `RNIterableAPI`, or `IterableApi`. Do not invent
-  wrappers for spec-only methods. Until SDK-594 ships, derive an unread
-  count from `Iterable.inAppManager.getInboxMessages()` (filter unread)
-  rather than calling the native module. Native configuration (FCM, APNs,
+  wrappers for spec-only methods. Until the SDK adds an unread-count
+  wrapper, derive an unread count from
+  `Iterable.inAppManager.getInboxMessages()` (filter unread) rather than
+  calling the native module. Native configuration (FCM, APNs,
   `POST_NOTIFICATIONS`) is still required; it is not a JS method call. See
   `reference/overview.md` and the feature slug for the task.
 
@@ -324,8 +325,8 @@ the Xcode 27 guidance — the generated `reference/` corpus does not carry it.
   - **Bare:** in the host `Podfile`, after `react_native_post_install`, raise
     every Pods target — resource bundles included — that is unset or below
     **15.1**, then re-run `pod install`. **15.0** is the Xcode 27 floor;
-    **15.1** matches React Native's own minimum and Iterable's bare RN demo, so
-    nothing is left at exactly 15.0:
+    **15.1** matches React Native's own minimum, so nothing is left at exactly
+    15.0:
 
     ```ruby
     post_install do |installer|
@@ -341,8 +342,8 @@ the Xcode 27 guidance — the generated `reference/` corpus does not carry it.
 
     Keep any existing `{fmt}` C++17 workaround (pitfall #11); this lift is
     separate.
-  - **Expo SDK 58:** a fresh `prebuild` left no Pods target below 15.0 in our
-    trial, so no lift is needed. Check rather than assume:
+  - **Expo SDK 58:** a fresh `prebuild` normally leaves no Pods target below
+    15.0, so no lift is needed. Check rather than assume:
     `grep -h IPHONEOS_DEPLOYMENT_TARGET ios/Pods/Pods.xcodeproj/project.pbxproj | sort -u`.
   - **Older Expo SDKs:** if that check shows a target below 15.0, lift it in an
     **Expo config plugin** at `prebuild` — never by committing `ios/Podfile` or

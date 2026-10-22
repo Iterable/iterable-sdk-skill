@@ -258,10 +258,10 @@ everything".
 **Never fabricate a prerequisite to make the build pass.** Do not invent an
 API key, a placeholder `google-services.json`, or a JWT signed in the client.
 
-**A green build is not the deliverable.** Seen live on the Android side: the Firebase
-project had no app registered, so there was no real `google-services.json`; the work
-carried on anyway, made it compile, and ended the turn without naming a way forward.
-So — a missing prerequisite stops the push work *before* the native edit, and you say
+**A green build is not the deliverable.** The typical failure: the Firebase project has
+no app registered, so there is no real `google-services.json`, and the work carries on
+anyway, makes it compile, and ends the turn without naming a way forward. Instead, a
+missing prerequisite stops the push work *before* the native edit, and you say
 which parts of the agreed scope you did not do and why. Then route into
 `iterable-provision` and conduct it here rather than handing over a command: its wizard
 offers to register the missing app, and `next.question` gives you each screen to put to
@@ -432,7 +432,7 @@ Expo). Rule 8 applies whenever the app already sends push of its own.
    the internal `IterableApi` class. Do not copy Kotlin
    `IterableApi.getInstance()`, `IterableConfig.Builder()`, or Swift
    `IterableAPI` into JS. Device attributes and unread-inbox count exist
-   natively but are not on that facade (pitfall #4, SDK-593, SDK-594). This
+   natively but are not on that facade (pitfall #4). This
    package at 3.2.1 ships Android `3.10.1` / iOS `6.7.5` — native APIs newer
    than those are not reachable (pitfall #5).
 
@@ -458,8 +458,8 @@ Expo). Rule 8 applies whenever the app already sends push of its own.
    gitignored and regenerated, so a config or plugin change needs a fresh
    prebuild. On Xcode **27**, use CLI **20.2.0+** (bare) or Expo SDK **58**
    for Device Hub launch; bare apps also need a `Podfile` lift of Pods
-   resource-bundle deployment targets, while an Expo SDK 58 prebuild needed none
-   in our trial — check, don't assume (pitfall **#12**). Never hand-edit
+   resource-bundle deployment targets, while an Expo SDK 58 prebuild normally needs
+   none — check, don't assume (pitfall **#12**). Never hand-edit
    `Pods/`.
 
 8. **If the app already sends push, forward to Iterable — never replace what's

@@ -176,8 +176,8 @@ a question* says: `context` above the selector, verbatim, then the options.
 
 This ordering is the point and it is easy to get wrong. A status read runs the whole
 eighteen-gate ladder against their Firebase projects, so a question carried in its output
-arrives *after* the work it was asking about. Twice now an agent decided provisioning was
-needed, ran it, and presented a project picker — and a project picker is not a consent
+arrives *after* the work it was asking about. The usual mistake is to decide provisioning
+is needed, run it, and present a project picker — and a project picker is not a consent
 screen. **Deciding that setup is needed is not permission to start it.** Announcing what
 you are about to do is not either.
 

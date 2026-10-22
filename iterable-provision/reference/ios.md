@@ -556,13 +556,13 @@ Keep proof levels distinct:
 - the dashboard's direct Test Push is optional diagnosis when identity
   association needs to be separated from the APNs path.
 
-Simulator pitfalls seen in live runs:
+Simulator pitfalls:
 
 - A Simulator needs the registered App ID too, with Push Notifications
   enabled. For a never-registered Bundle ID, or one without Push, APNs answers
   `400 TopicDisallowed` for every key on the team; Iterable still returns HTTP
-  200 for the send, so nothing arrives and nothing says why (proven live: two
-  keys both refused before Push was ticked, both accepted after).
+  200 for the send, so nothing arrives and nothing says why. Swapping the APNs
+  key does not help: every key is refused until Push is ticked.
   `ios-verify check-apple` asks Apple directly and names this.
   `DeviceTokenNotForTopic` instead means the push targeted a different Bundle
   ID than the app that registered the token.
