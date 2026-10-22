@@ -20,6 +20,16 @@ description: >-
 
 # Iterable iOS SDK
 
+## Start here — do these in order, before anything else
+
+1. Find `<root>`: from the real path of this `SKILL.md` (`cd -P "$(dirname <this file>)" && pwd -P`), walk up to the first folder that contains `bin/ios-provision`.
+2. From the app root, run `<root>/bin/ios-provision status` before you edit anything. It reads local files only and makes no Apple or Iterable request.
+3. Act on its `next.kind`:
+   - `integrate_app`: do Step 0, then write the integration.
+   - `verify_app`: open `<root>/iterable-ios-verify/SKILL.md` and follow it.
+   - anything else: prerequisites are missing. Ask Step 0's questions, then open `<root>/iterable-provision/SKILL.md` and follow its iOS path, starting with `<root>/bin/ios-provision status --features <ids> --identity <mode>`. Put each `next.question` to the developer and run only the command of the option they pick. Write no code until it reaches `integrate_app`.
+4. Never write a placeholder, dummy, `.example` or hard-coded key in place of a real one. A missing input comes from provisioning, or you stop and say so.
+
 You are working with **Iterable's Swift SDK**,
 [`Iterable/iterable-swift-sdk`](https://github.com/Iterable/iterable-swift-sdk):
 `IterableSDK` (the app target) and `IterableAppExtensions` (the Notification
@@ -63,6 +73,18 @@ about facts you could read:
    **Iterable only:** propose, in the one diff they confirm, how the old
    provider stops receiving or showing pushes. Don't delete the provider's code
    unless they confirm that diff.
+
+**Prerequisites question — ask it in the first round, with the scope.** "Do you
+already have the Iterable Mobile key, the Iterable iOS app with its APNs push
+credential, and an APNs `.p8` key for this Bundle ID?"
+
+- **Not yet — set them up** (recommended): open `<root>/iterable-provision/SKILL.md`
+  now and follow its iOS path from `<root>/bin/ios-provision status`.
+- **Yes, I have them**: still use that path; it records and proves what exists.
+  Never ask for a key in the chat.
+
+When `<root>/bin/ios-provision status` already returned `integrate_app` or
+`verify_app`, say so and only confirm.
 
 Then ask which features they want. Use the host's question tool (Claude Code:
 `AskUserQuestion` with `multiSelect: true`; Cursor: `AskQuestion` with

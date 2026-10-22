@@ -19,6 +19,16 @@ description: >-
 
 # Iterable Android SDK
 
+## Start here — do these in order, before anything else
+
+1. Find `<root>`: from the real path of this `SKILL.md` (`cd -P "$(dirname <this file>)" && pwd -P`), walk up to the first folder that contains `bin/agent`.
+2. From the app root, run `<root>/bin/agent preflight` before you ask anything or edit anything. It reads local files only.
+3. Do what its `next` says: open `next.open` if it is set, then run `next.commands` in order.
+   - `provision`: open `<root>/iterable-provision/SKILL.md` now and follow it. Its first command is `<root>/bin/agent question opening`. Write no code until it hands back.
+   - `integrate`: run `next.commands`, then do Step 0 and write the integration.
+   - `verify`: open `<root>/iterable-android-verify/SKILL.md` and follow it.
+4. Never write a placeholder, dummy, `.example` or hard-coded key, or a fake `google-services.json`. A missing input comes from provisioning, or you stop and say so.
+
 You are working with the **Iterable Android SDK** —
 [`com.iterable:iterableapi`](https://central.sonatype.com/artifact/com.iterable/iterableapi)
 (core) and `com.iterable:iterableapi-ui` (UI components for in-app, inbox,
@@ -34,6 +44,18 @@ human readers but omit several silent-failure traps documented in
 ---
 
 ## Step 0 — Agree on scope BEFORE writing code
+
+**Prerequisites question — ask it in the first round, with the scope.** "Do you
+already have the Iterable Mobile key, the Iterable mobile app with its push
+integration, and a Firebase project with this app's `google-services.json`?"
+
+- **Not yet — set them up** (recommended): open `<root>/iterable-provision/SKILL.md`
+  now and run `<root>/bin/agent question opening`.
+- **Yes, I have them**: still open `iterable-provision`; it finds, reuses and
+  proves what exists. Never ask for a key in the chat.
+
+When `<root>/bin/agent preflight` already returned `integrate` or `verify`, the
+files exist: say so and only confirm.
 
 Do this **first**, before Preflight and before any edits. The SDK covers many
 features — push, in-app, mobile inbox, embedded, deep links, event tracking,
