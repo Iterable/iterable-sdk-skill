@@ -342,6 +342,139 @@ else
   bad "the device filter applied without a deployment target" "$(json_value "$open_status" next.kind)"
 fi
 
+# The live trial's proof defaulted to the installed copy while that copy was the
+# pre-Iterable baseline. A build the workspace knows about is offered first instead.
+ARTBIN="$ROOT/artbin"
+ARTAPP="$ROOT/artapp"
+ARTSPACE="$ARTAPP/.iterable/ios"
+INSTALLED="$ROOT/installed/DogShelter.app"
+BUILT="$ARTAPP/build/Build/Products/Debug-iphonesimulator/DogShelter.app"
+RELEASE="$ARTAPP/build/Build/Products/Release-iphonesimulator/DogShelter.app"
+mkdir -p "$ARTBIN" "$ARTSPACE" "$INSTALLED" "$BUILT/IterableSDK_IterableSDK.bundle"
+printf 'name: DogShelter\ntargets:\n  DogShelter:\n    platform: iOS\n' > "$ARTAPP/project.yml"
+app_bundle() { # <.app> <bundle id> <executable bytes> <touch -t stamp>
+  printf '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict><key>CFBundleIdentifier</key><string>%s</string><key>CFBundleExecutable</key><string>DogShelter</string><key>DTPlatformName</key><string>iphonesimulator</string></dict></plist>\n' \
+    "$2" > "$1/Info.plist"
+  printf '%s' "$3" > "$1/DogShelter"
+  chmod +x "$1/DogShelter"
+  touch -t "$4" "$1/DogShelter"
+}
+app_bundle "$BUILT" com.example.dogshelter integrated 202610221000
+app_bundle "$INSTALLED" com.example.dogshelter baseline 202610220900
+BUILT="$(cd "$BUILT" && pwd -P)"
+cat > "$ARTBIN/xcrun" <<XEOF
+#!/usr/bin/env bash
+if [[ "\$*" == "simctl list devices --json" ]]; then
+  printf '{"devices":{"com.apple.CoreSimulator.SimRuntime.iOS-26-2":[{"udid":"SIM-ART-1","name":"iPhone 17","state":"Booted","isAvailable":true}]}}\n'
+elif [[ "\$*" == "simctl get_app_container SIM-ART-1 com.example.dogshelter app" ]]; then
+  printf '%s\n' "$INSTALLED"
+elif [[ "\$*" == *"devicectl"*"list devices"* ]]; then
+  printf '{"result":{"devices":[]}}\n'
+else
+  exit 2
+fi
+XEOF
+cp "$SIMBIN/xcodebuild" "$SIMBIN/sw_vers" "$SIMBIN/uname" "$ARTBIN/"
+chmod +x "$ARTBIN"/*
+for file in scope.json target.json .env server-validation.json; do
+  cp "$WORKSPACE/$file" "$ARTSPACE/$file"
+done
+chmod 600 "$ARTSPACE"/scope.json "$ARTSPACE"/target.json "$ARTSPACE"/.env "$ARTSPACE"/server-validation.json
+run_art() { env PATH="$ARTBIN:$FAKEBIN:$PATH" IOS_WORKSPACE="$ARTSPACE" bin/ios-prepare-proof "$@"; }
+run_art_line() { env PATH="$ARTBIN:$FAKEBIN:$PATH" IOS_WORKSPACE="$ARTSPACE" bash -c "$1"; }
+fresh_run() { rm -rf "$ARTSPACE/proof-target.json" "$ARTSPACE/archive" "$ARTSPACE/proof-discovery.json"; }
+option_command() { # <status json> <label>
+  node -e '
+    const q = JSON.parse(process.argv[1]).next.question;
+    const o = q.options.find(item => item.label === process.argv[2]);
+    process.stdout.write(o ? o.commands[0] || "" : "");
+  ' "$1" "$2"
+}
+prompt_has() { node -e 'process.exit(JSON.parse(process.argv[1]).next.question.prompt.includes(process.argv[2]) ? 0 : 1)' "$1" "$2"; }
+
+art="$(run_art status)"
+bind_label="Use the build at Debug-iphonesimulator/DogShelter.app"
+bind="$(option_command "$art" "$bind_label")"
+if [[ "$(json_value "$art" next.kind)" == proof_artifact &&
+      "$(json_value "$art" next.question.recommended)" == "$bind_label" &&
+      "$bind" == *"/ios-prepare-proof answer --field app-path --value $BUILT" &&
+      -n "$(option_command "$art" "Use the app already installed")" ]] &&
+    prompt_has "$art" "Newest build: $BUILT (Debug, built" &&
+    prompt_has "$art" "On the device: a copy with no Iterable SDK"; then
+  ok "a build newer than a pre-integration install is the recommended artifact, and the installed app stays an option"
+else
+  bad "the proof did not recommend binding the build it found" \
+    "kind=$(json_value "$art" next.kind) rec=$(json_value "$art" next.question.recommended)"
+fi
+
+bound="$(run_art_line "$bind")"
+identity_start="$(json_value "$bound" next.question.free_text.command)"
+if [[ "$(json_value "$bound" next.kind)" == confirm_proof &&
+      "$(json_value "$bound" proposed.app_path)" == "$BUILT" ]] &&
+    prompt_has "$bound" "App: $BUILT" &&
+    prompt_has "$bound" "pgrep -f 'Devices/SIM-ART-1/.*/DogShelter\.app/DogShelter( |\$)'"; then
+  ok "after binding, the identity screen names the bound build and reads the executable from it"
+else
+  bad "the identity screen lost the bound build or the device-specific identity steps" "$(json_value "$bound" next.question.prompt)"
+fi
+run_art_line "${identity_start//\{\{answer\}\}/dogs@example.com}" >/dev/null 2>&1
+[[ "$(json_value "$(cat "$ARTSPACE/proof-target.json" 2>/dev/null)" app_path)" == "$BUILT" ]] &&
+  ok "typing the identity starts a run bound to that exact build" ||
+  bad "the started run is not bound to the build" "$(cat "$ARTSPACE/proof-target.json" 2>/dev/null)"
+
+kept="$(run_art status)"
+mkdir -p "$RELEASE/IterableSDK_IterableSDK.bundle"
+app_bundle "$RELEASE" com.example.dogshelter rebuilt 202610221100
+RELEASE="$(cd "$RELEASE" && pwd -P)"
+rebuilt="$(run_art status)"
+rebind_label="Start a fresh run with the build at Release-iphonesimulator/DogShelter.app"
+rebind="$(option_command "$rebuilt" "$rebind_label")"
+if [[ "$(json_value "$kept" next.kind)" == existing_proof &&
+      "$(json_value "$kept" next.question.recommended)" == "Keep this run" &&
+      "$(json_value "$rebuilt" next.question.recommended)" == "$rebind_label" &&
+      "$rebind" == *"/ios-prepare-proof restart --confirm --app-path $RELEASE" ]] &&
+    prompt_has "$kept" "App: $BUILT" &&
+    prompt_has "$rebuilt" "Newer build: $RELEASE"; then
+  ok "an existing run keeps its build until a newer one appears, then recommends a fresh run bound to it"
+else
+  bad "the existing-run screen ignored a newer build or recommended one that is not newer" \
+    "kept=$(json_value "$kept" next.question.recommended) rebuilt=$(json_value "$rebuilt" next.question.recommended)"
+fi
+run_art_line "$rebind" >/dev/null 2>&1
+[[ "$(json_value "$(cat "$ARTSPACE/proof-target.json")" app_path)" == "$RELEASE" ]] &&
+  ok "the recommended fresh run is bound to the newer build" ||
+  bad "the fresh run did not bind the newer build"
+
+fresh_run
+rm -rf "$RELEASE"
+mkdir -p "$INSTALLED/IterableSDK_IterableSDK.bundle"
+touch -t 202610221200 "$INSTALLED/DogShelter"
+later="$(run_art status)"
+installed_only="$(run_art answer --field app-source --value installed)"
+if [[ "$(json_value "$later" next.question.recommended)" == "Use the app already installed" &&
+      "$(json_value "$installed_only" next.kind)" == confirm_proof ]] &&
+    prompt_has "$later" "On the device: a copy built" &&
+    prompt_has "$installed_only" "App: the copy already installed on this device"; then
+  ok "an installed copy built after the newest build stays recommended, and choosing it skips the screen"
+else
+  bad "a newer installed copy was passed over, or choosing it asked again" \
+    "rec=$(json_value "$later" next.question.recommended) next=$(json_value "$installed_only" next.kind)"
+fi
+
+fresh_run
+rm -rf "$BUILT/IterableSDK_IterableSDK.bundle"
+no_sdk="$(run_art status)"
+mkdir -p "$BUILT/IterableSDK_IterableSDK.bundle"
+app_bundle "$BUILT" com.example.other integrated 202610221300
+other="$(run_art status)"
+if [[ "$(json_value "$no_sdk" next.kind)" == confirm_proof &&
+      "$(json_value "$other" next.kind)" == confirm_proof ]]; then
+  ok "a build without the Iterable SDK, or of another bundle, is never offered"
+else
+  bad "a build that cannot prove this integration was offered" \
+    "no_sdk=$(json_value "$no_sdk" next.kind) other=$(json_value "$other" next.kind)"
+fi
+
 if bin/ios-prepare-proof --help | grep -q "ios-provision capture-server" &&
     ! bin/ios-prepare-proof --help | grep -q "capture-mobile"; then
   ok "verify-only help delegates credentials without exposing provisioning"

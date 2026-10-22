@@ -70,8 +70,9 @@ option_by_label() {
   ' "$1" "$2"
 }
 
-context_of() {
-  node -e 'process.stdout.write(JSON.parse(process.argv[1]).context.join("\n"))' "$1"
+# The scope and import screens carry their values in the prompt, the part every host shows.
+prompt_of() {
+  node -e 'process.stdout.write(JSON.parse(process.argv[1]).prompt)' "$1"
 }
 
 new_app() {
@@ -117,15 +118,15 @@ regioned="$(run_in "$TRIAL" answer --field region --value US)"
 visited="$visited $(field "$regioned" next.kind)"
 jwted="$(run_in "$TRIAL" answer --field jwt-enabled --value false)"
 visited="$visited $(field "$jwted" next.kind)"
-confirm_context="$(context_of "$(field "$jwted" next.question)")"
+confirm_prompt="$(prompt_of "$(field "$jwted" next.question)")"
 if [[ "$visited" == "carry_scope choose_region choose_jwt confirm_scope" &&
       "$(field "$carried" discovery.scope_source)" == ios-step0 &&
       "$(field "$carried" discovery.identity_source)" == ios-step0 &&
       "$(field "$carried" discovery.identity_mode)" == user-id &&
       "$(field "$carried" discovery.mode_0600)" == true &&
       "$(field "$again" next.kind)" == choose_region ]] &&
-    grep -qxF "Features: $TRIAL_IDS (the scope confirmed in the iOS skill)" <<< "$confirm_context" &&
-    grep -qxF "Identity: user-id (confirmed in the iOS skill)" <<< "$confirm_context" &&
+    grep -qxF "Features: $TRIAL_IDS (the scope confirmed in the iOS skill)" <<< "$confirm_prompt" &&
+    grep -qxF "Identity: user-id (confirmed in the iOS skill)" <<< "$confirm_prompt" &&
     grep -q "Proposed the answers confirmed in the iOS skill" "$STATE/trial.err"; then
   ok "using them skips choose_features, choose_more_features and choose_identity, and the final screen names their origin"
 else
@@ -154,13 +155,13 @@ features_carried="$(run_line "$FEATURES_ONLY" "$(option_by_label "$(field "$feat
 run_in "$FEATURES_ONLY" answer --field identity-mode --value email >/dev/null
 run_in "$FEATURES_ONLY" answer --field region --value EU >/dev/null
 features_confirm="$(run_in "$FEATURES_ONLY" answer --field jwt-enabled --value false)"
-features_context="$(context_of "$(field "$features_confirm" next.question)")"
+features_prompt="$(prompt_of "$(field "$features_confirm" next.question)")"
 if [[ "$(field "$features_offer" next.question.prompt)" == "Confirmed in the iOS skill: features event-tracking, sdk-initialization, user-profiles. Record these answers instead of asking them again?" &&
       "$(field "$features_carried" next.kind)" == choose_identity &&
       "$(field "$features_confirm" discovery.scope_source)" == ios-step0 &&
       "$(field "$features_confirm" discovery.identity_source)" == "" ]] &&
-    grep -qxF "Features: event-tracking,sdk-initialization,user-profiles (the scope confirmed in the iOS skill)" <<< "$features_context" &&
-    grep -qxF "Identity: email" <<< "$features_context"; then
+    grep -qxF "Features: event-tracking,sdk-initialization,user-profiles (the scope confirmed in the iOS skill)" <<< "$features_prompt" &&
+    grep -qxF "Identity: email" <<< "$features_prompt"; then
   ok "with only --features, identity is still asked and is not attributed to the iOS skill"
 else
   bad "a features-only carry skipped identity or attributed it to Step 0"
@@ -216,18 +217,18 @@ run_line "$CHANGED" "$(option_by_label "$(field "$changed_offer" next.question)"
 run_in "$CHANGED" answer --field region --value US >/dev/null
 run_in "$CHANGED" answer --field jwt-enabled --value false >/dev/null
 identity_changed="$(run_in "$CHANGED" answer --field identity-mode --value email)"
-identity_context="$(context_of "$(field "$identity_changed" next.question)")"
+identity_prompt="$(prompt_of "$(field "$identity_changed" next.question)")"
 features_changed="$(run_in "$CHANGED" answer --field features --value event-tracking)"
-features_changed_context="$(context_of "$(field "$features_changed" next.question)")"
+features_changed_prompt="$(prompt_of "$(field "$features_changed" next.question)")"
 changed_recorded="$(run_in "$CHANGED" record-scope --from-answers --confirm 2>/dev/null)"
 if [[ "$(field "$identity_changed" discovery.identity_source)" == "" &&
       "$(field "$identity_changed" discovery.scope_source)" == ios-step0 &&
       "$(field "$features_changed" discovery.scope_source)" == "" &&
       "$(field "$changed_recorded" scope.source)" == "" &&
       "$(field "$changed_recorded" scope.identity_source)" == "" ]] &&
-    grep -qxF "Identity: email" <<< "$identity_context" &&
-    grep -qxF "Features: push-notifications,sdk-initialization (the scope confirmed in the iOS skill)" <<< "$identity_context" &&
-    grep -qxF "Features: event-tracking,sdk-initialization" <<< "$features_changed_context" &&
+    grep -qxF "Identity: email" <<< "$identity_prompt" &&
+    grep -qxF "Features: push-notifications,sdk-initialization (the scope confirmed in the iOS skill)" <<< "$identity_prompt" &&
+    grep -qxF "Features: event-tracking,sdk-initialization" <<< "$features_changed_prompt" &&
     ! grep -q 'iOS skill' "$CHANGED/.iterable/ios/scope.json"; then
   ok "changing a carried answer drops that answer's source and keeps the other's"
 else
@@ -268,7 +269,7 @@ if [[ "$(field "$plain" next.kind)" == choose_features &&
       "$(field "$plain_confirm" next.kind)" == confirm_scope &&
       "$(field "$plain_scope" scope.source)" == "" &&
       "$(node -e 'process.stdout.write(Object.keys(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"))).sort().join(","))' "$PLAIN/.iterable/ios/scope.json")" == data_region,features,identity_mode,jwt_enabled ]] &&
-    ! grep -q 'skill' <<< "$(context_of "$(field "$plain_confirm" next.question)")"; then
+    ! grep -q 'skill' <<< "$(prompt_of "$(field "$plain_confirm" next.question)")"; then
   ok "without --features or --identity the flow and the recorded scope are unchanged"
 else
   bad "status without Step 0 flags changed the flow or the recorded scope"
@@ -295,12 +296,12 @@ printf '*\n' > "$NEXT_TO_ANDROID/.iterable/.gitignore"
     > "$NEXT_TO_ANDROID/.iterable/.env"
 )
 android_offer="$(run_in "$NEXT_TO_ANDROID" status --features push-notifications --identity user-id)"
-android_context="$(context_of "$(field "$android_offer" next.question)")"
+android_prompt="$(prompt_of "$(field "$android_offer" next.question)")"
 android_imported="$(run_line "$NEXT_TO_ANDROID" "$(option_by_label "$(field "$android_offer" next.question)" "Reuse the Android setup")" 2>/dev/null)"
-android_confirm="$(context_of "$(field "$android_imported" next.question)")"
+android_confirm="$(prompt_of "$(field "$android_imported" next.question)")"
 if [[ "$(field "$android_offer" next.kind)" == import_android &&
-      "$android_context" == *"feature scope confirmed in the iOS skill: push-notifications, sdk-initialization. It also proposes the identity user-id confirmed there."* &&
-      "$android_context" != *"React Native"* &&
+      "$android_prompt" == *"feature scope confirmed in the iOS skill: push-notifications, sdk-initialization. It also proposes the identity user-id confirmed there."* &&
+      "$android_prompt" != *"React Native"* &&
       "$(field "$android_offer" next.command)" == *"question --kind import_android --features push-notifications,sdk-initialization --identity user-id" &&
       "$(field "$android_imported" discovery.identity_mode)" == user-id &&
       "$(field "$android_imported" discovery.identity_source)" == ios-step0 &&

@@ -6,6 +6,7 @@ BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TOOL_ROOT="$(cd "$BIN/.." && pwd)"
 source "$BIN/ios-simulator.sh"
 source "$BIN/ios-project.sh"
+source "$BIN/ios-app-check.sh"
 FASTLANE_VERSION="2.240.1"
 PRIVATE_APNS_ACTOR="$TOOL_ROOT/tools/ios-apns-private.rb"
 
@@ -1107,6 +1108,10 @@ proof_answer() {
     identity|switch-identity|device|app-path|profile-field|event|tap-expect|logout-expect)
       ((${#ANSWER_VALUE} <= 500)) || die "proof answer is too long"
       ;;
+    app-source)
+      [[ "$ANSWER_CLEAR" == true || "$ANSWER_VALUE" == installed ]] ||
+        die "proof app-source must be installed"
+      ;;
     *)
       die "unknown proof-answer field: $ANSWER_FIELD"
       ;;
@@ -1130,6 +1135,7 @@ proof_answer() {
       "switch-identity":"switch_identity",
       "device":"device",
       "app-path":"app_path",
+      "app-source":"app_source",
       "profile-field":"profile_field",
       "event":"event",
       "tap-expect":"tap_expect",
@@ -1259,6 +1265,91 @@ proof_min_os() {
   [[ "$value" =~ ^[0-9]+(\.[0-9]+)*$ ]] && printf '%s' "$value"
 }
 
+proof_app_built_at() {
+  local binary
+  binary="$(ios_app_newest_binary "$1")"
+  [[ -n "$binary" && -f "$binary" ]] || return 1
+  stat -f '%m' "$binary"
+}
+
+# Prints "<path>\t<epoch>" for the newest Iterable-carrying .app of this bundle that a
+# run recorded or the project's own -derivedDataPath holds, or nothing.
+proof_built_app() {
+  local bundle="$1" platform="$2" root="$3" ios_dir framework sdk dir data app at
+  local best="" best_at=0 recorded
+  [[ -n "$bundle" && -n "$root" ]] || return 0
+  ios_dir="$(ios_project_ios_dir "$root")"
+  framework="$(ios_project_framework "$root")"
+  [[ "$platform" == iphoneos ]] && sdk=iphoneos || sdk=iphonesimulator
+  while IFS= read -r app; do
+    [[ -n "$app" && -f "$app/Info.plist" ]] || continue
+    app="$(cd "$app" 2>/dev/null && pwd -P)" || continue
+    [[ "$(plutil -extract CFBundleIdentifier raw -o - "$app/Info.plist" 2>/dev/null)" == "$bundle" ]] || continue
+    [[ "$(plutil -extract DTPlatformName raw -o - "$app/Info.plist" 2>/dev/null)" == "$sdk" ]] ||
+      [[ "$(basename "$(dirname "$app")")" == *-"$sdk" ]] || continue
+    ! ios_app_artifact_without_sdk "$app" "$root" "$framework" "$sdk" "$BIN" >/dev/null || continue
+    at="$(proof_app_built_at "$app")" || continue
+    ((at > best_at)) || continue
+    best="$app"
+    best_at="$at"
+  done < <(
+    for recorded in "$PROOF_TARGET" "$WORKSPACE"/archive/*/proof-target.json; do
+      [[ -f "$recorded" ]] || continue
+      node -e '
+        try { process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).app_path||"")+"\n") } catch {}
+      ' "$recorded"
+    done
+    for dir in "$root" ${ios_dir:+"$ios_dir"}; do
+      for data in build build/DerivedData .derived-data DerivedData; do
+        [[ -d "$dir/$data/Build/Products" ]] || continue
+        find "$dir/$data/Build/Products" -mindepth 2 -maxdepth 2 -type d -name '*.app' -print 2>/dev/null
+      done
+    done
+  )
+  [[ -z "$best" ]] || printf '%s\t%s' "$best" "$best_at"
+}
+
+# Prints "<build|installed|same>\t<what the installed copy is>": which copy the
+# proof should test, given the newest known build and the installed copy.
+proof_artifact_compare() {
+  local built="$1" built_at="$2" installed="$3" device_kind="$4" installed_at built_exec installed_exec
+  if [[ "$device_kind" != simulator ]]; then
+    printf 'build\tits copy cannot be compared from this Mac'
+  elif [[ -z "$installed" || ! -d "$installed" ]]; then
+    printf 'build\tnot installed'
+  elif ! ios_app_sdk_signal "$installed" >/dev/null; then
+    printf 'build\ta copy with no Iterable SDK, so a build from before the integration'
+  elif built_exec="$(ios_app_executable "$built")" && installed_exec="$(ios_app_executable "$installed")" &&
+      [[ "$(shasum -a 256 < "$built_exec")" == "$(shasum -a 256 < "$installed_exec")" ]]; then
+    printf 'same\tthis same build'
+  elif installed_at="$(proof_app_built_at "$installed")" && ((installed_at > built_at)); then
+    printf 'installed\ta copy built %s, after this build' "$(ios_app_time "$installed_at")"
+  else
+    printf 'build\tan older build%s' \
+      "$([[ -z "${installed_at:-}" ]] || printf ', from %s' "$(ios_app_time "$installed_at")")"
+  fi
+}
+
+# The SDK keeps the identity in the Keychain and never logs it, and Iterable has no
+# lookup by device token, so the developer reads it; on a Simulator, from app memory.
+proof_identity_steps() {
+  local identity_type="$1" device="$2" device_kind="$3" executable="$4"
+  local call=userId setter="IterableAPI.userId or setUserId" lead="If the app generates it on the device"
+  [[ "$identity_type" != email ]] ||
+    { call=email; setter="IterableAPI.email or setEmail"; lead="To read it from the running app instead"; }
+  printf '1. Search the app'"'"'s code for %s: the value passed there is the one Iterable knows.\n' "$setter"
+  if [[ "$identity_type" == email ]]; then
+    printf '2. It is usually the address you signed in with on this device.'
+  else
+    printf '2. If it is your own account or backend ID, read it from your backend or the app'"'"'s account screen.'
+  fi
+  if [[ "$device_kind" == simulator ]]; then
+    printf '\n3. %s, open the app on the Simulator and run this in Terminal; it prints the value the Iterable SDK holds and leaves the app running:\n' "$lead"
+    printf "lldb --batch -p \"\$(pgrep -f 'Devices/%s/.*/%s\\\\.app/%s( |\$)')\" -o 'expr -l objc -O -- [NSClassFromString(@\"IterableSDK.IterableAPI\") %s]' -o detach" \
+      "$device" "${executable:-<App>}" "${executable:-<App>}" "$call"
+  fi
+}
+
 proof_devices_json() {
   local environment="${1:-}" push_required="${2:-false}" min_os="${3:-}"
   local simulators='{}' physical='{}' host_apns=false
@@ -1367,11 +1458,20 @@ proof_devices_json() {
 }
 
 proof_question_identity_and_confirm() {
-  local summary="$1" identity_type="$2" device="$3" noun="email address"
+  local summary="$1" identity_type="$2" device="$3" steps="${4:-}" noun="email address"
   [[ "$identity_type" == email ]] || noun="user ID"
+  [[ -z "$steps" ]] || summary="$summary
+
+To find the $noun:
+$steps"
   printf '{"header":"Proof run","prompt":%s,"selection":"single",' \
-    "$(jstr "Which $noun is the app signed in with? Entering it starts the proof run.")"
-  printf '"context":%s,' "$(printf '%s\n' "$summary" | ios_q_arr)"
+    "$(jstr "$summary
+
+Check which $noun the app is signed in with: typing it starts the proof run. Which is it?")"
+  printf '"context":%s,' "$(ios_q_arr <<'EOF'
+Use the identity the app itself passes to Iterable. Nothing is sent until the proof step runs, and that one push goes only to this identity on this device.
+EOF
+)"
   printf '"requires":[],"recommended":null,"before_commands":[],"options":['
   ios_q_opt "I don't have a test user yet — help me" \
     "Shows how to sign in to the app with a test identity you control, then you answer with it." \
@@ -1396,6 +1496,7 @@ proof_status_json() {
   local proposed='{}' scope_identity="" scope_features="" scope_region=""
   local target_bundle="" project_root verification_only=false detected_features='[]'
   local proof_mode bundle identity_type environment identity switch_identity device app_path
+  local app_source device_kind=physical installed="" built="" built_at="" artifact_pick="" artifact_state=""
   local profile_field event tap_expect logout_expect push_required=false data_region=""
   local next_kind summary question devices summary_text
   [[ ! -f "$PROOF_DISCOVERY_META" ]] ||
@@ -1445,6 +1546,7 @@ proof_status_json() {
   switch_identity="$(read_proposed switch_identity)"
   device="$(read_proposed device)"
   app_path="$(read_proposed app_path)"
+  app_source="$(read_proposed app_source)"
   profile_field="$(read_proposed profile_field)"
   event="$(read_proposed event)"
   tap_expect="$(read_proposed tap_expect)"
@@ -1460,8 +1562,18 @@ proof_status_json() {
       process.stdout.write(list.length===1 ? String(list[0].id) : "");
     ' "$candidates")"
   fi
-  if [[ -z "$environment" && -n "$device" ]] && is_booted_simulator "$device"; then
+  [[ -z "$device" ]] || ! is_booted_simulator "$device" || device_kind=simulator
+  if [[ -z "$environment" && "$device_kind" == simulator ]]; then
     environment=development
+  fi
+  if [[ -n "$bundle" && -n "$device" && -z "$app_path" && "$proof_mode" == behavioral ]]; then
+    [[ "$device_kind" != simulator ]] ||
+      installed="$(xcrun simctl get_app_container "$device" "$bundle" app 2>/dev/null)"
+    IFS=$'\t' read -r built built_at <<< "$(proof_built_app "$bundle" \
+      "$([[ "$device_kind" == simulator ]] && printf iphonesimulator || printf iphoneos)" "$project_root")"
+    [[ -z "$built" ]] ||
+      IFS=$'\t' read -r artifact_pick artifact_state <<< \
+        "$(proof_artifact_compare "$built" "$built_at" "$installed" "$device_kind")"
   fi
 
   if [[ -z "$bundle" ]]; then next_kind=proof_bundle
@@ -1469,6 +1581,7 @@ proof_status_json() {
   elif [[ -z "$identity_type" ]]; then next_kind=proof_identity_type
   elif [[ -z "$device" ]]; then next_kind=proof_device
   elif [[ -z "$environment" ]]; then next_kind=proof_environment
+  elif [[ "$proof_mode" == behavioral && -n "$built" && -z "$app_source" ]]; then next_kind=proof_artifact
   elif [[ -z "$identity" && "$proof_mode" == behavioral ]]; then next_kind=confirm_proof
   elif [[ -z "$identity" ]]; then next_kind=proof_identity
   elif [[ "$proof_mode" == instrumented && -z "$switch_identity" ]]; then next_kind=proof_switch_identity
@@ -1489,6 +1602,30 @@ proof_status_json() {
 
   case "$next_kind" in
     existing_proof)
+      local run_device run_kind run_bundle run_app fresh="" fresh_at="" fresh_note=""
+      local rec="Keep this run" rebuild="" quoted_fresh
+      IFS=$'\t' read -r run_device run_kind run_bundle run_app <<< "$(node -e '
+        const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
+        process.stdout.write([v.device,v.device_kind,v.bundle_id,v.app_path||""].map(String).join("\t"));
+      ' "$PROOF_TARGET")"
+      IFS=$'\t' read -r fresh fresh_at <<< "$(proof_built_app "$run_bundle" \
+        "$([[ "$run_kind" == simulator ]] && printf iphonesimulator || printf iphoneos)" "$project_root")"
+      # The run's own build is a candidate, so any other winner is newer or the run's is unusable.
+      if [[ -n "$fresh" && "$fresh" != "$run_app" ]]; then
+        if [[ -n "$run_app" && ! -d "$run_app" ]]; then
+          fresh_note="the build this run tests is no longer on disk"
+        elif [[ -n "$run_app" ]] && ! ios_app_sdk_signal "$run_app" >/dev/null; then
+          fresh_note="the build this run tests has no Iterable SDK"
+        elif [[ -n "$run_app" ]]; then
+          fresh_note="this run tests an older build"
+        else
+          [[ "$run_kind" != simulator ]] ||
+            installed="$(xcrun simctl get_app_container "$run_device" "$run_bundle" app 2>/dev/null)"
+          IFS=$'\t' read -r artifact_pick artifact_state <<< \
+            "$(proof_artifact_compare "$fresh" "$fresh_at" "$installed" "$run_kind")"
+          [[ "$artifact_pick" != build ]] || fresh_note="on the device: $artifact_state"
+        fi
+      fi
       summary_text="$(node -e '
         const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
         const age=Math.round((Date.now()-Date.parse(v.started_at))/60000);
@@ -1496,30 +1633,48 @@ proof_status_json() {
           `Run: ${v.run_id}`,
           `Started: ${v.started_at} (${age} minutes ago)`,
           `Identity: ${v.identity}`,
-          `Device: ${v.device} (${v.device_kind})`
+          `Device: ${v.device} (${v.device_kind})`,
+          `App: ${v.app_path || "the copy installed on the device"}`
         ].join("\n"));
       ' "$PROOF_TARGET")"
+      if [[ -n "$fresh_note" ]]; then
+        rebuild="Start a fresh run with the build at $(basename "$(dirname "$fresh")")/${fresh##*/}"
+        rec="$rebuild"
+        summary_text="$summary_text
+Newer build: $fresh (built $(ios_app_time "$fresh_at")); $fresh_note"
+      fi
       question="$(
         printf '{"header":"Proof run","prompt":%s,"selection":"single",' \
-          "$(jstr "A proof run already exists. Keep it or start a fresh one?")"
-        printf '"context":%s,' "$(printf '%s\n' "$summary_text" | ios_q_arr)"
-        printf '"requires":[],"recommended":%s,"before_commands":[],"options":[' "$(jstr "Keep this run")"
+          "$(jstr "$summary_text
+
+A proof run already exists. Keep it or start a fresh one?")"
+        printf '"context":%s,' "$(printf '%s\n' \
+          "Keeping reads where this run stands. A fresh run archives the current evidence first, then records a new run ID and marker." | ios_q_arr)"
+        printf '"requires":[],"recommended":%s,"before_commands":[],"options":[' "$(jstr "$rec")"
         ios_q_opt "Keep this run" \
           "Reads this run's current state; nothing is sent or reset." \
           "the verifier reports where this run stands" \
           "$BIN/ios-verify status"
         printf ','
         ios_q_opt "Start a fresh run" \
-          "Archives this run's evidence and records a new run ID and marker for the same identity and device." \
+          "Archives this run's evidence and records a new run ID and marker for the same identity, device, and app." \
           "a new proof run replaces this one" \
           "$BIN/ios-prepare-proof restart --confirm"
+        if [[ -n "$rebuild" ]]; then
+          printf -v quoted_fresh '%q' "$fresh"
+          printf ','
+          ios_q_opt "$rebuild" \
+            "Archives this run's evidence and starts a new run for the same identity and device, bound to $fresh." \
+            "a new proof run bound to the newer build replaces this one" \
+            "$BIN/ios-prepare-proof restart --confirm --app-path $quoted_fresh"
+        fi
         printf ']}'
       )"
       summary="A proof run already exists; keep it or start a fresh one with the same identity and device."
       ;;
     proof_device)
       devices="$(proof_devices_json "$environment" "$push_required" "$min_os")"
-      question="$(ios_question proof_device "$devices")"
+      question="$(ios_question proof_device "$devices" "$min_os")"
       summary="Choose the exact device that will run and display this proof."
       [[ -z "$min_os" ]] ||
         summary="$summary Only Simulators on iOS $min_os or later are listed: that is the app's deployment target."
@@ -1539,14 +1694,11 @@ Build: this app has no embedded main.jsbundle, so it is a Debug build that needs
         fi
       fi
       if [[ "$proof_mode" == behavioral ]]; then
-        summary_text="Verification: standard integration proof
-Bundle: $bundle
-Iterable region: $data_region
-Environment: $environment
-Identity type: $identity_type
-Identity: ${identity:-the exact $identity_type the app is signed in with (type it to start)}
-Device: $device
-App artifact: ${app_path:-use the app already installed for this bundle}$js_build
+        summary_text="Bundle: $bundle
+Device: $device ($device_kind, $environment)
+Iterable region: $data_region${identity:+
+Identity: $identity ($identity_type)}
+App: ${app_path:-the copy already installed on this device}$js_build
 Checks: installed app, Iterable identity, device registration, then one marked push sent through Iterable and read back from the device's own records"
       else
         summary_text="Verification: instrumented evaluation
@@ -1564,12 +1716,23 @@ Tap expectation: ${tap_expect:-not applicable}
 Logout expectation: $logout_expect"
       fi
       if [[ "$proof_mode" == behavioral && -z "$identity" ]]; then
-        question="$(proof_question_identity_and_confirm "$summary_text" "$identity_type" "$device")"
+        local executable="" app
+        for app in "$app_path" "$installed" "$built"; do
+          [[ -n "$app" && -z "$executable" ]] || continue
+          executable="$(plutil -extract CFBundleExecutable raw -o - "$app/Info.plist" 2>/dev/null)"
+        done
+        question="$(proof_question_identity_and_confirm "$summary_text" "$identity_type" "$device" \
+          "$(proof_identity_steps "$identity_type" "$device" "$device_kind" "$executable")")"
         summary="Type the identity the app is signed in with; that starts the run on the device shown."
       else
         question="$(ios_question confirm_proof "$summary_text")"
         summary="Review the exact proof target before the live freshness checks create the run."
       fi
+      ;;
+    proof_artifact)
+      question="$(ios_question proof_artifact "$bundle" "$built" "$(ios_app_time "$built_at")" \
+        "$artifact_state" "$artifact_pick")"
+      summary="Choose which copy of the app this run tests: the newest build, or the copy already installed."
       ;;
     proof_app)
       question="$(ios_question proof_app "$proof_mode")"
@@ -1584,10 +1747,10 @@ Logout expectation: $logout_expect"
   esac
   printf '{"tool":"iterable-ios-proof-setup","contract":2,"workspace":%s,' \
     "$(jstr "$WORKSPACE")"
-  printf '"verification_only":%s,"proposed":{"proof_mode":%s,"bundle_id":%s,"data_region":%s,"identity_type":%s,"environment":%s,"identity":%s,"switch_identity":%s,"device":%s,"app_path":%s,"profile_field":%s,"event":%s,"tap_expect":%s,"logout_expect":%s},' \
+  printf '"verification_only":%s,"proposed":{"proof_mode":%s,"bundle_id":%s,"data_region":%s,"identity_type":%s,"environment":%s,"identity":%s,"switch_identity":%s,"device":%s,"app_path":%s,"app_source":%s,"profile_field":%s,"event":%s,"tap_expect":%s,"logout_expect":%s},' \
     "$verification_only" "$(jstr "$proof_mode")" "$(jstr "$bundle")" "$(jstr "$data_region")" "$(jstr "$identity_type")" "$(jstr "$environment")" \
     "$(jstr "$identity")" "$(jstr "$switch_identity")" "$(jstr "$device")" \
-    "$(jstr "$app_path")" "$(jstr "$profile_field")" "$(jstr "$event")" \
+    "$(jstr "$app_path")" "$(jstr "$app_source")" "$(jstr "$profile_field")" "$(jstr "$event")" \
     "$(jstr "$tap_expect")" "$(jstr "$logout_expect")"
   printf '"next":{"owner":"human","kind":%s,"command":%s,"summary":%s,"question":%s}}\n' \
     "$(jstr "$next_kind")" "$(jstr "$BIN/ios-prepare-proof status")" \

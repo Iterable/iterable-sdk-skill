@@ -158,10 +158,11 @@ Render the question with the host's selector UI. In Claude Code,
 `AskUserQuestion` has no field for `context`: in the same turn, first print
 the `context` as a normal Markdown message, preserving every line, blank line,
 numbered step, and URL, then call `AskUserQuestion`. Never call it for a
-screen whose `context` you have not printed. Every link and numbered step a
-screen needs is in its `prompt`, steps first and the question last, so the
-selector alone still says what to do; pass the whole `prompt`, line breaks
-included. `context` holds the remaining notes. Map
+screen whose `context` you have not printed. Every link, numbered step, value,
+summary, and list of what is being approved that a screen needs is in its
+`prompt`, steps first and the question last, so the selector alone still says
+what to do; pass the whole `prompt`, line breaks included. `context` holds only
+background notes. Map
 `header`, `prompt`, and each option's `label` and `description` directly into
 the selector. Do not add, remove, reword, or reorder options, pick a
 recommendation for the developer, collapse the content into one paragraph, or
@@ -590,8 +591,15 @@ out of the app and validated it:
 `ios-prepare-proof` automatically selects behavioral proof, then conducts one
 tool-authored question at a time for Iterable region when it is not already
 known, environment, identity type when it cannot be inferred, the app's
-existing test identity, and the selected device. It reuses the installed app
-for a standalone verification-only request and generates one targeted marker.
+existing test identity, and the selected device. When the workspace knows a
+build of the app — one an earlier run recorded, or a product under the app's
+own `-derivedDataPath` — that carries the Iterable SDK, it asks which copy the
+run tests and recommends binding that exact `.app` unless the installed copy
+was built later; the installed app stays an option. Otherwise it reuses the
+installed app and generates one targeted marker. The identity is typed: the
+SDK keeps it in the Keychain and never logs it, and Iterable has no lookup by
+device token, so the screen says where to read it, including a Simulator
+debugger read of the running app.
 For a new integration completed in the current flow, it also requires the
 exact built `.app`, so installation and proof are linked to that artifact. Its
 confirmation runs through the preparation actor; do not reconstruct the

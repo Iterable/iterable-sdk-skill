@@ -5,7 +5,7 @@ cd "$(dirname "$0")/.." || exit
 
 FAILED=0
 ok()  { printf 'PASS %s\n' "$1"; }
-bad() { printf 'FAIL %s\n' "$1"; FAILED=1; }
+bad() { printf 'FAIL %s\n' "$1"; [[ $# -lt 2 ]] || printf '  %s\n' "$2"; FAILED=1; }
 
 ROOT="$(mktemp -d "${TMPDIR:-/tmp}/iterable-ios-questions-test.XXXXXX")"
 case "$ROOT" in
@@ -460,8 +460,13 @@ screen_dump() {
   printf 'proof_app\t%s\n' "$(ios_question proof_app instrumented)"
   printf 'proof_device\t%s\n' "$(ios_q_proof_device '[]')"
   printf 'confirm_proof\t%s\n' "$(ios_q_confirm_proof "Bundle: com.example.dogshelter")"
-  eval "$(sed -n '/^proof_question_identity_and_confirm() {/,/^}/p' bin/ios-provision)"
+  eval "$(sed -n '/^proof_question_identity_and_confirm() {/,/^}/p;/^proof_identity_steps() {/,/^}/p' bin/ios-provision)"
   printf 'proof_identity\t%s\n' "$(proof_question_identity_and_confirm "Bundle: com.example.dogshelter" email SIM-1)"
+  printf 'proof_identity\t%s\n' "$(proof_question_identity_and_confirm "Bundle: com.example.dogshelter" user-id SIM-1 \
+    "$(proof_identity_steps user-id SIM-1 simulator DogShelter)")"
+  printf 'proof_artifact\t%s\n' "$(ios_q_proof_artifact com.example.dogshelter \
+    /dd/Build/Products/Debug-iphonesimulator/DogShelter.app 2026-10-22T09:00:00Z "not installed" build)"
+  printf 'proof_device\t%s\n' "$(ios_q_proof_device '[]' 27.0)"
   for kind in help_identity help_proof_identity_type help_region help_proof_region help_jwt \
       help_bundle help_proof_bundle help_apns_key help_proof_identity \
       help_proof_switch_identity help_proof_identity_start help_proof_app; do
@@ -862,6 +867,115 @@ if node -e '
   ok "iOS APNs setup uses the valid region-specific mobile-app listing URL"
 else
   bad "iOS APNs setup generated an invalid dashboard route"
+fi
+
+# A relaying agent was seen showing only the prompt, so the summary, values and consent
+# a screen asks about are in it, question last, and none of it is left only in context.
+eval "$(sed -n '/^proof_question_identity_and_confirm() {/,/^}/p;/^proof_identity_steps() {/,/^}/p' bin/ios-provision)"
+carries() { # <label> <question json> <fixed string>...
+  local label="$1" q="$2"
+  shift 2
+  if node -e '
+    const q = JSON.parse(process.argv[1]), wants = process.argv.slice(2);
+    const prompt = String(q.prompt || ""), context = (q.context || []).join("\n");
+    const lines = prompt.split("\n"), last = lines[lines.length - 1];
+    const missing = wants.filter(w => !prompt.includes(w));
+    const leaked = wants.filter(w => context.includes(w));
+    if (missing.length || leaked.length || !last.endsWith("?") || lines.length < 3 || lines[lines.length - 2] !== "") {
+      console.error(`missing: ${missing.join(" | ")}; in context: ${leaked.join(" | ")}; last: ${last}`);
+      process.exit(1);
+    }
+  ' "$q" "$@" 2>"$ROOT/carries.err"; then
+    ok "$label: the prompt carries it, the question is last, and context does not hold it"
+  else
+    bad "$label: the prompt does not carry what the developer acts on" "$(cat "$ROOT/carries.err")"
+  fi
+}
+carries "confirm_scope" "$(ios_q_confirm_scope push-notifications,sdk-initialization user-id US false ios-step0 ios-step0)" \
+  "Features: push-notifications,sdk-initialization (the scope confirmed in the iOS skill)" \
+  "Identity: user-id (confirmed in the iOS skill)" "Region: US" "JWT required: false" \
+  "It does not edit the app or change Apple or Iterable by itself."
+carries "import_android" "$(ios_q_import_android "$(printf 'Android workspace: /a/.iterable\nRegion: EU\nMobile key: recorded')" \
+    push-notifications,sdk-initialization user-id "iOS skill")" \
+  "Android workspace: /a/.iterable" "Region: EU" "records No JWT" \
+  "proposes the feature scope confirmed in the iOS skill: push-notifications, sdk-initialization"
+carries "configure_iterable" "$(ios_q_configure_iterable EU true)" "from the EU project with Require JWT On"
+carries "replace_mobile_key" "$(ios_q_replace_mobile_key US false "This key can read the channel list, which a Mobile key cannot.")" \
+  "This key can read the channel list, which a Mobile key cannot."
+carries "replace_server_key" "$(ios_q_replace_server_key EU "The Server-side key probe answered HTTP 401.")" \
+  "The Server-side key probe answered HTTP 401."
+carries "replace_apns_key" "$(ios_question replace_apns_key "APNs answered InvalidProviderToken." APNSKEY001 TEAMID0001)" \
+  "APNs answered InvalidProviderToken."
+carries "replace_apns_key (topic)" "$(ios_question replace_apns_key "APNs refused the topic." APNSKEY001 TEAMID0001 apns-key-topic-not-allowed com.example.dogshelter)" \
+  "APNs refused the topic."
+carries "asc_rejected" "$(ios_question asc_rejected com.example.dogshelter "App Store Connect rejected the key (HTTP 401).")" \
+  "App Store Connect rejected the key (HTTP 401)."
+carries "asc_conflict" "$(ios_question asc_conflict com.example.dogshelter "Apple refused to create it (HTTP 409).")" \
+  "Apple refused to create it (HTTP 409)."
+carries "asc_plan" "$(ios_question asc_plan com.example.dogshelter - create-bundle-id,enable-push "Dog Shelter")" \
+  "1. Register the explicit App ID com.example.dogshelter" "Nothing else is created, changed, or revoked" \
+  "can invalidate provisioning profiles for this App ID"
+carries "choose_bundle" "$(ios_q_choose_bundle com.example.dogshelter "Dog Shelter" xcodebuild)" \
+  "Bundle ID: com.example.dogshelter" "Product name: Dog Shelter"
+carries "choose_bundle (undetected)" "$(ios_q_choose_bundle)" "read General > Identity > Bundle Identifier"
+carries "install_tools" "$(ios_q_install_tools "xcodebuild, node")" \
+  "- xcodebuild: install Xcode from the App Store" "- node: install from https://nodejs.org"
+carries "import_apns" "$(ios_q_import_apns TEAMID0001)" \
+  "Team ID: TEAMID0001, read from the app target's DEVELOPMENT_TEAM" "Key ID: read from the AuthKey_<KEYID>.p8 file name."
+carries "confirm_proof" "$(ios_q_confirm_proof "$(printf 'Bundle: com.example.dogshelter\nDevice: SIM-1 (simulator, development)\nIdentity: dogs@example.com (email)')")" \
+  "Bundle: com.example.dogshelter" "Device: SIM-1 (simulator, development)" "Identity: dogs@example.com (email)"
+carries "proof identity (user ID)" "$(proof_question_identity_and_confirm \
+    "$(printf 'Bundle: com.example.dogshelter\nApp: /dd/DogShelter.app')" user-id SIM-1 \
+    "$(proof_identity_steps user-id SIM-1 simulator DogShelter)")" \
+  "Bundle: com.example.dogshelter" "App: /dd/DogShelter.app" \
+  "1. Search the app's code for IterableAPI.userId or setUserId" \
+  "pgrep -f 'Devices/SIM-1/.*/DogShelter\.app/DogShelter( |\$)'" \
+  "expr -l objc -O -- [NSClassFromString(@\"IterableSDK.IterableAPI\") userId]"
+email_physical="$(proof_question_identity_and_confirm "Bundle: com.example.dogshelter" email 00008101-X \
+  "$(proof_identity_steps email 00008101-X physical "")")"
+carries "proof identity (email, iPhone)" "$email_physical" "IterableAPI.email or setEmail" "the address you signed in with"
+grep -qF "lldb" <<< "$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).prompt)' "$email_physical")" \
+  && bad "a physical iPhone's identity steps offer a Simulator-only debugger read" \
+  || ok "a physical iPhone's identity steps leave out the Simulator-only debugger read"
+artifact="$(ios_q_proof_artifact com.example.dogshelter /dd/Build/Products/Debug-iphonesimulator/DogShelter.app \
+  2026-10-22T09:00:00Z "a copy with no Iterable SDK, so a build from before the integration" build)"
+carries "proof_artifact" "$artifact" "Newest build: /dd/Build/Products/Debug-iphonesimulator/DogShelter.app (Debug, built 2026-10-22T09:00:00Z)" \
+  "On the device: a copy with no Iterable SDK"
+if node -e '
+  const [built, installed] = process.argv.slice(1).map(JSON.parse);
+  const by = (q, label) => q.options.find(o => o.label === label);
+  const bind = by(built, "Use the build at Debug-iphonesimulator/DogShelter.app");
+  const keep = by(built, "Use the app already installed");
+  process.exit(built.recommended === bind?.label &&
+    bind.commands[0].endsWith("/ios-prepare-proof answer --field app-path --value /dd/Build/Products/Debug-iphonesimulator/DogShelter.app") &&
+    keep?.commands[0].endsWith("/ios-prepare-proof answer --field app-source --value installed") &&
+    installed.recommended === "Use the app already installed" ? 0 : 1);
+' "$artifact" "$(ios_q_proof_artifact com.example.dogshelter /dd/X.app 2026-10-22T09:00:00Z "a copy built later" installed)"; then
+  ok "the artifact screen binds the build when it is fresher and keeps the installed app as the other option"
+else
+  bad "the artifact screen does not bind the newest build, or lost the installed-app option"
+fi
+carries "proof_device (deployment target)" "$(ios_q_proof_device '[]' 27.0)" \
+  "Only booted Simulators on iOS 27.0 or later are offered"
+
+# "Above" points at text only context holds, which a relaying agent may never print.
+if screen_dump | node -e '
+  let input = "";
+  process.stdin.on("data", c => input += c).on("end", () => {
+    const hits = [];
+    for (const line of input.split("\n").filter(Boolean)) {
+      const tab = line.indexOf("\t"), kind = line.slice(0, tab), q = JSON.parse(line.slice(tab + 1));
+      for (const o of q.options || [])
+        for (const text of [o.description, o.effect])
+          if (/\b(above|listed)\b/i.test(text)) hits.push(`${kind}: ${o.label}`);
+      if (/\b(above|listed)\b/i.test(q.free_text?.hint || "")) hits.push(`${kind}: free text`);
+    }
+    if (hits.length) { console.error(hits.join("; ")); process.exit(1); }
+  });
+' 2>"$ROOT/above.err"; then
+  ok "no iOS option description, effect or free-text hint points 'above' at something it does not show"
+else
+  bad "an iOS option leans on text it does not show" "$(cat "$ROOT/above.err")"
 fi
 
 ((FAILED)) && exit 1

@@ -62,9 +62,15 @@ ios_q_import_android() {
   fi
   reuse_command="$reuse_command${identity:+ --identity $identity}"
   printf '{"header":"Android","prompt":%s,"selection":"single",' \
-    "$(jstr "Reuse the Iterable keys and region the Android setup already recorded for this app?")"
-  printf '"context":%s,' "$(printf '%s\n\n%s\n' "$summary" \
-    "One Mobile key and one Server-side key serve both platforms. Reusing them skips the region and JWT questions and the key-copy steps; the keys are still validated again for iOS. The Android setup requires Require JWT off, so iOS records No JWT. $scope_note" | ios_q_arr)"
+    "$(jstr "$summary
+
+Reusing copies both keys for iOS without printing them, and records No JWT: the Android setup requires Require JWT off. $scope_note
+
+Reuse the Iterable keys and region the Android setup already recorded for this app?")"
+  printf '"context":%s,' "$(ios_q_arr <<'EOF'
+One Mobile key and one Server-side key serve both platforms. Reusing them skips the region and JWT questions and the key-copy steps; the keys are still validated again for iOS.
+EOF
+)"
   printf '"requires":[],"recommended":%s,"before_commands":[],"options":[' \
     "$(jstr "Reuse the Android setup")"
   ios_q_opt "Reuse the Android setup" \
@@ -355,8 +361,8 @@ EOF
   printf '"requires":[],"recommended":%s,"before_commands":[],"options":[' \
     "$(jstr "Use these answers")"
   ios_q_opt "Use these answers" \
-    "Proposes exactly the answers above, attributed to the $skill. Nothing is confirmed until the final scope screen." \
-    "the answers above are proposed from the $skill; the remaining scope questions come next" \
+    "Proposes exactly $confirmed, attributed to the $skill. Nothing is confirmed until the final scope screen." \
+    "$confirmed proposed from the $skill; the remaining scope questions come next" \
     "$BIN/ios-provision carry-scope${features:+ --features $features}${identity:+ --identity $identity} --confirm"
   printf ','
   ios_q_opt "Change the answers" \
@@ -382,14 +388,16 @@ ios_q_confirm_scope() {
     option_effect="scope.json recorded; Apple and APNs setup becomes the next state"
   fi
   printf '{"header":"Confirm","prompt":%s,"selection":"single",' \
-    "$(jstr "Use this Iterable integration scope?")"
-  printf '"context":%s,' "$(ios_q_arr <<EOF
-Features: $features$origin
+    "$(jstr "Features: $features$origin
 Identity: $identity$identity_origin
 Region: $region
 JWT required: $jwt
 
 Recording this scope unlocks $next_description. It does not edit the app or change Apple or Iterable by itself.
+
+Use this Iterable integration scope?")"
+  printf '"context":%s,' "$(ios_q_arr <<'EOF'
+Every later step reads this scope: the features decide which Apple, Iterable, and app steps follow, and the identity decides how the app tells Iterable who the user is.
 EOF
 )"
   printf '"requires":[],"recommended":%s,"before_commands":[],"options":[' \
@@ -411,11 +419,14 @@ EOF
 }
 
 ios_q_configure_iterable() {
-  local region="$1" jwt="$2"
+  local region="$1" jwt="$2" jwt_label=Off
+  [[ "$jwt" != true ]] || jwt_label=On
   printf '{"header":"Mobile key","prompt":%s,"selection":"single",' \
-    "$(jstr "The Mobile API key comes from $(ios_q_jwt_keys_url "$region") — how should we continue with it?")"
+    "$(jstr "This integration needs a Mobile API key from the $region project with Require JWT $jwt_label.
+
+The Mobile API key comes from $(ios_q_jwt_keys_url "$region") — how should we continue with it?")"
   printf '"context":%s,' "$(ios_q_arr <<EOF
-This integration needs a real client-side Mobile API key from the $region project with JWT set to $jwt.
+A Mobile key is the client-side key that ships in the app; a Server-side key never does.
 
 Iterable shows a new key once. Copy it in the dashboard, but never paste it into this conversation. The capture command reads the clipboard into ignored mode-0600 files and clears it.
 EOF
@@ -550,15 +561,15 @@ ios_q_replace_mobile_key() {
     dashboard_url="https://app.eu.iterable.com/settings/apiKeys"
   [[ "$jwt" != true ]] || jwt_label="On"
   printf '{"header":"Mobile key","prompt":%s,"selection":"single",' \
-    "$(jstr "1. Open $dashboard_url (or go to Integrations > API Keys).
+    "$(jstr "$reason
+
+1. Open $dashboard_url (or go to Integrations > API Keys).
 2. Copy an existing Mobile key, or select New API Key and choose Mobile.
 3. Require JWT must be $jwt_label for this integration.
 4. Copy the key. Do not paste it into this conversation.
 
 In Iterable → Integrations → API Keys, copy a working Mobile key (Require JWT $jwt_label) to replace the rejected one — copied?")"
   printf '"context":%s,' "$(ios_q_arr <<EOF
-$reason
-
 The replace option reads the clipboard into the ignored mode-0600 files, keeps the Server-side key, clears the clipboard, and validates again next.
 EOF
 )"
@@ -591,15 +602,15 @@ ios_q_replace_server_key() {
   [[ "$region" != EU ]] ||
     dashboard_url="https://app.eu.iterable.com/settings/apiKeys"
   printf '{"header":"Server key","prompt":%s,"selection":"single",' \
-    "$(jstr "1. Open $dashboard_url (or go to Integrations > API Keys).
+    "$(jstr "$reason
+
+1. Open $dashboard_url (or go to Integrations > API Keys).
 2. Select New API Key.
 3. Choose Server-side.
 4. Name it for local SDK verification, create it, and copy the value.
 
 In Iterable → Integrations → API Keys, create a new Server-side key and copy it to replace the rejected one — copied?")"
   printf '"context":%s,' "$(ios_q_arr <<EOF
-$reason
-
 Iterable shows a new key once. Do not paste it into this conversation. The replace option swaps only the verification credential in the ignored mode-0600 workspace, clears the clipboard, and validates again next. It never enters the app.
 EOF
 )"
@@ -630,19 +641,18 @@ ios_q_choose_bundle() {
   local bundle_id="${1:-}" app_name="${2:-}" source="${3:-}" quoted_name detected
   local where="the app target's effective build settings"
   [[ "$source" != project ]] || where="the project file"
-  printf '{"header":"Bundle ID","prompt":%s,"selection":"single",' \
-    "$(jstr "Which explicit iOS Bundle ID should this integration use?")"
   if [[ -n "$bundle_id" && -n "$app_name" ]]; then
     detected="Detected from $where:
-   Bundle ID: $bundle_id
-   Product name: $app_name
-"
+Bundle ID: $bundle_id
+Product name: $app_name"
   else
-    detected="No single application target could be read from this project. Open it in Xcode, select the app target, and read General > Identity > Bundle Identifier.
-"
+    detected="No single application target could be read from this project. Open it in Xcode, select the app target, and read General > Identity > Bundle Identifier."
   fi
+  printf '{"header":"Bundle ID","prompt":%s,"selection":"single",' \
+    "$(jstr "$detected
+
+Which explicit iOS Bundle ID should this integration use?")"
   printf '"context":%s,' "$(ios_q_arr <<EOF
-$detected
 Use the exact effective bundle identifier for the application target. Apple App ID, signing, Iterable mobile app, APNs credential, installed build, and verifier must all use the same value. The product name becomes the Iterable mobile app name.
 EOF
 )"
@@ -781,16 +791,17 @@ ios_q_asc_plan() {
   printf '{"header":"ASC plan","prompt":%s,"selection":"single",' \
     "$(jstr "App Store Connect will make exactly these changes:
 $steps
+Nothing else is created, changed, or revoked: no certificates, provisioning profiles, or keys. Enabling a capability can invalidate provisioning profiles for this App ID; Xcode automatic signing regenerates them on the next device build.
 
 Set up $bundle_id with exactly this plan?")"
   printf '"context":%s,' "$(ios_q_arr <<'EOF'
-Nothing else is created, changed, or revoked: no certificates, provisioning profiles, or keys. The tool reads the App ID back afterwards. Enabling a capability can invalidate provisioning profiles for this App ID; Xcode automatic signing regenerates them on the next device build.
+The tool reads the App ID back afterwards, so the result is checked rather than assumed.
 EOF
 )"
   printf '"requires":[],"recommended":%s,"before_commands":[],"options":[' \
     "$(jstr "Apply this plan")"
   ios_q_opt "Apply this plan" \
-    "Make only the listed changes in App Store Connect, then read them back." \
+    "Make only the changes this plan names in App Store Connect, then read them back." \
     "the App ID and Push Notifications are created and verified; the APNs key step is next" \
     "$BIN/ios-provision asc-apply --confirm"
   printf ','
@@ -806,13 +817,15 @@ EOF
 ios_q_asc_rejected() {
   local reason="$2"
   printf '{"header":"ASC key","prompt":%s,"selection":"single",' \
-    "$(jstr "1. Open https://appstoreconnect.apple.com/access/integrations/api and check the key is under Team Keys, active, with Admin or App Manager access.
+    "$(jstr "$reason
+
+1. Open https://appstoreconnect.apple.com/access/integrations/api and check the key is under Team Keys, active, with Admin or App Manager access.
 2. Check the Issuer ID above that list matches the one you entered.
 3. Check the .p8 is this App Store Connect key, not the APNs key; both are named AuthKey_<KEYID>.p8.
 
 Check the key, Issuer ID, and access in App Store Connect — then try again?")"
-  printf '"context":%s,' "$(ios_q_arr <<EOF
-$reason
+  printf '"context":%s,' "$(ios_q_arr <<'EOF'
+The key, its Admin or App Manager access, and the Issuer ID must all belong to the same App Store Connect team.
 EOF
 )"
   printf '"requires":[],"recommended":null,"before_commands":[],"options":['
@@ -841,13 +854,15 @@ EOF
 ios_q_asc_conflict() {
   local bundle_id="$1" reason="$2"
   printf '{"header":"App ID taken","prompt":%s,"selection":"single",' \
-    "$(jstr "1. Apple Bundle IDs are unique across all teams, so another team may already own $bundle_id.
+    "$(jstr "$reason
+
+1. Apple Bundle IDs are unique across all teams, so another team may already own $bundle_id.
 2. If your organization owns it on another team, use that team's key or walk through Apple Developer signed in to that team.
 3. Otherwise change the Bundle Identifier in Xcode, for example by adding a suffix, and answer with the new value.
 
 Check who owns $bundle_id, or choose a new Bundle ID — which one?")"
-  printf '"context":%s,' "$(ios_q_arr <<EOF
-$reason
+  printf '"context":%s,' "$(ios_q_arr <<'EOF'
+A new Bundle ID restarts Apple setup for that identifier; the app target in Xcode has to use it too.
 EOF
 )"
   printf '"requires":[],"recommended":null,"before_commands":[],"options":['
@@ -1091,22 +1106,26 @@ EOF
 }
 
 ios_q_install_tools() {
-  local missing="$1"
+  local missing="$1" how=""
+  [[ ", $missing," != *", xcodebuild,"* ]] ||
+    how="- xcodebuild: install Xcode from the App Store, open it once, then run xcode-select --switch /Applications/Xcode.app."
+  [[ ", $missing," != *", node,"* ]] ||
+    how="${how:+$how
+}- node: install from https://nodejs.org or with brew install node."
+  [[ ", $missing," != *", curl,"* ]] ||
+    how="${how:+$how
+}- curl: ships with macOS; restore it from the system or Homebrew."
   printf '{"header":"Tools","prompt":%s,"selection":"single",' \
-    "$(jstr "Install $missing (Xcode from the App Store, Node from https://nodejs.org) — are they installed now?")"
+    "$(jstr "${how:+$how
+
+}Install $missing — are they installed now?")"
   printf '"context":%s,' "$(ios_q_arr <<EOF
-Missing: $missing
-
-- xcodebuild: install Xcode from the App Store, open it once, then run xcode-select --switch /Applications/Xcode.app.
-- node: install from https://nodejs.org or with brew install node.
-- curl: ships with macOS; restore it from the system or Homebrew.
-
 The provisioning tool reads build settings with xcodebuild, parses every record with node, and validates the Iterable keys with curl. It does not install anything itself.
 EOF
 )"
   printf '"requires":[],"recommended":null,"before_commands":[],"options":['
   ios_q_relay_opt "I'll install them" \
-    "Install the listed tools in your own terminal, then come back to this question." \
+    "Install $missing in your own terminal, then come back to this question." \
     "the agent waits; nothing is installed for you" \
     "Install $missing in your own terminal: 1. xcodebuild: install Xcode from the App Store, open it once, then run xcode-select --switch /Applications/Xcode.app. 2. node: install from https://nodejs.org or run brew install node. 3. curl: ships with macOS. Then answer this same question with Check again."
   printf ','
@@ -1126,13 +1145,14 @@ ios_q_import_apns() {
     team_line="The Team ID could not be read from the app's DEVELOPMENT_TEAM, so the import also needs --team-id; use the terminal option."
   fi
   printf '{"header":"APNs key","prompt":%s,"selection":"single",' \
-    "$(jstr "Answer with the path to your AuthKey_<KEYID>.p8 file (APNs keys are at https://developer.apple.com/account/resources/authkeys/list) — or how else should the key be supplied?")"
+    "$(jstr "Key ID: read from the AuthKey_<KEYID>.p8 file name.
+$team_line
+
+Answer with the path to your AuthKey_<KEYID>.p8 file (APNs keys are at https://developer.apple.com/account/resources/authkeys/list) — or how else should the key be supplied?")"
   printf '"context":%s,' "$(ios_q_arr <<EOF
 Iterable needs a distinct Apple Push Notifications authentication key. Apple exposes no supported public API for creating it and allows the private .p8 download only once.
 
 Answer with the absolute path to the downloaded file, for example /Users/you/Keys/AuthKey_ABCDE12345.p8. Only the path enters the conversation, never the contents of the file.
-Key ID: read from the AuthKey_<KEYID>.p8 file name.
-$team_line
 
 The import verifies that the file is an EC P-256 private key and records its external path. Other Apple keys share that shape, so the tool cannot prove which Apple service the .p8 belongs to. Confirm in Apple Developer that Apple Push Notification service is enabled for that Key ID. The command never copies, prints, creates, revokes, or replaces the key.
 EOF
@@ -1165,28 +1185,28 @@ ios_q_replace_apns_key() {
   local reason="$1" key_id="$2" team_id="$3" classification="${4:-}" bundle_id="${5:-}"
   if [[ "$classification" == apns-key-topic-not-allowed ]]; then
     printf '{"header":"APNs key","prompt":%s,"selection":"single",' \
-      "$(jstr "1. Open https://developer.apple.com/account/resources/authkeys/list and open Key ID $key_id.
+      "$(jstr "$reason
+
+1. Open https://developer.apple.com/account/resources/authkeys/list and open Key ID $key_id.
 2. If its key restriction is Topic Specific, add $bundle_id to its topics, then validate the same key again.
 3. Or use a Team Scoped key, which can send to every app on the team: re-import its .p8 by answering with its path.
 
 In Apple Developer → Keys, let Key ID $key_id send to $bundle_id, or re-import a Team Scoped key — which file?")"
     printf '"context":%s,' "$(ios_q_arr <<EOF
-$reason
-
 The key, Key ID $key_id, and Team ID $team_id are valid: APNs accepted the provider token. It refused only the topic $bundle_id, so this step is not done yet.
 EOF
 )"
   else
     printf '{"header":"APNs key","prompt":%s,"selection":"single",' \
-      "$(jstr "1. Open https://developer.apple.com/account/resources/authkeys/list and find Key ID $key_id. If it is missing or revoked, create a new key (+, tick Apple Push Notifications service, Register, Download).
+      "$(jstr "$reason
+
+1. Open https://developer.apple.com/account/resources/authkeys/list and find Key ID $key_id. If it is missing or revoked, create a new key (+, tick Apple Push Notifications service, Register, Download).
 2. Check the key has Apple Push Notifications service enabled.
 3. Check the team name at the top right is the team whose Team ID is $team_id; the Team ID is also shown under Membership details.
 4. Re-import the .p8 that matches, answering with its path, or use the terminal option to pass a different Team ID.
 
 In Apple Developer → Keys, check Key ID $key_id and Team ID $team_id, then re-import the matching .p8 — which file?")"
     printf '"context":%s,' "$(ios_q_arr <<EOF
-$reason
-
 The tool signed an APNs provider token with the imported key and sent one probe to a random device token in the APNs sandbox. A valid key, Key ID, and Team ID get BadDeviceToken; this key got InvalidProviderToken.
 EOF
 )"
@@ -1403,9 +1423,13 @@ EOF
 }
 
 ios_q_proof_device() {
-  local devices_json="$1"
+  local devices_json="$1" min_os="${2:-}" lead=""
+  [[ -z "$min_os" ]] ||
+    lead="Only booted Simulators on iOS $min_os or later are offered: that is the app's deployment target.
+
+"
   printf '{"header":"Device","prompt":%s,"selection":"single",' \
-    "$(jstr "Which iOS device should run this proof?")"
+    "$(jstr "${lead}Which iOS device should run this proof?")"
   printf '"context":%s,' "$(ios_q_arr <<'EOF'
 Choose the device you will watch and operate. Development APNs delivery can use an eligible booted iOS 16+ Simulator or a physical iPhone. Production/TestFlight proof requires a physical iPhone.
 EOF
@@ -1444,16 +1468,64 @@ EOF
     process.stdout.write(JSON.stringify(options));
   ' "$devices_json" "$BIN"
   printf ',"free_text":%s}' "$(ios_q_free_text \
-    "Enter an exact CoreDevice identifier or booted Simulator UDID not listed above" \
+    "Enter the exact CoreDevice identifier or booted Simulator UDID of another device" \
     "records the exact proof device" \
     "$IOS_PROOF_ACTOR answer --field device --value '{{answer}}'")"
+}
+
+ios_q_proof_artifact() {
+  local bundle="$1" built="$2" built_time="$3" installed="$4" pick="$5"
+  local installed_label="Use the app already installed" build_label config rec quoted
+  config="$(basename "$(dirname "$built")")"
+  build_label="Use the build at $config/${built##*/}"
+  [[ "$config" == *-iphone* ]] && config="${config%%-*}, " || config=""
+  rec="$build_label"
+  [[ "$pick" != installed ]] || rec="$installed_label"
+  printf -v quoted '%q' "$built"
+  printf '{"header":"App build","prompt":%s,"selection":"single",' \
+    "$(jstr "Newest build: $built (${config}built $built_time)
+On the device: $installed
+
+Which copy of $bundle should this proof run test?")"
+  printf '"context":%s,' "$(ios_q_arr <<'EOF'
+A proof run tests one exact copy of the app. A bound build is checked byte for byte against what is installed. An unbound installed copy is checked for the Iterable SDK, the push entitlement, and being newer than the source, but is tied to no build.
+EOF
+)"
+  printf '"requires":[],"recommended":%s,"before_commands":[],"options":[' "$(jstr "$rec")"
+  ios_q_opt "$build_label" \
+    "Binds $built to this run. The checks then refuse an installed copy that is not byte-identical to it." \
+    "records the build as the proof artifact; the identity question comes next" \
+    "$IOS_PROOF_ACTOR answer --field app-path --value $quoted"
+  printf ','
+  ios_q_opt "$installed_label" \
+    "Tests whatever copy of $bundle is on the device now, without tying the run to a build." \
+    "records the installed copy as the proof artifact; the identity question comes next" \
+    "$IOS_PROOF_ACTOR answer --field app-source --value installed"
+  printf ','
+  ios_q_opt "I don't know which .app it is — help me find it" \
+    "Shows where Xcode puts the .app it builds, then you answer with its path." \
+    "opens the app-build guide; nothing is recorded yet" \
+    "$BIN/ios-provision question --kind help_proof_app"
+  printf ','
+  ios_q_opt "Stop here" \
+    "No proof run is created." \
+    "proof setup remains incomplete"
+  printf '],"free_text":%s}' "$(ios_q_free_text \
+    "Enter the absolute path to a different .app" \
+    "records that exact app build" \
+    "$IOS_PROOF_ACTOR answer --field app-path --value '{{answer}}'")"
 }
 
 ios_q_confirm_proof() {
   local summary="$1"
   printf '{"header":"Proof run","prompt":%s,"selection":"single",' \
-    "$(jstr "Start this exact Iterable proof run?")"
-  printf '"context":%s,' "$(printf '%s\n' "$summary" | ios_q_arr)"
+    "$(jstr "$summary
+
+Start this exact Iterable proof run?")"
+  printf '"context":%s,' "$(ios_q_arr <<'EOF'
+Starting records this target and a unique marker. Nothing is sent until the proof step runs.
+EOF
+)"
   printf '"requires":[],"recommended":%s,"before_commands":[],"options":[' \
     "$(jstr "Start this run")"
   ios_q_opt "Start this run" \
@@ -2005,7 +2077,8 @@ ios_question() {
     proof_region) ios_q_proof_region ;;
     proof_environment) ios_q_proof_environment ;;
     proof_identity_type) ios_q_proof_identity_type ;;
-    proof_device) ios_q_proof_device "$2" ;;
+    proof_device) ios_q_proof_device "$2" "${3:-}" ;;
+    proof_artifact) ios_q_proof_artifact "$2" "$3" "$4" "$5" "$6" ;;
     proof_bundle)
       ios_q_proof_text "Bundle ID" "Which exact app Bundle ID should this run prove?" \
         "Use the effective Bundle ID of the application target being built and installed." \

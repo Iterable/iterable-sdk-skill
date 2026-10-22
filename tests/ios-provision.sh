@@ -287,8 +287,10 @@ if [[ "$(json_value "$answered_identity" next.kind)" == choose_region &&
       const status = JSON.parse(process.argv[1]);
       const question = status.next.question;
       process.exit(
-        question.context.some(line => line.includes("Region: EU")) &&
-        question.context.some(line => line.includes("JWT required: true")) &&
+        question.prompt.split("\n").includes("Region: EU") &&
+        question.prompt.split("\n").includes("JWT required: true") &&
+        question.prompt.split("\n").pop()==="Use this Iterable integration scope?" &&
+        !question.context.join("\n").includes("Region:") &&
         question.options[0].commands.some(command =>
           command.includes("record-scope --from-answers --confirm")
         ) ? 0 : 1
@@ -304,7 +306,7 @@ standalone_confirmation="$(
 )"
 if node -e '
   const question=JSON.parse(process.argv[1]);
-  const text=question.context.join("\n");
+  const text=question.prompt;
   process.exit(
     text.includes("deep-linking") &&
     text.includes("event-tracking") &&
