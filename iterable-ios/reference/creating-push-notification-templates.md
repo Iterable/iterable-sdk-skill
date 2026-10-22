@@ -8,9 +8,9 @@ title: Creating Push Notification Templates
 source_url: https://support.iterable.com/hc/articles/360044425971
 source_repo: Iterable/iterable-docs
 source_path: docs/sending-messages-by-channel/push-notification/creating-push-notification-templates/index.md
-source_ref: 9875968f907df280d7023b1f8f45ba0293940498
-source_sha: af5fc6f952b211c941dfa386077e538bda7c2e0f
-fetched_at: 2026-10-06T10:32:44.160Z
+source_ref: 80c2226068f35b6fef335738f56a39f4f4b3d3ca
+source_sha: cc8271a960e8bdf541b1e1afee9a043969b03a7f
+fetched_at: 2026-10-22T13:16:35.240Z
 summary: "[Push
   Notification](https://support.iterable.com/hc/articles/360035079872) templates
   are reusable message blueprints that you can send in campaigns and journeys to
@@ -466,12 +466,12 @@ changes affect the template itself, but not the already-existing campaigns.
 ## Want to learn more?
 
 For more information about some of the topics in this article, check out these 
-resources. Iterable Academy is open to everyone — you don't need to be 
+resources. Iterable Academy is open to everyone—you don't need to be 
 an Iterable customer!
 
 **Iterable Academy**
-- [Product Bite: Creating a Mobile Push Campaign](https://academy.iterable.com/product-bite-creating-a-mobile-push-campaign)
-- [Product Bite: Channel Optimization](https://academy.iterable.com/product-bite-channel-optimization)
+- [Product Bite: Creating a Mobile Push Campaign](https://academy.iterable.com/learn/courses/57/product-bite-creating-a-mobile-push-campaign)
+- [Product Bite: Channel Decisioning](https://academy.iterable.com/learn/courses/54/product-bite-channel-optimization)
 
 **Support docs**
 - [Sending Push Notifications](https://support.iterable.com/hc/articles/115000379086)

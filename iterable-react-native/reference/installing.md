@@ -8,9 +8,9 @@ title: Installing Iterable's React Native SDK
 source_url: https://support.iterable.com/hc/articles/360045714132
 source_repo: Iterable/iterable-docs
 source_path: docs/developer-and-api-docs/iterables-react-native-sdk/installing/index.md
-source_ref: 275e9063f5aa922a9c282d6d34a8aebec3d15448
-source_sha: 25468f8175b9dd3c3c2ef4eb8115ab9c13f2bbe3
-fetched_at: 2026-10-19T10:21:41.457Z
+source_ref: 80c2226068f35b6fef335738f56a39f4f4b3d3ca
+source_sha: fb26e3ebe60ade1a2a0c93471b1393dfad93319b
+fetched_at: 2026-10-22T13:16:40.729Z
 summary: This article describes how to install Iterable's React Native SDK in
   your React Native apps, and how to configure your iOS and Android apps to
   support Iterable features like push notifications and in-app messages.
@@ -27,8 +27,10 @@ Iterable's React Native SDK depends on the following:
 
 **React Native**
 
-- [React Native 0.79.3+](https://github.com/facebook/react-native)
-- [React 19.0.0+](https://github.com/facebook/react)
+- [React Native 0.77+](https://github.com/facebook/react-native)
+- [React 18.3.1+](https://github.com/facebook/react)
+
+Use the React version that matches the React Native version in your app. React 19 starts with React Native 0.78.
 
 > [!TIP]
 > **New Architecture Compatibility**
@@ -47,6 +49,34 @@ Iterable's React Native SDK depends on the following:
 - [Deployment target 13.4+](https://help.apple.com/xcode/mac/current/#/deve69552ee5)
 - [Iterable's iOS SDK](https://github.com/Iterable/iterable-swift-sdk)
   (the instructions below will install this SDK for you)
+
+**⚠️ WARNING — KNOWN ISSUE: Building with Xcode 27**
+
+Xcode 27 fails the build for targets whose iOS deployment target is below the
+minimum it supports. Iterable's iOS SDK, installed here as a CocoaPods
+dependency, still declares a deployment target of iOS 12 in its podspec (and iOS
+10 in its Swift Package Manager manifest), so Xcode 27 reports an error about the
+unsupported deployment version.
+
+This affects the iOS build only. Android builds and the React Native JavaScript
+layer are unaffected, and no Iterable functionality changes at runtime.
+
+To work around the issue, raise the deployment target of the generated pod
+targets in your app's `Podfile`, using a value at or above your app's own
+minimum, and then re-run `pod install`:
+
+```ruby
+post_install do |installer|
+  installer.pods_project.targets.each do |target|
+    target.build_configurations.each do |config|
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.1'
+    end
+  end
+end
+```
+
+We plan to raise the minimum deployment target in Iterable's iOS SDK in an
+upcoming release, after which this workaround won't be necessary.
 
 **Android**
 
@@ -731,6 +761,29 @@ contact Iterable Support.
 
 Here are some instructions that describe how to upgrade from earlier versions of
 Iterable's React Native SDK.
+
+### Upgrading to version 3.2.1
+
+Version 3.2.1 of Iterable's React Native SDK is a hotfix for 3.2.0, which is
+deprecated because its Android module doesn't compile. If you're upgrading from
+3.1.0 or earlier, skip 3.2.0 and upgrade directly to 3.2.1.
+
+Compared to 3.1.0, the underlying native SDKs are now:
+- **iOS SDK**: [6.7.5](https://github.com/Iterable/iterable-swift-sdk/releases/tag/6.7.5)
+- **Android SDK**: [3.10.1](https://github.com/Iterable/iterable-android-sdk/releases/tag/3.10.1)
+
+On iOS, unknown user activation is now off. Versions 2.2.0 through 3.1.0 pinned
+iOS SDK versions where `enableUnknownUserActivation` defaulted to `true`. On Android,
+`androidx.work:work-runtime:2.9.0` is now a transitive dependency.
+
+This version also fixes Android crashes in `Iterable.inAppManager.showMessage`
+and when marking a message as read after it has left the native queue. No code
+changes are required to upgrade. If your app calls `showMessage`, review
+[Showing an in-app message that was previously skipped](https://support.iterable.com/hc/articles/360045714172#showing-an-in-app-message-that-was-previously-skipped)
+for the updated promise behavior on Android.
+
+To learn more, read the
+[release notes](https://github.com/Iterable/react-native-sdk/releases/tag/3.2.1).
 
 ### Upgrading to version 3.1.0
 

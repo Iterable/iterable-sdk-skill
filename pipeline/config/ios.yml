@@ -8,8 +8,8 @@ platform: ios
 
 source:
   repo: Iterable/iterable-docs
-  ref: 9875968f907df280d7023b1f8f45ba0293940498
-  ref_label: "master @ 2026-10-02"
+  ref: 80c2226068f35b6fef335738f56a39f4f4b3d3ca
+  ref_label: "master @ 2026-10-22"
 
 sdk:
   repo: Iterable/iterable-swift-sdk

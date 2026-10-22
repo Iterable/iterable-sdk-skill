@@ -8,9 +8,9 @@ title: In-App Messages with Iterable's React Native SDK
 source_url: https://support.iterable.com/hc/articles/360045714172
 source_repo: Iterable/iterable-docs
 source_path: docs/developer-and-api-docs/iterables-react-native-sdk/in-app-messages/index.md
-source_ref: 275e9063f5aa922a9c282d6d34a8aebec3d15448
-source_sha: f16e23544e5cb8db400eda069e97955e7458e89e
-fetched_at: 2026-10-19T10:21:43.538Z
+source_ref: 80c2226068f35b6fef335738f56a39f4f4b3d3ca
+source_sha: f822365093b9eefc336438d25401f26092c59e09
+fetched_at: 2026-10-22T13:16:41.825Z
 summary: Iterable's React Native SDK makes it possible to display in-app
   messages, customize them, and track events related to their usage.
 ---
@@ -191,7 +191,7 @@ instance.
 - **Method Declaration:**
 
   ```typescript
-  showMessage(message: IterableInAppMessage, consume: boolean): Promise<string | undefined>
+  showMessage(message: IterableInAppMessage, consume: boolean): Promise<string | null>
   ```
 
   |Parameter Name|Description                                                |
@@ -199,9 +199,20 @@ instance.
   |`message`     |The message to show (an [`IterableInAppMessage`](#iterableinappmessage) object).|
   |`consume`     |Whether or not the message should be consumed from the user's message queue.|
 
-  This method returns a `Promise`. Use `then` to get the string it returns, which 
-  corresponds to the URL of the button or link a user tapped in the in-app message 
-  to close it.
+  This method returns a `Promise`:
+
+  - It resolves with the URL of the button or link a user tapped in the in-app 
+    message to close it.
+  - On Android, starting with version [3.2.1](https://github.com/Iterable/react-native-sdk/releases/tag/3.2.1),
+    it resolves with `null` if the user closes the message by tapping outside it.
+  - On Android, starting with version [3.2.1](https://github.com/Iterable/react-native-sdk/releases/tag/3.2.1), 
+    it rejects if the SDK can't find the message locally, or if the message ID is 
+    empty.
+  - Otherwise, the `Promise` doesn't settle. This happens when the user closes the 
+    message with the back button (Android) or without tapping a link (iOS), when 
+    the message is JSON-only, when the SDK can't find the message on iOS, and when 
+    the SDK can't display the message (for example, because another in-app message 
+    is already showing). Don't wait on this `Promise` to continue your app's flow.
 
 - **Description:**
 
@@ -210,9 +221,14 @@ instance.
 - **Example:**
 
   ```javascript
-  Iterable.inAppManager.showMessage(message, false).then(url => {
-    console.log("url: " + url)
-  });
+  Iterable.inAppManager
+    .showMessage(message, false)
+    .then(url => {
+      console.log("url: " + url)
+    })
+    .catch(error => {
+      console.log("Could not show message: " + error.message)
+    });
   ```
 
 ## Removing an in-app message from the current user's queue

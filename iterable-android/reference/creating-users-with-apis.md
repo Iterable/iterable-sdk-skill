@@ -8,9 +8,9 @@ title: Creating and Identifying Users with Iterable APIs
 source_url: https://support.iterable.com/hc/articles/29156459027348
 source_repo: Iterable/iterable-docs
 source_path: docs/developer-and-api-docs/api/creating-users-with-APIs/index.md
-source_ref: 275e9063f5aa922a9c282d6d34a8aebec3d15448
-source_sha: ad12bc20c0e81b4a3adb18555bbc5dd430e5ea45
-fetched_at: 2026-10-22T09:59:44.570Z
+source_ref: 80c2226068f35b6fef335738f56a39f4f4b3d3ca
+source_sha: d3b50cd710c17034c2b70030d968192cde7913f6
+fetched_at: 2026-10-22T13:16:29.996Z
 summary: Understanding user identification is fundamental to working with
   Iterable's API effectively. The steps for creating and identifying users vary
   depending on your project type and the way you identify users. This article
@@ -638,13 +638,13 @@ For this request:
 ## Want to learn more?
 
 For more information about some of the topics in this article, check out these 
-resources. Iterable Academy is open to everyone — you don't need 
+resources. Iterable Academy is open to everyone—you don't need 
 to be an Iterable customer!
 
 **Iterable Academy**
-- [Foundations: Introduction to API](https://academy.iterable.com/introduction-to-api)
+- [Foundations: Introduction to API](https://academy.iterable.com/learn/courses/36/foundations-introduction-to-api)
 
 **Support docs**
 - [API Keys](https://support.iterable.com/hc/articles/360043464871)
 - [API Overview and Sample Payloads](https://support.iterable.com/hc/articles/204780579)
-- [Responding to GDPR Requests](https://support.iterable.com/hc/articles/360029174171)
+- [Responding to Data Subject Requests](https://support.iterable.com/hc/articles/360029174171)
