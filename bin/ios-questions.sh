@@ -37,18 +37,30 @@ ios_q_free_text() {
     "$(jstr "$1")" "$(jstr "$2")" "$(jstr "$3")"
 }
 
+ios_q_step0_skill() {
+  case "$1" in
+    react-native-step0) printf 'React Native skill' ;;
+    ios-step0) printf 'iOS skill' ;;
+  esac
+}
+
 ios_q_import_android() {
-  local summary="$1" features="${2:-}"
+  local summary="$1" features="${2:-}" identity="${3:-}"
+  local skill="${4:-React Native skill}"
   local scope_note="Feature scope is still asked, because the Android setup does not record it."
   local reuse_description="Copies the Android Mobile and Server-side keys into the ignored iOS workspace and where the app reads them, without printing them."
   local reuse_effect="keys, region, and No JWT recorded for iOS; the feature questions come next"
   local reuse_command="$BIN/ios-provision import-from-android --confirm"
   if [[ -n "$features" ]]; then
-    scope_note="Reusing also proposes the feature scope confirmed in the React Native skill: ${features//,/, }. It is recorded only after you confirm it on the scope screen, and Change the answers there asks it again."
-    reuse_description="Copies the Android Mobile and Server-side keys into the ignored iOS workspace and where the app reads them, without printing them, and proposes the features ${features//,/, }."
+    scope_note="Reusing also proposes the feature scope confirmed in the $skill: ${features//,/, }.${identity:+ It also proposes the identity $identity confirmed there.} It is recorded only after you confirm it on the scope screen, and Change the answers there asks it again."
+    reuse_description="Copies the Android Mobile and Server-side keys into the ignored iOS workspace and where the app reads them, without printing them, and proposes the features ${features//,/, }${identity:+ and the identity $identity}."
     reuse_effect="keys, region, No JWT, and the proposed features recorded for iOS; the scope confirmation comes next"
     reuse_command="$reuse_command --features $features"
+  elif [[ -n "$identity" ]]; then
+    scope_note="Reusing also proposes the identity $identity confirmed in the $skill. Feature scope is still asked, because the Android setup does not record it."
+    reuse_description="$reuse_description It also proposes the identity $identity."
   fi
+  reuse_command="$reuse_command${identity:+ --identity $identity}"
   printf '{"header":"Android","prompt":%s,"selection":"single",' \
     "$(jstr "Reuse the Iterable keys and region the Android setup already recorded for this app?")"
   printf '"context":%s,' "$(printf '%s\n\n%s\n' "$summary" \
@@ -317,10 +329,50 @@ EOF
   printf ']}'
 }
 
+ios_q_carry_scope() {
+  local features="$1" identity="$2" source="$3" skill confirmed="" skipped remaining
+  skill="$(ios_q_step0_skill "$source")"
+  [[ -z "$features" ]] || confirmed="features ${features//,/, }"
+  [[ -z "$identity" ]] || confirmed="${confirmed:+$confirmed; }identity $identity"
+  if [[ -n "$features" && -n "$identity" ]]; then
+    skipped="the feature and identity questions"
+    remaining="Region and JWT are"
+  elif [[ -n "$features" ]]; then
+    skipped="the feature questions"
+    remaining="Identity, region, and JWT are"
+  else
+    skipped="the identity question"
+    remaining="The feature questions, region, and JWT are"
+  fi
+  printf '{"header":"Scope","prompt":%s,"selection":"single",' \
+    "$(jstr "Confirmed in the $skill: $confirmed. Record these answers instead of asking them again?")"
+  printf '"context":%s,' "$(ios_q_arr <<EOF
+The $skill already asked these with the app in view. Recording them skips $skipped here.
+
+$remaining still asked, and the final scope screen shows every answer, marked with where it came from, before anything is confirmed.
+EOF
+)"
+  printf '"requires":[],"recommended":%s,"before_commands":[],"options":[' \
+    "$(jstr "Use these answers")"
+  ios_q_opt "Use these answers" \
+    "Proposes exactly the answers above, attributed to the $skill. Nothing is confirmed until the final scope screen." \
+    "the answers above are proposed from the $skill; the remaining scope questions come next" \
+    "$BIN/ios-provision carry-scope${features:+ --features $features}${identity:+ --identity $identity} --confirm"
+  printf ','
+  ios_q_opt "Change the answers" \
+    "Asks $skipped here instead; nothing from the $skill is recorded." \
+    "nothing proposed from the $skill; the scope questions come next" \
+    "$BIN/ios-provision answer --field step0-scope --value skip"
+  printf ']}'
+}
+
 ios_q_confirm_scope() {
-  local features="$1" identity="$2" region="$3" jwt="$4" source="${5:-}" origin=""
-  [[ "$source" != react-native-step0 ]] ||
-    origin=" (the scope confirmed in the React Native skill)"
+  local features="$1" identity="$2" region="$3" jwt="$4" source="${5:-}"
+  local identity_source="${6:-}" origin="" identity_origin="" skill
+  skill="$(ios_q_step0_skill "$source")"
+  [[ -z "$skill" ]] || origin=" (the scope confirmed in the $skill)"
+  skill="$(ios_q_step0_skill "$identity_source")"
+  [[ -z "$skill" ]] || identity_origin=" (confirmed in the $skill)"
   local next_description="secure Mobile API-key capture"
   local option_description="Writes the confirmed non-secret decisions to the ignored iOS workspace, then continues to Mobile API-key setup."
   local option_effect="scope.json recorded; Mobile API-key setup becomes the next state"
@@ -333,7 +385,7 @@ ios_q_confirm_scope() {
     "$(jstr "Use this Iterable integration scope?")"
   printf '"context":%s,' "$(ios_q_arr <<EOF
 Features: $features$origin
-Identity: $identity
+Identity: $identity$identity_origin
 Region: $region
 JWT required: $jwt
 
@@ -1885,7 +1937,8 @@ EOF
 ios_question() {
   case "$1" in
     choose_features) ios_q_choose_features ;;
-    import_android) ios_q_import_android "$2" "${3:-}" ;;
+    import_android) ios_q_import_android "$2" "${3:-}" "${4:-}" "${5:-}" ;;
+    carry_scope) ios_q_carry_scope "$2" "$3" "$4" ;;
     fix_expo_gitignore) ios_q_fix_expo_gitignore "$2" ;;
     choose_more_features) ios_q_choose_more_features ;;
     choose_identity) ios_q_choose_identity ;;
@@ -1893,7 +1946,7 @@ ios_question() {
     choose_jwt) ios_q_choose_jwt ;;
     check_jwt) ios_q_check_jwt "${2:-}" ;;
     confirm_scope)
-      ios_q_confirm_scope "$2" "$3" "$4" "$5" "${6:-}"
+      ios_q_confirm_scope "$2" "$3" "$4" "$5" "${6:-}" "${7:-}"
       ;;
     configure_iterable)
       ios_q_configure_iterable "$2" "$3"

@@ -76,8 +76,37 @@ default `IterableInAppDelegate` shows them. Tell the developer they have it and
 that nothing appears until someone sends an in-app campaign. Only *changing*
 that default (custom delegate, display interval, custom rendering) is scope.
 
-If `iterable-provision` is installed, its native iOS path can conduct this
-scope conversation and record it; see Preflight.
+**Ask once, here.** When provisioning will run (Preflight routes to
+`iterable-provision`), ask the scope in this step, with what you found in the
+app. Ask the identity here too when the inspection settles which app value
+supplies it. Decide it from what a signed-in session holds, not from what
+sign-up asks for. An app that asks for an email only at sign-up has no email to
+pass later. Then pass the confirmed answers to the first
+`ios-provision status` as `--features <ids>` and `--identity <mode>`:
+
+| Step 0 answer | `--features` ids |
+|---|---|
+| Push notifications | `push-notifications` |
+| Events + user profiles | `event-tracking,user-profiles` |
+| Deep links | `deep-linking` |
+| More: Mobile Inbox | `mobile-inbox` |
+| More: Embedded Messaging | `embedded-messaging` |
+| Changing the default in-app handling | `in-app-messages` |
+| Initialization and identity only | `sdk-initialization` |
+
+| Step 0 identity | `--identity` |
+|---|---|
+| The account email, with `setEmail` | `email` |
+| The stable account ID, with `setUserId` | `user-id` |
+| No known user yet (Unknown User Activation) | `unknown-user` |
+
+Pass only what the developer confirmed, and leave out `--identity` if Step 0
+did not settle it. Status shows the passed answers on one screen. If the
+developer picks **Use these answers**, they are recorded, and the final scope
+screen shows them again with where they came from. Never answer the tool's
+own Features, More, or Identity screens a second time. They appear only for
+an answer you did not pass, or when the developer chose **Change the
+answers**.
 
 ## Preflight — inputs only the developer has
 

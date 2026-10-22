@@ -79,6 +79,10 @@ question() {
       ios_q_import_android "Android setup: Mobile key, Server-side key, EU region."
       return
       ;;
+    carry_scope)
+      ios_q_carry_scope push-notifications,sdk-initialization user-id ios-step0
+      return
+      ;;
     fix_expo_gitignore)
       ios_q_fix_expo_gitignore "$ROOT/expo-app"
       return
@@ -225,6 +229,7 @@ shape() {
 }
 
 shape choose_features
+shape carry_scope
 shape choose_more_features
 shape choose_identity
 shape choose_region
@@ -426,6 +431,10 @@ screen_dump() {
   printf 'fix_expo_gitignore\t%s\n' "$(ios_q_fix_expo_gitignore /app)"
   printf 'confirm_scope\t%s\n' "$(ios_q_confirm_scope push-notifications email US false)"
   printf 'confirm_scope\t%s\n' "$(ios_q_confirm_scope push-notifications email US false react-native-step0)"
+  printf 'confirm_scope\t%s\n' "$(ios_q_confirm_scope push-notifications user-id US false ios-step0 ios-step0)"
+  printf 'carry_scope\t%s\n' "$(ios_q_carry_scope push-notifications,sdk-initialization user-id ios-step0)"
+  printf 'carry_scope\t%s\n' "$(ios_q_carry_scope event-tracking,sdk-initialization "" react-native-step0)"
+  printf 'carry_scope\t%s\n' "$(ios_q_carry_scope "" unknown-user ios-step0)"
   printf 'configure_iterable\t%s\n' "$(ios_q_configure_iterable US false)"
   printf 'capture_iterable\t%s\n' "$(ios_q_capture_iterable US false)"
   printf 'configure_server\t%s\n' "$(ios_q_configure_server US false)"
@@ -595,6 +604,7 @@ append_question() {
   fi
 }
 append_question choose_features
+append_question carry_scope
 append_question choose_more_features
 append_question choose_identity
 append_question choose_region

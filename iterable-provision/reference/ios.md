@@ -80,25 +80,49 @@ behavior, Mobile Inbox, and Embedded Messages. Initialization,
 identification, and the default Iterable in-app message display are included
 automatically. Identity, region, JWT policy, and final confirmation follow.
 
+The app's skill asks the scope once, in its Step 0: `iterable-ios` for a
+native app, `iterable-react-native` for React Native or Expo. It passes the
+confirmed answers to the first `status` call, and the tool does not ask them
+again:
+
+- `--features` takes comma-separated ids, exactly the ones `choose_features`
+  and `choose_more_features` record: `push-notifications`, `event-tracking`,
+  `user-profiles`, `deep-linking`, `in-app-messages`, `mobile-inbox`,
+  `embedded-messaging`, or `sdk-initialization` alone for initialization only.
+- `--identity` takes `email`, `user-id`, or `unknown-user`, the values
+  `choose_identity` records.
+
+Any other value exits 2 before anything is written, and `status` itself only
+reads the flags. With no Android setup to import, `next` is one `carry_scope`
+screen, for example "Confirmed in the iOS skill: features push-notifications,
+sdk-initialization; identity user-id."
+
+- **Use these answers** runs `carry-scope --confirm` with exactly the answers
+  shown. It records them as proposed answers, with `scope_source` (features)
+  and `identity_source` (identity) set to `ios-step0`, or `react-native-step0`
+  for a React Native or Expo app. The `choose_features`,
+  `choose_more_features`, and `choose_identity` screens are then skipped.
+- **Change the answers** records the decline, and those screens are asked as
+  usual.
+
+Region, JWT, and `confirm_scope` follow. `confirm_scope` marks each carried
+line with its origin, and `record-scope` keeps both sources in `scope.json`.
+A later `answer` to a carried field drops that field's source. Without the
+flags nothing changes.
+
 When the Android program already ran for this app (its `.iterable/.env` holds
 a Mobile key), fresh status first asks `import_android`. Its recommended
-option runs `import-from-android --confirm`: one Mobile key and one
+option runs `import-from-android --confirm`. One Mobile key and one
 Server-side key serve both platforms, so it reuses them with the Android
-region and No JWT (the Android flow requires Require JWT off), never prints
+region and No JWT (the Android flow requires Require JWT off). It never prints
 them, and both keys are still validated again for iOS. The Android setup
-records no feature scope, so the React Native skill passes the scope its Step 0
-confirmed as `--features` with comma-separated ids — exactly the ones
-`choose_features` and `choose_more_features` record: `push-notifications`,
-`event-tracking`, `user-profiles`, `deep-linking`, `in-app-messages`,
-`mobile-inbox`, `embedded-messaging`, or `sdk-initialization` alone for
-initialization only. Pass it to `status` first (`status --features …`) so the
-`import_android` screen names the scope, and its recommended option carries the
-same list to `import-from-android`. Any other id is refused and nothing is
-recorded. The list is recorded as the `choose_features` answer with
-`scope_source: "react-native-step0"`, so those screens are skipped, and
-`confirm_scope` shows it with its origin before anything is confirmed; **Change
-the answers** asks it again. Without `--features` the feature questions follow
-as usual. **Set up iOS separately** asks everything again. In a monorepo the Android workspace sits
+records no feature scope, so the Step 0 flags go with the import instead of a
+`carry_scope` screen. The `import_android` screen names them, and its
+recommended option passes the same `--features` and `--identity` to
+`import-from-android`, which records them as `carry-scope` would. A carried
+identity takes precedence over the Android test email. Without the flags the
+feature questions follow as usual. **Set up iOS separately** asks everything
+again. In a monorepo the Android workspace sits
 at the repository root, so the search walks up from the app root to the git
 toplevel, takes the nearest `.iterable/.env`, and records that path as
 `iterable.imported_from`. Android package auto-detection does not support

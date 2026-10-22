@@ -12,8 +12,9 @@ PRIVATE_APNS_ACTOR="$TOOL_ROOT/tools/ios-apns-private.rb"
 usage() {
   cat <<'EOF'
 Usage:
-  ios-provision status [--offline] [--bundle-id ID] [--features ID,...] [--workspace PATH]
-  ios-provision question --kind KIND [--features ID,...] [--workspace PATH]
+  ios-provision status [--offline] [--bundle-id ID] [--features ID,...] [--identity MODE] [--workspace PATH]
+  ios-provision question --kind KIND [--features ID,...] [--identity MODE] [--workspace PATH]
+  ios-provision carry-scope [--features ID,...] [--identity email|user-id|unknown-user] --confirm [--workspace PATH]
   ios-provision answer [--field FIELD --value VALUE [--add] | --clear] [--workspace PATH]
   ios-provision record-scope [--from-answers | --features LIST --identity-mode MODE --region US|EU --jwt-enabled true|false] --confirm [--workspace PATH]
   ios-provision record-iterable-setup --driver guided|developer --confirm [--workspace PATH]
@@ -31,7 +32,7 @@ Usage:
   ios-provision validate-apns [--workspace PATH]
   ios-provision capture-mobile --region US|EU --jwt-enabled true|false [--replace] --confirm [--workspace PATH]
   ios-provision validate-mobile [--workspace PATH]
-  ios-provision import-from-android --confirm [--features ID,...] [--framework native|react-native|expo] [--workspace PATH]
+  ios-provision import-from-android --confirm [--features ID,...] [--identity MODE] [--framework native|react-native|expo] [--workspace PATH]
   ios-provision deliver-mobile-key [--framework native|react-native|expo] [--workspace PATH]
   ios-provision ignore-expo-env --confirm [--workspace PATH]
   ios-provision capture-server [--replace] --confirm [--workspace PATH]
@@ -54,7 +55,9 @@ Usage:
 status and question are read-only and make no Apple or Iterable request.
 question --kind help_* renders a guide for a step the developer is stuck on;
 its options record the answer or return to status.
-answer persists proposed selector answers;
+answer persists proposed selector answers; carry-scope proposes the features
+and identity mode the app's skill already confirmed, passed to status as
+--features and --identity, so their screens are not asked again;
 record-scope confirms the developer's selected features, identity mode, region,
 and JWT policy before application code changes.
 record-iterable-setup records whether the coding agent will guide the
@@ -433,6 +436,7 @@ read_args() {
   JWT_ENABLED=""
   FEATURES=""
   IDENTITY_MODE=""
+  CARRY_IDENTITY=""
   ITERABLE_DRIVER=""
   ITERABLE_APP_SOURCE=""
   APPLE_STRATEGY=""
@@ -905,6 +909,49 @@ carried_features() {
   ' "$1"
 }
 
+carried_identity() {
+  [[ "$1" == email || "$1" == user-id || "$1" == unknown-user ]] || return 2
+  printf '%s' "$1"
+}
+
+# The skill that owns the app ran Step 0; the label must name that skill.
+step0_source() {
+  if [[ "$(ios_framework)" == native ]]; then
+    printf 'ios-step0'
+  else
+    printf 'react-native-step0'
+  fi
+}
+
+# Shared by carry-scope and import-from-android. Each carried field keeps its
+# own source, so changing one answer drops only that attribution.
+propose_step0() {
+  node -e '
+    const [current, features, identity, source] = process.argv.slice(1);
+    const value = JSON.parse(current);
+    if (features) {
+      delete value.feature_choices;
+      value.features = features.split(",");
+      value.scope_source = source;
+    }
+    if (identity) {
+      value.identity_mode = identity;
+      value.identity_source = source;
+    }
+    if (features || identity) value.step0_scope = "carried";
+    process.stdout.write(JSON.stringify(value, null, 2) + "\n");
+  ' "$1" "$2" "$3" "$4"
+}
+
+# Refused before anything is read or written.
+read_step0_flags() {
+  CARRY_IDENTITY="$PROOF_IDENTITY"
+  [[ -z "$FEATURES" ]] || carried_features "$FEATURES" >/dev/null ||
+    die "--features takes the ids choose_features records: push-notifications, event-tracking, user-profiles, deep-linking, in-app-messages, mobile-inbox, embedded-messaging, or sdk-initialization"
+  [[ -z "$CARRY_IDENTITY" ]] || carried_identity "$CARRY_IDENTITY" >/dev/null ||
+    die "--identity takes the values choose_identity records: email, user-id, or unknown-user"
+}
+
 answer_scope() {
   command -v node >/dev/null 2>&1 || die "node is not installed"
   if [[ "$ANSWER_CLEAR" == true && -z "$ANSWER_FIELD" ]]; then
@@ -952,6 +999,10 @@ answer_scope() {
       [[ "$ANSWER_CLEAR" == true || "$ANSWER_VALUE" == skip ]] ||
         die "android-import can only be answered with skip; run import-from-android to reuse the Android setup"
       ;;
+    step0-scope)
+      [[ "$ANSWER_CLEAR" == true || "$ANSWER_VALUE" == skip ]] ||
+        die "step0-scope can only be answered with skip; run carry-scope to record the confirmed answers"
+      ;;
     *)
       die "unknown answer field: $ANSWER_FIELD"
       ;;
@@ -974,10 +1025,12 @@ answer_scope() {
       "region": "data_region",
       "jwt-enabled": "jwt_enabled",
       "jwt-check": "jwt_check",
-      "android-import": "android_import"
+      "android-import": "android_import",
+      "step0-scope": "step0_scope"
     }[field];
     const featureKey=field.startsWith("feature-") ? field.slice(8) : "";
     if (field === "features" || featureKey) delete current.scope_source;
+    if (field === "identity-mode") delete current.identity_source;
     if (clear) {
       if (featureKey) {
         if (current.feature_choices) delete current.feature_choices[featureKey];
@@ -1542,7 +1595,7 @@ Logout expectation: $logout_expect"
 }
 
 record_scope() {
-  local scope_source=""
+  local scope_source="" identity_source=""
   [[ "$CONFIRM" == true ]] ||
     die "record-scope requires --confirm after the developer answers the integration questions"
   if [[ "$FROM_ANSWERS" == true ]]; then
@@ -1583,6 +1636,10 @@ record_scope() {
       const value = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
       process.stdout.write(String(value.scope_source || ""));
     ' "$DISCOVERY_META")"
+    identity_source="$(node -e '
+      const value = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+      process.stdout.write(String(value.identity_source || ""));
+    ' "$DISCOVERY_META")"
   fi
   [[ -n "$FEATURES" ]] || die "record-scope requires --features or --from-answers"
   [[ "$IDENTITY_MODE" == email || "$IDENTITY_MODE" == user-id ||
@@ -1612,9 +1669,10 @@ record_scope() {
       identity_mode: process.argv[2],
       data_region: process.argv[3],
       jwt_enabled: process.argv[4] === "true",
-      ...(process.argv[5] ? { scope_source: process.argv[5] } : {})
+      ...(process.argv[5] ? { scope_source: process.argv[5] } : {}),
+      ...(process.argv[6] ? { identity_source: process.argv[6] } : {})
     }, null, 2) + "\n");
-  ' "$normalized" "$IDENTITY_MODE" "$DATA_REGION" "$JWT_ENABLED" "${scope_source:-}")"
+  ' "$normalized" "$IDENTITY_MODE" "$DATA_REGION" "$JWT_ENABLED" "${scope_source:-}" "${identity_source:-}")"
 
   if [[ -f "$SCOPE_META" ]]; then
     if node -e '
@@ -1725,6 +1783,7 @@ status_json() {
   local discovery_push="" discovery_events="" discovery_profiles=""
   local discovery_more="" discovery_in_app="" discovery_inbox="" discovery_embedded=""
   local discovery_deep_links="" discovery_scope_source="" scope_source_recorded=""
+  local discovery_identity_source="" scope_identity_source="" discovery_step0=""
   local iterable_setup_present=false iterable_setup_secure=false
   local iterable_setup_valid=false iterable_setup_driver=""
   local apple_setup_present=false apple_setup_secure=false
@@ -1790,6 +1849,10 @@ status_json() {
       scope_source_recorded="$(node -e '
         const scope = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
         process.stdout.write(String(scope.scope_source || ""));
+      ' "$SCOPE_META")"
+      scope_identity_source="$(node -e '
+        const scope = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+        process.stdout.write(String(scope.identity_source || ""));
       ' "$SCOPE_META")"
       if [[ ",$scope_features," == *,push-notifications,* ]]; then
         push_required=true
@@ -1873,6 +1936,14 @@ status_json() {
       discovery_scope_source="$(node -e '
         const value = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
         process.stdout.write(String(value.scope_source || ""));
+      ' "$DISCOVERY_META")"
+      discovery_identity_source="$(node -e '
+        const value = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+        process.stdout.write(String(value.identity_source || ""));
+      ' "$DISCOVERY_META")"
+      discovery_step0="$(node -e '
+        const value = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+        process.stdout.write(String(value.step0_scope || ""));
       ' "$DISCOVERY_META")"
     fi
   fi
@@ -2249,6 +2320,8 @@ status_json() {
     fi
   fi
 
+  local step0_features="" step0_identity="$CARRY_IDENTITY"
+  [[ -z "$FEATURES" ]] || step0_features="$(carried_features "$FEATURES")" || step0_features=""
   local android_import_answered=false
   [[ -f "$DISCOVERY_META" ]] &&
     node -e 'process.exit(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).android_import ? 0 : 1)' \
@@ -2259,6 +2332,9 @@ status_json() {
         android_setup_present; then
       next_kind="import_android"
       next_summary="The Android setup in $(dirname "$WORKSPACE") already recorded the Iterable keys and region. Offer to reuse them for iOS instead of asking again."
+    elif [[ -n "$step0_features$step0_identity" && -z "$discovery_step0" ]]; then
+      next_kind="carry_scope"
+      next_summary="Show the answers the $(ios_q_step0_skill "$(step0_source)") already confirmed and record them only if the developer agrees, instead of asking those questions again."
     elif [[ "$discovery_valid" != true ||
           "$discovery_push" == unset || "$discovery_events" == unset ||
           "$discovery_profiles" == unset || "$discovery_deep_links" == unset ||
@@ -2469,7 +2545,8 @@ status_json() {
       ;;
     confirm_scope)
       next_question="$(ios_question confirm_scope "$discovery_features" \
-        "$discovery_identity" "$discovery_region" "$discovery_jwt" "$discovery_scope_source")"
+        "$discovery_identity" "$discovery_region" "$discovery_jwt" "$discovery_scope_source" \
+        "$discovery_identity_source")"
       next_command="$BIN/ios-provision question --kind confirm_scope"
       ;;
     configure_iterable)
@@ -2506,10 +2583,13 @@ status_json() {
       next_command="$BIN/ios-provision asc-read"
       ;;
     import_android)
-      local carried=""
-      [[ -z "$FEATURES" ]] || carried="$(carried_features "$FEATURES")" || carried=""
-      next_question="$(ios_question import_android "$(android_import_summary)" "$carried")"
-      next_command="$BIN/ios-provision question --kind import_android${carried:+ --features $carried}"
+      next_question="$(ios_question import_android "$(android_import_summary)" "$step0_features" \
+        "$step0_identity" "$(ios_q_step0_skill "$(step0_source)")")"
+      next_command="$BIN/ios-provision question --kind import_android${step0_features:+ --features $step0_features}${step0_identity:+ --identity $step0_identity}"
+      ;;
+    carry_scope)
+      next_question="$(ios_question carry_scope "$step0_features" "$step0_identity" "$(step0_source)")"
+      next_command="$BIN/ios-provision question --kind carry_scope${step0_features:+ --features $step0_features}${step0_identity:+ --identity $step0_identity}"
       ;;
     fix_expo_gitignore)
       next_question="$(ios_question fix_expo_gitignore "$(app_root)")"
@@ -2564,16 +2644,18 @@ status_json() {
   printf '"target":{"bundle_id":%s,"name":%s,"recorded":%s,"detected_bundle_id":%s,"detected_name":%s,"detected_source":%s},' \
     "$(jstr "$BUNDLE_ID")" "$(jstr "$APP_NAME")" "$target_recorded" \
     "$(jstr "$detected_bundle")" "$(jstr "$detected_name")" "$(jstr "$detected_source")"
-  printf '"scope":{"path":%s,"present":%s,"mode_0600":%s,"valid":%s,"features":%s,"identity_mode":%s,"data_region":%s,"jwt_enabled":%s,"push_required":%s,"verification_only":%s,"source":%s},' \
+  printf '"scope":{"path":%s,"present":%s,"mode_0600":%s,"valid":%s,"features":%s,"identity_mode":%s,"data_region":%s,"jwt_enabled":%s,"push_required":%s,"verification_only":%s,"source":%s,"identity_source":%s},' \
     "$(jstr "$SCOPE_META")" "$scope_present" "$scope_secure" "$scope_valid" \
     "$(jstr "$scope_features")" "$(jstr "$scope_identity")" \
     "$(jstr "$scope_region")" "$(jstr "$scope_jwt")" "$push_required" \
-    "$scope_verification_only" "$(jstr "$scope_source_recorded")"
-  printf '"discovery":{"path":%s,"present":%s,"mode_0600":%s,"valid":%s,"features":%s,"identity_mode":%s,"data_region":%s,"jwt_enabled":%s,"scope_source":%s},' \
+    "$scope_verification_only" "$(jstr "$scope_source_recorded")" \
+    "$(jstr "$scope_identity_source")"
+  printf '"discovery":{"path":%s,"present":%s,"mode_0600":%s,"valid":%s,"features":%s,"identity_mode":%s,"data_region":%s,"jwt_enabled":%s,"scope_source":%s,"identity_source":%s},' \
     "$(jstr "$DISCOVERY_META")" "$discovery_present" "$discovery_secure" \
     "$discovery_valid" "$(jstr "$discovery_features")" \
     "$(jstr "$discovery_identity")" "$(jstr "$discovery_region")" \
-    "$(jstr "$discovery_jwt")" "$(jstr "$discovery_scope_source")"
+    "$(jstr "$discovery_jwt")" "$(jstr "$discovery_scope_source")" \
+    "$(jstr "$discovery_identity_source")"
   printf '"tools":{"xcodebuild":%s,"node":%s,"npx":%s,"curl":%s},' \
     "$has_xcode" "$has_node" "$has_npx" "$has_curl"
   printf '"apple_setup":{"path":%s,"present":%s,"mode_0600":%s,"valid":%s,"strategy":%s,"readiness_path":%s,"readiness_present":%s,"readiness_mode_0600":%s,"readiness_valid":%s,"evidence_level":%s,"guide_steps":%s,"guide_next":%s,"asc_key_present":%s,"asc_issuer_present":%s,"asc_state":%s,"asc_actions":%s},' \
@@ -3228,10 +3310,8 @@ android_setup_present() {
 import_from_android() {
   [[ "$CONFIRM" == true ]] || die "import-from-android requires --confirm"
   command -v node >/dev/null 2>&1 || die "node is not installed"
-  local carried=""
-  if [[ -n "$FEATURES" ]]; then
-    carried="$(carried_features "$FEATURES")" || die "--features takes the ids choose_features records: push-notifications, event-tracking, user-profiles, deep-linking, in-app-messages, mobile-inbox, embedded-messaging, or sdk-initialization"
-  fi
+  local carried="" carried_mode="$CARRY_IDENTITY"
+  [[ -z "$FEATURES" ]] || carried="$(carried_features "$FEATURES")"
   android_setup_present ||
     die "no Android setup with a Mobile key was found at $(android_env_path)"
   require_ios_next "import-from-android" import_android
@@ -3266,29 +3346,54 @@ import_from_android() {
   init_workspace
   local current='{}'
   [[ ! -f "$DISCOVERY_META" ]] || current="$(cat "$DISCOVERY_META")"
+  current="$(propose_step0 "$current" "$carried" "$carried_mode" "$(step0_source)")" ||
+    die "could not read $DISCOVERY_META"
   (
     umask 077
     node -e '
-      const [path, current, region, email, source, carried] = process.argv.slice(1);
+      const [path, current, region, email, source] = process.argv.slice(1);
       const value = JSON.parse(current);
       value.android_import = "imported";
       value.android_import_path = source;
-      if (carried) {
-        delete value.feature_choices;
-        value.features = carried.split(",");
-        value.scope_source = "react-native-step0";
-      }
       value.data_region = region;
       value.jwt_enabled = false;
       if (email && !value.identity_mode) value.identity_mode = "email";
       require("fs").writeFileSync(path, JSON.stringify(value, null, 2) + "\n", { mode: 0o600 });
-    ' "$DISCOVERY_META" "$current" "$region" "$email" "$android_env" "$carried"
+    ' "$DISCOVERY_META" "$current" "$region" "$email" "$android_env"
   )
   chmod 600 "$DISCOVERY_META"
   printf 'Reused the Android setup from %s: the Mobile%s key, region %s, and No JWT. Both keys are validated again for iOS later; nothing was printed.\n' \
     "$android_env" "$([[ -n "$(env_value ITERABLE_SERVER_KEY)" ]] && printf ' and Server-side')" "$region" >&2
   [[ -z "$carried" ]] ||
-    printf 'Proposed the feature scope confirmed in the React Native skill: %s. It is recorded only after the confirmation screen.\n' "$carried" >&2
+    printf 'Proposed the feature scope confirmed in the %s: %s. It is recorded only after the confirmation screen.\n' \
+      "$(ios_q_step0_skill "$(step0_source)")" "$carried" >&2
+  [[ -z "$carried_mode" ]] ||
+    printf 'Proposed the identity confirmed in the %s: %s. It is recorded only after the confirmation screen.\n' \
+      "$(ios_q_step0_skill "$(step0_source)")" "$carried_mode" >&2
+  status_json
+}
+
+carry_scope() {
+  [[ "$CONFIRM" == true ]] ||
+    die "carry-scope requires --confirm after the developer chooses Use these answers"
+  command -v node >/dev/null 2>&1 || die "node is not installed"
+  [[ -n "$FEATURES$CARRY_IDENTITY" ]] || die "carry-scope requires --features, --identity, or both"
+  local carried="" carried_mode="$CARRY_IDENTITY" current='{}' candidate
+  [[ -z "$FEATURES" ]] || carried="$(carried_features "$FEATURES")"
+  require_ios_next "carry-scope" carry_scope
+  [[ ! -f "$DISCOVERY_META" ]] || current="$(cat "$DISCOVERY_META")" ||
+    die "could not read $DISCOVERY_META"
+  candidate="$(propose_step0 "$current" "$carried" "$carried_mode" "$(step0_source)")" ||
+    die "could not read $DISCOVERY_META"
+  init_workspace
+  (
+    umask 077
+    printf '%s' "$candidate" > "$DISCOVERY_META"
+  )
+  chmod 600 "$DISCOVERY_META"
+  printf 'Proposed the answers confirmed in the %s:%s%s. They are recorded only after the final scope screen.\n' \
+    "$(ios_q_step0_skill "$(step0_source)")" "${carried:+ features $carried}" \
+    "${carried_mode:+${carried:+;} identity $carried_mode}" >&2
   status_json
 }
 
@@ -4814,11 +4919,16 @@ read_args "$@"
 
 case "$COMMAND" in
   status)
-    [[ -z "$FEATURES" ]] || carried_features "$FEATURES" >/dev/null || die "--features takes the ids choose_features records: push-notifications, event-tracking, user-profiles, deep-linking, in-app-messages, mobile-inbox, embedded-messaging, or sdk-initialization"
+    read_step0_flags
     status_json
+    ;;
+  carry-scope)
+    read_step0_flags
+    carry_scope
     ;;
   question)
     [[ -n "$QUESTION_KIND" ]] || die "question requires --kind"
+    read_step0_flags
     case "$QUESTION_KIND" in
       confirm_scope)
         [[ -f "$DISCOVERY_META" ]] ||
@@ -4846,7 +4956,8 @@ case "$COMMAND" in
           "$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.identity_mode||""))' "$DISCOVERY_META")" \
           "$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.data_region||""))' "$DISCOVERY_META")" \
           "$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(typeof v.jwt_enabled==="boolean"?String(v.jwt_enabled):"")' "$DISCOVERY_META")" \
-          "$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.scope_source||""))' "$DISCOVERY_META")"
+          "$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.scope_source||""))' "$DISCOVERY_META")" \
+          "$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.identity_source||""))' "$DISCOVERY_META")"
         printf '\n'
         ;;
       choose_features|choose_more_features|choose_identity|choose_region|choose_jwt|choose_apple_setup)
@@ -4893,10 +5004,16 @@ case "$COMMAND" in
       import_android)
         require_ios_next "question import_android" import_android
         question_carried=""
-        if [[ -n "$FEATURES" ]]; then
-          question_carried="$(carried_features "$FEATURES")" || die "--features takes the ids choose_features records: push-notifications, event-tracking, user-profiles, deep-linking, in-app-messages, mobile-inbox, embedded-messaging, or sdk-initialization"
-        fi
-        ios_question import_android "$(android_import_summary)" "$question_carried"
+        [[ -z "$FEATURES" ]] || question_carried="$(carried_features "$FEATURES")"
+        ios_question import_android "$(android_import_summary)" "$question_carried" \
+          "$CARRY_IDENTITY" "$(ios_q_step0_skill "$(step0_source)")"
+        printf '\n'
+        ;;
+      carry_scope)
+        require_ios_next "question carry_scope" carry_scope
+        question_carried=""
+        [[ -z "$FEATURES" ]] || question_carried="$(carried_features "$FEATURES")"
+        ios_question carry_scope "$question_carried" "$CARRY_IDENTITY" "$(step0_source)"
         printf '\n'
         ;;
       fix_expo_gitignore)
@@ -5087,6 +5204,7 @@ case "$COMMAND" in
     validate_apns
     ;;
   import-from-android)
+    read_step0_flags
     import_from_android
     ;;
   ignore-expo-env)

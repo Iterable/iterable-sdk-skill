@@ -74,7 +74,10 @@ Inspect the app before invoking a program:
   Native iOS status starts with Android's grouped scope choices—push,
   events plus user profiles, deep links, and a long-tail bucket—with one
   optional long-tail follow-up. The free-text `initialization only` answer is the same
-  basic init-and-identify path. Free-text commands already single-quote
+  basic init-and-identify path. When the iOS skill's Step 0 already confirmed
+  the scope and identity, pass them to the first `status` as `--features` and
+  `--identity`. One `carry_scope` screen then confirms them, and those choices
+  are never asked a second time. Free-text commands already single-quote
   `'{{answer}}'`; substitute the developer's text inside those quotes and
   write any single quote in it as `'\''`. It then carries one
   tool-authored selector in `next.question` at a time. Render it and run the
