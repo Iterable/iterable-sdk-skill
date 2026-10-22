@@ -668,7 +668,15 @@ reviewing app code:
 The verifier cannot distinguish a repeated manual action from duplicate event
 tracking after both have reached Iterable.
 
-Use the separate sender actor for user-targeted proof:
+Standard proof sends through `ios-prove`, once, when the verifier's
+`next.command` names it:
+
+```text
+<root>/bin/ios-prove --confirm
+```
+
+Instrumented runs only: the separate sender actor sends the user-targeted
+marker:
 
 ```text
 <root>/bin/ios-observe inspect --kind notifications --purpose pre-send
