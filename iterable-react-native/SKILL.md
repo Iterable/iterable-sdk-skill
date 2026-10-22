@@ -21,6 +21,17 @@ description: >-
 
 # Iterable React Native SDK
 
+## Start here — do these in order, before anything else
+
+1. Find `<root>`: from the real path of this `SKILL.md` (`cd -P "$(dirname <this file>)" && pwd -P`), walk up to the first folder that contains `bin/agent`.
+2. From the app root, run `<root>/bin/agent preflight` before you ask anything or edit anything. It reads local files only.
+3. Do what its `next` says: open `next.open` if it is set, then run `next.commands` in order.
+   - `provision`: open `<root>/iterable-provision/SKILL.md` now and follow it. Its first command is `<root>/bin/agent question opening`. Write no code until it hands back.
+   - `integrate`: run `next.commands`, then do Step 0 and write the Android integration.
+   - `verify`: open `<root>/iterable-android-verify/SKILL.md` and follow it.
+4. Never write a placeholder, dummy, `.example` or hard-coded key, or a fake `google-services.json`. A missing input comes from provisioning, or you stop and say so.
+5. Android first. Make no iOS edit until `iterable-android-verify` is green. Then, for iOS, run `<root>/bin/ios-provision status --features <Step 0 ids>` and follow `iterable-provision`'s iOS path until its `next.kind` is `integrate_app`.
+
 You are working with the **Iterable React Native SDK** —
 [`@iterable/react-native-sdk`](https://www.npmjs.com/package/@iterable/react-native-sdk).
 It is a JavaScript layer over Iterable's native Android and iOS SDKs.
@@ -54,6 +65,18 @@ cost the developer a permission prompt.
 ## Step 0 — Agree on scope BEFORE writing code
 
 Do this **first**, before Preflight and before any edits.
+
+**Prerequisites question — ask it in the first round, with the scope.** "Do you
+already have the Iterable Mobile key, the Iterable mobile app with its push
+integration, and a Firebase project with this app's `google-services.json`?"
+
+- **Not yet — set them up** (recommended): open `<root>/iterable-provision/SKILL.md`
+  now and run `<root>/bin/agent question opening`.
+- **Yes, I have them**: still open `iterable-provision`; it finds, reuses and
+  proves what exists. Never ask for a key in the chat.
+
+When `<root>/bin/agent preflight` already returned `integrate` or `verify`, the
+files exist: say so and only confirm.
 
 **Detect the workflow from the project, do not ask which docs to use.**
 
@@ -180,13 +203,17 @@ doc for a native step.
 
 When the scope covers both platforms, finish one before starting the other:
 
-1. **Android:** provision with `iterable-provision`, integrate, and prove it —
-   `iterable-android-verify` green — before any iOS work starts.
-2. **iOS:** `iterable-provision`'s iOS path offers to reuse what the Android
-   phase recorded — both Iterable keys (Mobile and Server-side), the region,
-   No JWT, and the test email. Pass the scope confirmed in Step 0 as
-   `--features <ids>` from the table above, first to `ios-provision status`,
-   so the import screen names it, and its recommended option carries it into
+1. **Android:** provision with `iterable-provision`, deliver the Mobile key to
+   the JavaScript app ([placing it](#if-they-dont-have-an-input-yet)), integrate,
+   and prove it — `iterable-android-verify` green — before any iOS work starts.
+   The key import runs no Apple step, so it is not iOS work.
+2. **iOS:** `iterable-provision`'s iOS path already holds what that import
+   copied — both Iterable keys (Mobile and Server-side), the region, No JWT,
+   and the test email. Pass the scope confirmed in Step 0 as
+   `--features <ids>` from the table above, first to `ios-provision status`:
+   it comes back as one `carry_scope` screen whose **Use these answers**
+   records it. If the import never ran, the `import_android` screen names the
+   scope instead and its recommended option carries it into
    `import-from-android`. The final scope screen shows it again before
    anything is confirmed. Pass only what the developer confirmed; without
    `--features` the scope is asked again. The path then adds the Apple/APNs
@@ -247,7 +274,7 @@ everything".
 | Input | Needed when | If missing |
 |---|---|---|
 | **Workflow** — Expo vs bare | Always | Detect from the project (Step 0). If both signals exist, ask. |
-| **Mobile API key** | Always | Never hardcode it into a tracked file. `iterable-provision` writes the copy the app reads: bare RN `.iterable/rn/iterable.local.ts`, Expo `EXPO_PUBLIC_ITERABLE_API_KEY` in a gitignored `.env.local` ([loading it](#loading-the-key)). |
+| **Mobile API key** | Always | Never hardcode it into a tracked file. The Android program keeps it in `.iterable/.env`, which the app does not read; `ios-provision import-from-android --confirm` writes the copy the app reads — bare RN `.iterable/rn/iterable.local.ts`, Expo `EXPO_PUBLIC_ITERABLE_API_KEY` in a gitignored `.env.local` — during the Android phase ([placing it](#if-they-dont-have-an-input-yet), [loading it](#loading-the-key)). |
 | **Identity model** — `setEmail` vs `setUserId`, and where the value comes from | Always | [Project type first](#identity-project-type-first). Never guess. |
 | **JWT?** — is the mobile key JWT-protected? | Always | Ask, and **assume yes until told otherwise** (it is on by default for client-side keys and is permanent). If yes, `authHandler` is mandatory (rule 1) **and the team needs a backend endpoint that mints the tokens** — if they don't have one, raise it as a blocker instead of signing in the app. |
 | **Data region** — US or EU | Always | Ask if they sign in at `app.eu.iterable.com` (`european-data-center`). See pitfall #2. |
@@ -258,10 +285,10 @@ everything".
 **Never fabricate a prerequisite to make the build pass.** Do not invent an
 API key, a placeholder `google-services.json`, or a JWT signed in the client.
 
-**A green build is not the deliverable.** Seen live on the Android side: the Firebase
-project had no app registered, so there was no real `google-services.json`; the work
-carried on anyway, made it compile, and ended the turn without naming a way forward.
-So — a missing prerequisite stops the push work *before* the native edit, and you say
+**A green build is not the deliverable.** The typical failure: the Firebase project has
+no app registered, so there is no real `google-services.json`, and the work carries on
+anyway, makes it compile, and ends the turn without naming a way forward. Instead, a
+missing prerequisite stops the push work *before* the native edit, and you say
 which parts of the agreed scope you did not do and why. Then route into
 `iterable-provision` and conduct it here rather than handing over a command: its wizard
 offers to register the missing app, and `next.question` gives you each screen to put to
@@ -280,19 +307,37 @@ push integration themselves.
 It produces the three inputs this Preflight cannot invent — a real
 `google-services.json`, the service-account key that Iterable's push integration
 asks you to upload, and the dashboard steps that have no API — and proves each
-one with a live call. Announce the handoff in one line and route. To check it
-is installed, walk up from this `SKILL.md` to the first directory containing a
-`bin/agent`; if there isn't one, this Preflight stops as written above.
+one with a live call. Announce the handoff in one line and route. Check it is
+installed. Resolve symlinks first: use the real path of this `SKILL.md` (`cd -P` /
+`pwd -P`), because a skill linked into `~/.cursor/skills` has no `bin/` above
+the link. Then walk up from it to the first directory containing a `bin/agent`; if there
+isn't one, this Preflight stops as written above.
 
 **Routing is not starting.** The first thing that skill does is run
 `<root>/bin/agent question opening` and put it to the developer before running anything
 else. Let it, and don't run `<root>/bin/agent` or `discover` yourself to save a step —
 deciding provisioning is needed is not permission to begin it.
 
-Once it reports `done`, **you own placing the file**: on bare RN copy
+Once its `next.kind` reaches `install_app` (or `run_app`) — the Google and Iterable
+halves are green and `.iterable/artifacts/google-services.json` exists — **you own
+placing the file**: on bare RN copy
 `.iterable/artifacts/google-services.json` to `android/app/google-services.json`;
 on Expo put it where `expo.android.googleServicesFile` points, never by
 hand-editing `android/`. Show it as part of your one confirmed diff.
+
+**The Mobile key, in the same step.** The Android program keeps it in
+`.iterable/.env`, which the JavaScript app never reads. Deliver it with the iOS
+program's import, which runs before any Apple step and never prints the key: from the
+app root, run `<root>/bin/ios-provision import-from-android --confirm`. It writes
+`.iterable/rn/iterable.local.ts` (bare) or `EXPO_PUBLIC_ITERABLE_API_KEY` in
+`.env.local` (Expo) at mode `0600`, and starts the self-ignoring `.iterable/ios/`
+workspace the iOS phase reuses. On Expo it writes `.env.local` only when git already
+ignores it, and does not say when it skipped — so run `git check-ignore -q .env.local`
+first and, if that fails, add `.env*.local` to `.gitignore` in the confirmed diff
+before the import. Check the result without reading the key: `test -f
+.iterable/rn/iterable.local.ts`, or `grep -c '^EXPO_PUBLIC_ITERABLE_API_KEY='
+.env.local`. Leave the JSON's `next` alone: it is the iOS scope screen, which
+belongs to the iOS phase. The import runs once per app.
 In a monorepo whose app sits below the repository root, provisioning does not
 read the Android package name from the project yet; the developer types it.
 
@@ -432,7 +477,7 @@ Expo). Rule 8 applies whenever the app already sends push of its own.
    the internal `IterableApi` class. Do not copy Kotlin
    `IterableApi.getInstance()`, `IterableConfig.Builder()`, or Swift
    `IterableAPI` into JS. Device attributes and unread-inbox count exist
-   natively but are not on that facade (pitfall #4, SDK-593, SDK-594). This
+   natively but are not on that facade (pitfall #4). This
    package at 3.2.1 ships Android `3.10.1` / iOS `6.7.5` — native APIs newer
    than those are not reachable (pitfall #5).
 
@@ -458,8 +503,8 @@ Expo). Rule 8 applies whenever the app already sends push of its own.
    gitignored and regenerated, so a config or plugin change needs a fresh
    prebuild. On Xcode **27**, use CLI **20.2.0+** (bare) or Expo SDK **58**
    for Device Hub launch; bare apps also need a `Podfile` lift of Pods
-   resource-bundle deployment targets, while an Expo SDK 58 prebuild needed none
-   in our trial — check, don't assume (pitfall **#12**). Never hand-edit
+   resource-bundle deployment targets, while an Expo SDK 58 prebuild normally needs
+   none — check, don't assume (pitfall **#12**). Never hand-edit
    `Pods/`.
 
 8. **If the app already sends push, forward to Iterable — never replace what's
@@ -702,9 +747,11 @@ and `[IterableAppIntegration userNotificationCenter:didReceiveNotificationRespon
   ```
 
   The app is `ios/build/Build/Products/Release-iphonesimulator/<App>.app`.
-  Install that path with `xcrun simctl install <udid> <path>`, and record it
-  with `<root>/bin/ios-prepare-proof start --confirm --app-path <path>`, or
-  `restart --confirm --app-path <path>` when a run already exists. Never install a `.app` found with `find` or from another DerivedData
+  Install that path with `xcrun simctl install <udid> <path>`. The verifier's
+  **App build** screen then finds it under the app's own `-derivedDataPath` and
+  recommends binding it; run the option the developer picks, and never append
+  `--app-path` by hand. When a run already exists, bind the rebuilt `.app` with
+  `<root>/bin/ios-prepare-proof restart --confirm --app-path <path>`. Never install a `.app` found with `find` or from another DerivedData
   folder — it can be a stale build (pitfall #19). Never add
   `CODE_SIGNING_ALLOWED=NO`, `CODE_SIGNING_REQUIRED=NO` or `CODE_SIGN_IDENTITY=""`:
   an unsigned app carries no `aps-environment` and never gets a token
@@ -712,7 +759,8 @@ and `[IterableAppIntegration userNotificationCenter:didReceiveNotificationRespon
 - **Proof identity marker (temporary):** when push is in scope, add this to
   `AppDelegate.swift` and call it as the last line of
   `application(_:didFinishLaunchingWithOptions:)`, before `return true`. At
-  proof time the verifier relaunches the app with `-iterableProofIdentity YES`
+  proof time the identity screen's relaunch option (`ios-prepare-proof
+  read-identity --confirm`) relaunches the app with `-iterableProofIdentity YES`
   and reads the identity from the Simulator's log, as in `iterable-ios`
   (*The proof identity marker*). It reads the native SDK, not JavaScript: the
   identity is stored natively once `Iterable.initialize` and `setEmail` /
@@ -881,8 +929,10 @@ you detected), then load feature slugs **as you reach each feature**.
 - Native Android-only or iOS-only app integrations — those are
   `iterable-android` and `iterable-ios`. If this project is a native app with
   no React Native, stop and use the matching native skill.
-- Iterable platform / dashboard configuration. Direct the user to
-  [support.iterable.com](https://support.iterable.com).
+- Iterable platform / dashboard configuration. Open the `reference/` doc that
+  covers the step (*Slug routing*), as Preflight says; point to
+  [support.iterable.com](https://support.iterable.com) only when no shipped doc
+  covers it.
 - JWT *server-side* implementation. Assume the team has, or will build, a
   token-minting endpoint.
 

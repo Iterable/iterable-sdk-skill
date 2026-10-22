@@ -304,9 +304,9 @@ Benchmark-app policy, not a general rule: [`eval/scenarios/ios-benchmark.md`](..
 - **Cause:** The App ID does not have Push Notifications enabled on the team
   (or the APNs key is restricted to other Bundle IDs). APNs then refuses every
   push for the app with `400 TopicDisallowed`, whichever key signs it, and
-  Iterable does not surface that refusal. Proven live: two different keys on the
-  same team both got `TopicDisallowed` before Push was enabled on the App ID,
-  and both got `200` after.
+  Iterable does not surface that refusal. Swapping the APNs key does not help:
+  every key on the team gets `TopicDisallowed` until Push is enabled on the App
+  ID, and `200` after.
 - **Fix:** Run `ios-verify check-apple`, which asks Apple directly with one
   silent push and names the cause. In Apple Developer → Identifiers, check the
   team selector, open the App ID, tick Push Notifications, Save, and Confirm;

@@ -122,7 +122,10 @@ recommended option passes the same `--features` and `--identity` to
 `import-from-android`, which records them as `carry-scope` would. A carried
 identity takes precedence over the Android test email. Without the flags the
 feature questions follow as usual. **Set up iOS separately** asks everything
-again. In a monorepo the Android workspace sits
+again. A React Native app usually ran `import-from-android --confirm` without
+flags during its Android phase, to deliver the Mobile key to the JavaScript
+app; `import_android` is then already answered, and the Step 0 flags passed
+to `status` return the `carry_scope` screen instead. In a monorepo the Android workspace sits
 at the repository root, so the search walks up from the app root to the git
 toplevel, takes the nearest `.iterable/.env`, and records that path as
 `iterable.imported_from`. Android package auto-detection does not support
@@ -556,13 +559,13 @@ Keep proof levels distinct:
 - the dashboard's direct Test Push is optional diagnosis when identity
   association needs to be separated from the APNs path.
 
-Simulator pitfalls seen in live runs:
+Simulator pitfalls:
 
 - A Simulator needs the registered App ID too, with Push Notifications
   enabled. For a never-registered Bundle ID, or one without Push, APNs answers
   `400 TopicDisallowed` for every key on the team; Iterable still returns HTTP
-  200 for the send, so nothing arrives and nothing says why (proven live: two
-  keys both refused before Push was ticked, both accepted after).
+  200 for the send, so nothing arrives and nothing says why. Swapping the APNs
+  key does not help: every key is refused until Push is ticked.
   `ios-verify check-apple` asks Apple directly and names this.
   `DeviceTokenNotForTopic` instead means the push targeted a different Bundle
   ID than the app that registered the token.
@@ -665,7 +668,15 @@ reviewing app code:
 The verifier cannot distinguish a repeated manual action from duplicate event
 tracking after both have reached Iterable.
 
-Use the separate sender actor for user-targeted proof:
+Standard proof sends through `ios-prove`, once, when the verifier's
+`next.command` names it:
+
+```text
+<root>/bin/ios-prove --confirm
+```
+
+Instrumented runs only: the separate sender actor sends the user-targeted
+marker:
 
 ```text
 <root>/bin/ios-observe inspect --kind notifications --purpose pre-send

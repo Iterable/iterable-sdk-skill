@@ -19,6 +19,16 @@ description: >-
 
 # Iterable Android SDK
 
+## Start here — do these in order, before anything else
+
+1. Find `<root>`: from the real path of this `SKILL.md` (`cd -P "$(dirname <this file>)" && pwd -P`), walk up to the first folder that contains `bin/agent`.
+2. From the app root, run `<root>/bin/agent preflight` before you ask anything or edit anything. It reads local files only.
+3. Do what its `next` says: open `next.open` if it is set, then run `next.commands` in order.
+   - `provision`: open `<root>/iterable-provision/SKILL.md` now and follow it. Its first command is `<root>/bin/agent question opening`. Write no code until it hands back.
+   - `integrate`: run `next.commands`, then do Step 0 and write the integration.
+   - `verify`: open `<root>/iterable-android-verify/SKILL.md` and follow it.
+4. Never write a placeholder, dummy, `.example` or hard-coded key, or a fake `google-services.json`. A missing input comes from provisioning, or you stop and say so.
+
 You are working with the **Iterable Android SDK** —
 [`com.iterable:iterableapi`](https://central.sonatype.com/artifact/com.iterable/iterableapi)
 (core) and `com.iterable:iterableapi-ui` (UI components for in-app, inbox,
@@ -34,6 +44,18 @@ human readers but omit several silent-failure traps documented in
 ---
 
 ## Step 0 — Agree on scope BEFORE writing code
+
+**Prerequisites question — ask it in the first round, with the scope.** "Do you
+already have the Iterable Mobile key, the Iterable mobile app with its push
+integration, and a Firebase project with this app's `google-services.json`?"
+
+- **Not yet — set them up** (recommended): open `<root>/iterable-provision/SKILL.md`
+  now and run `<root>/bin/agent question opening`.
+- **Yes, I have them**: still open `iterable-provision`; it finds, reuses and
+  proves what exists. Never ask for a key in the chat.
+
+When `<root>/bin/agent preflight` already returned `integrate` or `verify`, the
+files exist: say so and only confirm.
 
 Do this **first**, before Preflight and before any edits. The SDK covers many
 features — push, in-app, mobile inbox, embedded, deep links, event tracking,
@@ -186,7 +208,7 @@ If `iterable-provision` is installed, its `bin/agent` carries this as a `notice`
 field — relay that verbatim instead, so the tool and the conversation say the same
 thing. Either way say it once, plainly, and do not soften it into "I've double-checked
 everything". Proof is the next section, and the strongest form of it is a real push
-landing on a real device—`iterable-android-verify` does that.
+landing on a device or emulator—`iterable-android-verify` does that.
 
 ### Proving it works when you don't have the dashboard
 
@@ -262,11 +284,10 @@ When blocked on any of these, **surface it to the developer and pause that
 part of the work** — don't silently degrade the integration to keep compiling.
 
 **A green build is not the deliverable, and this is the way it actually fails.**
-Observed in a live demo: the Firebase project had no Android app registered, so there
-was no real `google-services.json`. The push work should have stopped there. Instead
-it kept going, made the build pass, knew the Firebase half was unfinished, and then
-ended the turn without naming a way forward. Two rules from that, and they are not
-negotiable:
+The typical case: the Firebase project has no Android app registered, so there is no
+real `google-services.json`. The push work should stop there. The failure is to keep
+going, make the build pass, know the Firebase half is unfinished, and then end the
+turn without naming a way forward. Two rules, and they are not negotiable:
 
 - **A missing prerequisite stops the push work, immediately** — before the Gradle
   edit, not after. Do the parts of the agreed scope that genuinely don't depend on it
@@ -305,12 +326,15 @@ it reads, what it will not do — before it runs anything else. Let it. Do not r
 deciding that provisioning is needed is not permission to begin it, and a project picker
 is not a consent screen.
 
-To check it is installed: walk up from this `SKILL.md` to the first directory
+Check it is installed. Resolve symlinks first: use the real path of this `SKILL.md` (`cd -P` /
+`pwd -P`), because a skill linked into `~/.cursor/skills` has no `bin/` above
+the link. Then walk up from it to the first directory
 containing a `bin/agent`. If there isn't one, this Preflight stops as written
 below, and the table of dashboard paths is what you give them.
 
-Once provisioning reports `done`, **you own copying the file into the app
-module**: `.iterable/artifacts/google-services.json` → `app/google-services.json`,
+Once provisioning's `next.kind` reaches `install_app` (or `run_app`) — the Google
+and Iterable halves are green and `.iterable/artifacts/google-services.json` exists —
+**you own copying the file into the app module**: `.iterable/artifacts/google-services.json` → `app/google-services.json`,
 shown as part of your one confirmed diff. Nothing else writes into their source
 tree.
 
@@ -811,8 +835,10 @@ before writing any code is the fastest way to compact mid-task.
   native Android app.
 - Native iOS — that is the sibling skill `iterable-ios`. The Web SDK is not
   covered by these skills.
-- Iterable platform / dashboard configuration. Direct the user to
-  [support.iterable.com](https://support.iterable.com) for dashboard help.
+- Iterable platform / dashboard configuration. Open the `reference/` doc that
+  covers the step (*Slug routing*), as Preflight says; point to
+  [support.iterable.com](https://support.iterable.com) only when no shipped doc
+  covers it.
 - JWT *server-side* implementation. The skill assumes the team has, or will
   build, a token-minting endpoint. The `identifying-the-user` doc covers
   the client side only.

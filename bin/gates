@@ -12,6 +12,9 @@ FIRST_RED=""
 FAILED=0
 STATE="$WS/state.tsv"
 ws_init; : > "$STATE"
+# Written only when a run blocks on the developer, so one left by an earlier run would
+# send whoever reads it to a step this run may not be on.
+rm -f "$WS/ASK.md"
 
 # The spinner hides the cursor, and a hidden cursor outlives the process — Ctrl-C out of
 # a slow gate would otherwise leave the developer's own shell without one. INT is named

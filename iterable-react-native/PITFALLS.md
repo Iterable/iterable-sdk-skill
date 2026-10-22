@@ -24,9 +24,10 @@ config-plugin traps (build-time and configuration-time). Use them only
 after Step 0 classified the project as Expo. **#12** is Xcode **27** on
 iOS (bare **and** Expo): Device Hub launch and resource-bundle compile
 floors — not an Iterable API change. **#15** is native Android and applies
-to **both** workflows, but only when the app already sends push. #3's
-*symptom* is both workflows; its **bare** native fix (manifest +
-`PermissionsAndroid`) is wrong on Expo — branch first. **#16** applies to every
+to **both** workflows, but only when the app already sends push. #3 is
+both workflows, and both request the permission at runtime with
+`PermissionsAndroid`; only its **bare** manifest edit is wrong on Expo, where
+the plugin declares it — branch first. **#16** applies to every
 app with deep links; **#17** is Expo only. **#18** is the install, both
 workflows. **#19–#20** are the iOS Release Simulator build (bare, and Expo when
 built with `xcodebuild`); **#21** is JavaScript, both workflows; **#22** is bare
@@ -123,11 +124,11 @@ iOS (on Expo, #14).
 
   Concrete gaps still open on 3.2.1:
 
-  - **SDK-594:** `getUnreadInboxMessagesCount` is on the TurboModule spec and
+  - **Unread inbox count:** `getUnreadInboxMessagesCount` is on the TurboModule spec and
     implemented natively. `IterableInAppManager` exposes `getMessages` /
     `getInboxMessages` / `showMessage` / `setReadForMessage` and **no**
     unread-count wrapper.
-  - **SDK-593:** `setDeviceAttribute` is used internally to stamp
+  - **Device attributes:** `setDeviceAttribute` is used internally to stamp
     `reactNativeSDKVersion` at init. It is not on the TurboModule spec and
     not on `Iterable`.
   - `logout` is **not** a Spec method. The public call is `Iterable.logout()`
@@ -135,9 +136,10 @@ iOS (on Expo, #14).
     `setEmail(null)` and `setUserId(null)`).
 - **Fix:** Only import from `@iterable/react-native-sdk`. Do not import
   `NativeRNIterableAPI`, `RNIterableAPI`, or `IterableApi`. Do not invent
-  wrappers for spec-only methods. Until SDK-594 ships, derive an unread
-  count from `Iterable.inAppManager.getInboxMessages()` (filter unread)
-  rather than calling the native module. Native configuration (FCM, APNs,
+  wrappers for spec-only methods. Until the SDK adds an unread-count
+  wrapper, derive an unread count from
+  `Iterable.inAppManager.getInboxMessages()` (filter unread) rather than
+  calling the native module. Native configuration (FCM, APNs,
   `POST_NOTIFICATIONS`) is still required; it is not a JS method call. See
   `reference/overview.md` and the feature slug for the task.
 
@@ -193,8 +195,9 @@ iOS (on Expo, #14).
 
 ---
 
-Pitfalls 7–13 apply only when Step 0 detected Expo. Skip them on a bare
-React Native project. Do not introduce `@iterable/expo-plugin` there.
+Pitfalls 7–11, 13, 14 and 17 apply only when Step 0 detected Expo; #12 is
+Xcode 27 on both workflows. Skip the Expo ones on a bare React Native
+project. Do not introduce `@iterable/expo-plugin` there.
 
 ## 7. Expo: SDK and plugin do not work in Expo Go
 
@@ -324,8 +327,8 @@ the Xcode 27 guidance — the generated `reference/` corpus does not carry it.
   - **Bare:** in the host `Podfile`, after `react_native_post_install`, raise
     every Pods target — resource bundles included — that is unset or below
     **15.1**, then re-run `pod install`. **15.0** is the Xcode 27 floor;
-    **15.1** matches React Native's own minimum and Iterable's bare RN demo, so
-    nothing is left at exactly 15.0:
+    **15.1** matches React Native's own minimum, so nothing is left at exactly
+    15.0:
 
     ```ruby
     post_install do |installer|
@@ -341,8 +344,8 @@ the Xcode 27 guidance — the generated `reference/` corpus does not carry it.
 
     Keep any existing `{fmt}` C++17 workaround (pitfall #11); this lift is
     separate.
-  - **Expo SDK 58:** a fresh `prebuild` left no Pods target below 15.0 in our
-    trial, so no lift is needed. Check rather than assume:
+  - **Expo SDK 58:** a fresh `prebuild` normally leaves no Pods target below
+    15.0, so no lift is needed. Check rather than assume:
     `grep -h IPHONEOS_DEPLOYMENT_TARGET ios/Pods/Pods.xcodeproj/project.pbxproj | sort -u`.
   - **Older Expo SDKs:** if that check shows a target below 15.0, lift it in an
     **Expo config plugin** at `prebuild` — never by committing `ios/Podfile` or
@@ -500,8 +503,10 @@ Pitfall 15 applies to **both** workflows — any app that already sends push.
   (say, from an old `ios/build`) is whatever was built there last.
 - **Fix:** Build with the exact command in `SKILL.md` → Bare iOS
   (`-derivedDataPath build`), install
-  `ios/build/Build/Products/Release-iphonesimulator/<App>.app`, and pass that
-  path to `ios-prepare-proof start --app-path`.
+  `ios/build/Build/Products/Release-iphonesimulator/<App>.app`, and bind it
+  through the verifier's **App build** screen, or with
+  `ios-prepare-proof restart --confirm --app-path <path>` when a run already
+  exists.
 
 ## 20. iOS: code signing disabled strips `aps-environment`
 
