@@ -325,6 +325,15 @@ else
   bad "device registration reused stale identity inspection state" \
     "next=$(value "$needs_registration" next.kind): $(value "$needs_registration" next.summary)"
 fi
+registration_summary="$(value "$needs_registration" next.summary)"
+if [[ "$registration_summary" != *"registration logs"* &&
+      "$registration_summary" == *"reads the device record from Iterable"* &&
+      "$registration_summary" == *"no registerToken line proves nothing"* &&
+      "$registration_summary" == *"Re-run ios-verify status after any app action or rebuild"* ]]; then
+  ok "the registration step points at Iterable's device record, never at the app's log"
+else
+  bad "the registration step sends the agent to the logs to judge registration" "$registration_summary"
+fi
 run_actor ios-observe inspect --kind app --purpose registration >/dev/null
 
 registration_action="$(run_verify)"

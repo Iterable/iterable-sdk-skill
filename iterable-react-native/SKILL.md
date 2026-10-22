@@ -663,6 +663,10 @@ and `[IterableAppIntegration userNotificationCenter:didReceiveNotificationRespon
 - **Permission is asked at launch, natively** — the `requestAuthorization` line
   above; neither the SDK nor the template asks (pitfall #22). Don't add a
   permission package for it.
+- **The app already has iOS push?** Forward from its callbacks as `iterable-ios`
+  rule 8 says, then prove its own push still shows. `ios-verify` keeps
+  `existing-push-coexistence` in `feature_evidence_required`, because only the
+  developer can prove it.
 - **Token registration is the SDK's, after identity.** There is no
   `Iterable.registerForPush()` or any other JavaScript registration call
   (pitfall #21). With the default `autoPushRegistration`, the SDK asks for the

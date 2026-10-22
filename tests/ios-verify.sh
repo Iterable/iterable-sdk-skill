@@ -583,6 +583,48 @@ else
   bad "complete proof did not reach the terminal verifier state"
 fi
 
+mkdir -p "$ROOT/app/App"
+cat > "$ROOT/app/App/AppDelegate.swift" <<'EOF'
+import IterableSDK
+extension AppDelegate {
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        IterableAPI.register(token: deviceToken)
+        PushRelay.shared.register(deviceToken)
+    }
+}
+EOF
+coexisting="$(run_verify 2>/dev/null)"
+coexisting_rc=$?
+if [[ "$coexisting_rc" -eq 0 &&
+      "$(json_value "$coexisting" verdict)" == done &&
+      "$(json_value "$coexisting" integration_complete)" == false ]] &&
+    node -e '
+      const v=JSON.parse(process.argv[1]);
+      process.exit(v.feature_evidence_required.includes("existing-push-coexistence") &&
+        v.next.summary.includes("App/AppDelegate.swift") &&
+        v.next.summary.includes("triggers a notification the app itself sends") ? 0 : 1);
+    ' "$coexisting"; then
+  ok "done keeps the app's own push path as evidence still required, naming what the developer does"
+else
+  bad "done read as complete although the app has its own push path" "$coexisting"
+fi
+cat > "$ROOT/app/App/AppDelegate.swift" <<'EOF'
+import IterableSDK
+extension AppDelegate {
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        IterableAPI.register(token: deviceToken)
+    }
+}
+EOF
+iterable_only="$(run_verify 2>/dev/null)"
+if [[ "$(json_value "$iterable_only" integration_complete)" == true &&
+      "$iterable_only" != *existing-push-coexistence* ]]; then
+  ok "an Iterable-only token callback does not add existing-push evidence"
+else
+  bad "an Iterable-only integration was asked to prove another push path" "$iterable_only"
+fi
+rm -rf "$ROOT/app/App"
+
 mv "$APP_PATH/IterableRuntimeProof.fixture" "$STATE/IterableRuntimeProof.fixture"
 node -e '
   const fs=require("fs"), path=process.argv[1];
@@ -773,6 +815,17 @@ if [[ "$simulator_observe_rc" -eq 0 &&
   ok "a non-push scope can complete honestly through the Simulator observation actor"
 else
   bad "the verifier did not preserve the supported non-push Simulator path"
+fi
+mkdir -p "$ROOT/app/App"
+printf 'func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {\n    PushRelay.shared.register(deviceToken)\n}\n' \
+  > "$ROOT/app/App/AppDelegate.swift"
+non_push_coexisting="$(run_verify 2>/dev/null)"
+rm -rf "$ROOT/app/App"
+if [[ "$(json_value "$non_push_coexisting" integration_complete)" == true &&
+      "$non_push_coexisting" != *existing-push-coexistence* ]]; then
+  ok "without push in scope, the app's own push path is not Iterable's evidence to collect"
+else
+  bad "a non-push scope was asked to prove the app's own push path" "$non_push_coexisting"
 fi
 
 touch "$STATE/simulator-shutdown"

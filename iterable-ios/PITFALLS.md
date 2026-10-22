@@ -343,3 +343,24 @@ Benchmark-app policy, not a general rule: [`eval/scenarios/ios-benchmark.md`](..
 - **Fix:** Use the signatures in `SKILL.md` → canonical step 4 — or better, the
   scene lifecycle: the iOS 26 SDK deprecates both app-delegate URL methods.
   Treat a "nearly matches optional requirement" warning as an error.
+
+## 29. No `registerToken` line in the log is read as no registration
+
+- **Symptom:** After sign-in, the log shows `apsd` handing the app its APNs
+  token and no Iterable `registerToken` line, so the agent decides the device
+  never registered and starts changing working code.
+- **Cause:** SDK 6.7.5 logs a successful registration only at debug level
+  (`ITBDebug("Device registration succeeded…")`,
+  [InternalIterableAPI.swift#L455](https://github.com/Iterable/iterable-swift-sdk/blob/6.7.5/swift-sdk/Internal/InternalIterableAPI.swift#L455)).
+  The default `IterableConfig.logDelegate` is
+  `DefaultLogDelegate(minLogLevel: .info)`, which drops debug
+  ([IterableLogging.swift#L12](https://github.com/Iterable/iterable-swift-sdk/blob/6.7.5/swift-sdk/SDK/IterableLogging.swift#L12)).
+  The generic `registerToken succeeded` info line never runs for this call,
+  because `register(token:)` passes its own success handler
+  ([RequestProcessorUtil.swift#L82-L86](https://github.com/Iterable/iterable-swift-sdk/blob/6.7.5/swift-sdk/Internal/RequestProcessorUtil.swift#L82-L86)).
+  A failure is logged at error level, but as the server's reason, without the
+  word `registerToken`.
+- **Fix:** Read registration from Iterable, not from the log. Run
+  `ios-verify status` and act on gate I12, which reads the device record, or
+  look for the device in **Audience > Contact Lookup**. Don't add a workaround
+  to make a log line appear.

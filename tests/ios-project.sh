@@ -231,6 +231,160 @@ printf "const { status } = await Notifications.requestPermissionsAsync();\n" > "
   ok "a bare React Native app gets no Expo permission warning" ||
   bad "a bare React Native app got the Expo permission warning" "$rn_inspect"
 
+push_paths() {
+  node -e '
+    const v=JSON.parse(process.argv[1]), w=v.warnings.find(w=>w.kind==="existing_push_path");
+    process.stdout.write([String(v.signals.existing_push_path),...(w?.evidence||[]).map(e=>`${e.signal}:${e.file}`).sort()].join(" "));
+  ' "$1"
+}
+expect_push_paths() {
+  local name="$1" json="$2" want="$3"
+  [[ "$(push_paths "$json")" == "$want" ]] && ok "$name" || bad "$name" "got: $(push_paths "$json")"
+}
+skill_app_delegate() {
+  awk '/^```swift$/{getline line; if (line ~ /^\/\/ AppDelegate\.swift/) {f=1; print line}; next} /^```$/{f=0} f' "$1"
+}
+
+COEXIST="$ROOT/coexist"
+mkdir -p "$COEXIST/App" "$COEXIST/NotificationService"
+printf 'name: Coexist\n' > "$COEXIST/project.yml"
+cat > "$COEXIST/App/AppDelegate.swift" <<'EOF'
+import UIKit
+import IterableSDK
+extension AppDelegate: UNUserNotificationCenterDelegate {
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        IterableAPI.register(token: deviceToken)
+        Task {
+            PushRelay.shared.registrationStatus.send(.tokenReceived(deviceToken))
+        }
+    }
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+                                withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        if notification.request.content.userInfo["itbl"] != nil {
+            completionHandler([.banner, .list, .sound])
+            return
+        }
+        guard let push = AppPush.decode(from: notification) else { completionHandler([]); return }
+        completionHandler(push.options)
+    }
+}
+EOF
+cat > "$COEXIST/NotificationService/NotificationService.swift" <<'EOF'
+import UserNotifications
+import IterableAppExtensions
+class NotificationService: UNNotificationServiceExtension {
+    private var iterable: ITBNotificationServiceExtension?
+    override func didReceive(_ request: UNNotificationRequest, withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void) {
+        if request.content.userInfo["itbl"] != nil {
+            let iterable = ITBNotificationServiceExtension()
+            self.iterable = iterable
+            iterable.didReceive(request, withContentHandler: contentHandler)
+            return
+        }
+        let content = request.content.mutableCopy() as! UNMutableNotificationContent
+        content.body = AppPush.decrypt(content.body)
+        contentHandler(content)
+    }
+}
+EOF
+git -C "$COEXIST" init -q
+expect_push_paths "an app's own callback handling and its own service extension are an existing push path" \
+  "$(inspect "$COEXIST")" \
+  "true notification_callback:App/AppDelegate.swift notification_callback:App/AppDelegate.swift notification_service_extension:NotificationService/NotificationService.swift"
+coexist_warning="$(inspect "$COEXIST")"
+[[ "$coexist_warning" == *'"kind":"existing_push_path"'* &&
+    "$coexist_warning" == *'didRegisterForRemoteNotificationsWithDeviceToken does more than forward to Iterable'* &&
+    "$coexist_warning" == *'userNotificationCenter willPresent does more than forward to Iterable'* &&
+    "$coexist_warning" == *'existing-push-coexistence'* ]] &&
+  ok "the existing-push warning names each callback and the evidence status will ask for" ||
+  bad "the existing-push warning is missing or vague" "$coexist_warning"
+
+FCM="$ROOT/native-fcm"
+mkdir -p "$FCM/App"
+printf 'name: Fcm\n' > "$FCM/project.yml"
+printf "target 'Fcm' do\n  pod 'Iterable-iOS-SDK'\n  pod 'Firebase/Messaging'\n  # pod 'OneSignal'\nend\n" > "$FCM/Podfile"
+skill_app_delegate iterable-ios/SKILL.md > "$FCM/App/AppDelegate.swift"
+git -C "$FCM" init -q
+expect_push_paths "Firebase Messaging in the Podfile is an existing push path even with Iterable-only callbacks" \
+  "$(inspect "$FCM")" "true push_sdk:Podfile"
+
+RN_FCM="$ROOT/rn-fcm"
+mkdir -p "$RN_FCM/ios" "$RN_FCM/src"
+printf '{"dependencies":{"react-native":"0.88.0","@iterable/react-native-sdk":"3.0.0","@react-native-firebase/messaging":"23.0.0"}}\n' > "$RN_FCM/package.json"
+pbxproj "$RN_FCM/ios/RnFcm.xcodeproj" com.example.rnfcm
+cp "$RN/src/App.tsx" "$RN_FCM/src/"
+git -C "$RN_FCM" init -q
+expect_push_paths "@react-native-firebase/messaging in a React Native app is an existing push path" \
+  "$(inspect "$RN_FCM")" "true push_sdk:package.json"
+
+OBJC_PUSH="$ROOT/rn-objc-push"
+mkdir -p "$OBJC_PUSH/ios/App"
+printf '{"dependencies":{"react-native":"0.88.0","@iterable/react-native-sdk":"3.0.0"}}\n' > "$OBJC_PUSH/package.json"
+pbxproj "$OBJC_PUSH/ios/App.xcodeproj" com.example.objcpush
+cat > "$OBJC_PUSH/ios/App/AppDelegate.mm" <<'EOF'
+- (void)application:(UIApplication *)application didRegisterForRemoteNotificationsWithDeviceToken:(NSData *)deviceToken
+{
+  [IterableAPI registerToken:deviceToken];
+  [RNCPushNotificationIOS didRegisterForRemoteNotificationsWithDeviceToken:deviceToken];
+}
+EOF
+git -C "$OBJC_PUSH" init -q
+expect_push_paths "an Objective-C++ token callback that also feeds another library is an existing push path" \
+  "$(inspect "$OBJC_PUSH")" "true notification_callback:ios/App/AppDelegate.mm"
+
+ONLY="$ROOT/iterable-only"
+mkdir -p "$ONLY/App" "$ONLY/NotificationService" "$ONLY/RichPush"
+printf 'name: Only\n' > "$ONLY/project.yml"
+skill_app_delegate iterable-ios/SKILL.md > "$ONLY/App/AppDelegate.swift"
+cat > "$ONLY/App/Routing.swift" <<'EOF'
+// import FirebaseMessaging
+extension SceneRouter {
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+                                withCompletionHandler completionHandler: @escaping () -> Void) {
+        guard response.notification.request.content.userInfo["itbl"] != nil else { return completionHandler() }
+        print("Iterable push opened")
+        IterableAppIntegration.userNotificationCenter(center,
+                                                      didReceive: response,
+                                                      withCompletionHandler: completionHandler)
+    }
+}
+EOF
+printf 'import IterableAppExtensions\n\nclass NotificationService: ITBNotificationServiceExtension {}\n' \
+  > "$ONLY/NotificationService/NotificationService.swift"
+cat > "$ONLY/RichPush/NotificationService.swift" <<'EOF'
+import UserNotifications
+import IterableAppExtensions
+class RichNotificationService: UNNotificationServiceExtension {
+    private let iterable = ITBNotificationServiceExtension()
+    override func didReceive(_ request: UNNotificationRequest, withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void) {
+        iterable.didReceive(request, withContentHandler: contentHandler)
+    }
+    override func serviceExtensionTimeWillExpire() {
+        iterable.serviceExtensionTimeWillExpire()
+    }
+}
+EOF
+git -C "$ONLY" init -q
+RN_BARE="$ROOT/rn-bare-skill"
+mkdir -p "$RN_BARE/ios/App"
+cp "$RN/package.json" "$RN_BARE/"
+pbxproj "$RN_BARE/ios/App.xcodeproj" com.example.rnbare
+skill_app_delegate iterable-react-native/SKILL.md > "$RN_BARE/ios/App/AppDelegate.swift"
+git -C "$RN_BARE" init -q
+if grep -q didRegisterForRemoteNotificationsWithDeviceToken "$ONLY/App/AppDelegate.swift" &&
+    grep -q didRegisterForRemoteNotificationsWithDeviceToken "$RN_BARE/ios/App/AppDelegate.swift"; then
+  expect_push_paths "Iterable-only wiring (the skill's app delegate, an itbl branch, both extension shapes) is not an existing push path" \
+    "$(inspect "$ONLY")" "false"
+  expect_push_paths "the React Native skill's bare iOS app delegate is not an existing push path" \
+    "$(inspect "$RN_BARE")" "false"
+else
+  bad "the skills' AppDelegate.swift snippets could not be extracted"
+fi
+expect_push_paths "a React Native Swift token hook that only forwards to Iterable is not an existing push path" \
+  "$rn_inspect" "false"
+expect_push_paths "an Objective-C++ registerToken: line outside a callback is not an existing push path" \
+  "$objc_inspect" "false"
+
 native_inspect="$(inspect "$NATIVE")"
 [[ "$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).framework)' "$native_inspect")" == native &&
     "$native_inspect" != *Release* ]] &&

@@ -151,7 +151,7 @@ When `next.kind` is:
 | `review_send_manifest` | Stop: the send manifest is invalid or incomplete. Do not send again until the run is reviewed or restarted. |
 | `launch_app` / `restore_app` | Instrumented run only. Run the exact `ios-launch` command, then re-run. |
 | `observe_tap` / `observe_logout` / `review_instrumentation` | Instrumented run only. The developer performs the recorded tap or logout; `review_instrumentation` reports missing journal evidence without repeating a UI action. |
-| `done` | Relay `proof_mode`, environment, `verified_features`, `feature_evidence_required`, `verification_limitations`, `integration_complete`, and every green proof boundary. If `integration_complete` is false, say “core verification complete; selected feature proof remains,” not “integration complete.” A development result does not claim TestFlight or production proof. Relay the JSON's `notice` field verbatim alongside the proof. |
+| `done` | Relay `proof_mode`, environment, `verified_features`, `feature_evidence_required`, `verification_limitations`, `integration_complete`, and every green proof boundary. If `integration_complete` is false, say “core verification complete; selected feature proof remains,” not “integration complete.” `existing-push-coexistence` means the app has its own push path that Iterable's wiring shares: relay `next.summary`, which names it and what the developer does, or report that path as unproved. A development result does not claim TestFlight or production proof. Relay the JSON's `notice` field verbatim alongside the proof. |
 
 `ios-verify inspect` may also return `review_integration` when the project does
 not show both the Iterable dependency and initialization; report that boundary.
@@ -205,6 +205,13 @@ Accessibility and logs are evidence, not permission to guess. If the app's
 visible state is ambiguous, state what was observed and ask only for the one
 missing product action. Never ask the developer to log in when the exact user
 already exists remotely and the app is visibly past its identification screen.
+
+Registration is never judged from logs. The SDK logs a successful token
+registration at debug level, which its default logger drops, so a log with an
+APNs token and no `registerToken` line says nothing about Iterable (iOS
+pitfall 29). Gate I12 reads the device record from Iterable; act on it. After
+any rebuild, re-run `ios-verify status` before asking the developer to act
+again. Its last answer was about the build you replaced.
 
 An event count above the recorded expectation is a contaminated run, not an
 immediate integration defect. The verifier cannot distinguish repeated manual

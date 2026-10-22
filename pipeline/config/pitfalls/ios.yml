@@ -264,3 +264,12 @@ pitfalls:
       - "nearly matches"
       - "continue userActivity"
     features: [deep-linking]
+
+  - id: 29
+    title: No registerToken log line is read as no registration
+    triggers:
+      - "registerToken"
+      - "Device registration succeeded"
+      - "ITBDebug"
+      - "logDelegate"
+    features: [push-notifications]

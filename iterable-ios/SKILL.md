@@ -218,6 +218,8 @@ For the agreed scope, finish the wiring rather than leaving snippets:
   visible on that user.
 - [ ] Push delivery is proved with `iterable-ios-verify`, or the handoff says
   exactly which boundary is still unproved.
+- [ ] An app that already had push still shows its own notifications, or the
+  handoff says that is unproved (rule 8).
 
 When you hand over, say it plainly: an AI agent wrote this code and
 configuration, it can be wrong in ways that still compile, and only what a real
@@ -311,6 +313,18 @@ non-trivial code.
    aren't Iterable's, so exactly one path may complete. Firebase Messaging and
    OneSignal swizzle these callbacks; see
    [pitfall 23](PITFALLS.md#23-another-sdk-owns-or-swizzles-the-notification-callbacks).
+
+   **Then prove the app's own push still works.** The verifier proves
+   Iterable's path only. When the app already had push, `ios-verify inspect`
+   warns `existing_push_path`, and `done` keeps `existing-push-coexistence` in
+   `feature_evidence_required`. Before you call the integration done, the
+   developer triggers one of the app's own notifications (the action that makes
+   its backend or provider send one) and confirms it shows. A test build with a
+   changed Bundle ID or team may be unreachable from the app's provider. If so,
+   say plainly that the app's own push is unproved. `xcrun simctl push` can't
+   stand in. Even with `mutable-content: 1` and no `itbl` key, it doesn't run
+   the Notification Service Extension (seen on the iOS 26.2 and 27.0 Simulators
+   with Xcode 27), and it skips the provider and APNs.
 
 ---
 
@@ -967,6 +981,14 @@ backend or privacy workflow.
    reads Iterable and the device independently and never edits the app. Don't
    replace it with a hand-written checklist or treat a green build, a
    successful API call, or `simctl push` as delivery.
+
+**Never judge registration from logs.** The SDK reports a successful token
+registration only at debug level, which its default log delegate drops, so no
+`registerToken` line appears even when the device registered
+([pitfall 29](PITFALLS.md#29-no-registertoken-line-in-the-log-is-read-as-no-registration)).
+Run `ios-verify status`: gate I12 reads the device record from Iterable. Act on
+its gates. **After any rebuild, re-run the verifier before asking the developer
+to act again.** Its last answer was about the build you replaced.
 
 An iOS 16+ Simulator on macOS 13+ (Apple silicon or T2 Mac) receives real APNs
 **sandbox** pushes; production and TestFlight need a physical iPhone. When a

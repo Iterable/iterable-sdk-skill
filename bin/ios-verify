@@ -105,6 +105,7 @@ done
 inspect_project() {
   local project_root dependency=false initialization=false identity=false
   local push=false runtime_proof=false workspace_exists=false next_kind scan_root framework
+  local existing_push existing_push_path=false
   local native_files="$TMP/inspect-native" js_files="$TMP/inspect-js" summary warnings='[]'
   project_root="$(ios_project_app_root "$PWD")" || project_root="$PWD"
   if [[ "$project_root" == "$TOOL_ROOT" ]]; then
@@ -195,6 +196,15 @@ inspect_project() {
     runtime_proof=true
   fi
   [[ -d "$project_root/.iterable/ios" ]] && workspace_exists=true
+  existing_push="$(ios_project_existing_push "$project_root")"
+  [[ "$existing_push" == '[]' ]] || existing_push_path=true
+  warnings="$(node -e '
+    const warnings=JSON.parse(process.argv[1]), found=JSON.parse(process.argv[2]);
+    if (found.length) warnings.push({kind:"existing_push_path",pitfall:"iterable-ios/PITFALLS.md#23",
+      summary:`The app has its own push handling besides Iterable: ${found.map(f=>`${f.detail} (${f.file})`).join("; ")}. Prove that path still works after the Iterable integration: the developer triggers a notification the app itself sends, not an Iterable one, and confirms it shows. ios-verify cannot prove it; with push in scope, status lists existing-push-coexistence under feature_evidence_required.`,
+      evidence:found});
+    process.stdout.write(JSON.stringify(warnings));
+  ' "$warnings" "$existing_push")"
   if [[ "$dependency" == true && "$initialization" == true ]]; then
     next_kind=prepare_proof
     summary='The app source contains Iterable dependency and initialization signals. Prepare a fresh verification run; installed runtime evidence, not this heuristic scan, decides behavior.'
@@ -208,8 +218,8 @@ inspect_project() {
   printf '"tool":"iterable-ios-inspect","contract":2,"read_only":true,"signals_are_heuristic":true,'
   printf '"project_root":%s,"framework":%s,"verification_workspace_exists":%s,' \
     "$(jstr "$project_root")" "$(jstr "$framework")" "$workspace_exists"
-  printf '"signals":{"sdk_dependency":%s,"sdk_initialization":%s,"identity_wiring":%s,"push_wiring":%s,"runtime_proof_source":%s},"warnings":%s,' \
-    "$dependency" "$initialization" "$identity" "$push" "$runtime_proof" "$warnings"
+  printf '"signals":{"sdk_dependency":%s,"sdk_initialization":%s,"identity_wiring":%s,"push_wiring":%s,"runtime_proof_source":%s,"existing_push_path":%s},"warnings":%s,' \
+    "$dependency" "$initialization" "$identity" "$push" "$runtime_proof" "$existing_push_path" "$warnings"
   printf '"next":{"kind":%s,"command":%s,"summary":%s}' \
     "$(jstr "$next_kind")" \
     "$(jstr "$([[ "$next_kind" == prepare_proof ]] && printf '%s' "$BIN/ios-prepare-proof status")")" \
@@ -2601,7 +2611,7 @@ if [[ -n "$NEXT_ID" ]]; then
         fi
       else
         NEXT_KIND=inspect_app
-        NEXT_SUMMARY="$NEXT_SUMMARY Inspect the current screen and registration logs before asking for notification consent or repeating an app action."
+        NEXT_SUMMARY="$NEXT_SUMMARY Inspect the current screen before asking for notification consent or repeating an app action. This gate reads the device record from Iterable, and only it decides registration: the SDK logs a successful token registration at debug level, which its default logger drops, so a log with no registerToken line proves nothing. Re-run ios-verify status after any app action or rebuild."
         NEXT_COMMAND="$BIN/ios-observe inspect --kind app --purpose registration"
       fi
       ;;
@@ -2806,6 +2816,14 @@ fi
 if [[ "$NEXT_KIND" == done && "$PHYSICAL_DEVELOPER_OBSERVED" == true ]]; then
   NEXT_SUMMARY="Delivery to the physical iPhone is developer-observed: the developer read back the code the notification showed, and the physical path has not been tested by the maintainers. $NEXT_SUMMARY"
 fi
+# Only push scope edits the notification callbacks the app's own push shares.
+EXISTING_PUSH='[]'
+[[ "$PUSH_REQUIRED" != true ]] || EXISTING_PUSH="$(ios_project_existing_push "$APP_ROOT")"
+if [[ "$NEXT_KIND" == done && "$EXISTING_PUSH" != '[]' ]]; then
+  NEXT_SUMMARY="$NEXT_SUMMARY The app also has its own push handling ($(node -e '
+    process.stdout.write(JSON.parse(process.argv[1]).map(f=>`${f.detail} in ${f.file}`).join("; "));
+  ' "$EXISTING_PUSH")), and nothing here proves it still works: the developer triggers a notification the app itself sends, not an Iterable one, and confirms it shows. Until then existing-push-coexistence stays in feature_evidence_required."
+fi
 PUSH_PROVEN=false
 if [[ "$PUSH_REQUIRED" == true &&
     "$(gate_status I12)" == green &&
@@ -2840,8 +2858,9 @@ FEATURE_EVIDENCE_REQUIRED="$(node -e '
     }
   }
   if (process.argv[2]==="true") separate.push("jwt-authentication");
+  if (process.argv[4]!=="[]") separate.push("existing-push-coexistence");
   process.stdout.write(JSON.stringify(separate));
-' "$FEATURES" "$JWT_ENABLED" "$PROOF_MODE")"
+' "$FEATURES" "$JWT_ENABLED" "$PROOF_MODE" "$EXISTING_PUSH")"
 VERIFICATION_LIMITATIONS="$(node -e '
   if (process.argv[1]!=="behavioral") {
     process.stdout.write("[]");
