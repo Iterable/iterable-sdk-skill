@@ -8,9 +8,9 @@ title: Creating In-App Templates
 source_url: https://support.iterable.com/hc/articles/360044425951
 source_repo: Iterable/iterable-docs
 source_path: docs/sending-messages-by-channel/in-app/creating-in-app-templates/index.md
-source_ref: 9875968f907df280d7023b1f8f45ba0293940498
-source_sha: 95cafb9a899e7a111c2122ea618c6cd93cd0fc49
-fetched_at: 2026-10-06T11:07:38.927Z
+source_ref: 80c2226068f35b6fef335738f56a39f4f4b3d3ca
+source_sha: c7cea2ccfae284b7342672e4fc6d4c595665e855
+fetched_at: 2026-10-22T13:16:37.035Z
 summary: In-app templates are message blueprints that you can reuse across
   multiple in-app message campaigns, which users can view as they're using your
   mobile apps or websites. They can contain text, buttons, links, and images,
@@ -551,11 +551,11 @@ changes will affect the template itself, but not the already-existing campaigns.
 ## Want to learn more?
 
 For more information about some of the topics in this article, check out these 
-resources. Iterable Academy is open to everyone — you don't need to be 
+resources. Iterable Academy is open to everyone—you don't need to be 
 an Iterable customer!
 
 **Iterable Academy**
-- [Product Bite: Creating an In-App Template](https://academy.iterable.com/creating-an-in-app-template)
+- [Product Bite: Creating an In-App Template](https://academy.iterable.com/learn/courses/65/product-bite-creating-an-in-app-template)
 
  **Support docs** 
 - [In-App Messages and Mobile Inbox](https://support.iterable.com/hc/articles/217517406)

@@ -8,9 +8,9 @@ title: In-App Messages on Android
 source_url: https://support.iterable.com/hc/articles/360035537231
 source_repo: Iterable/iterable-docs
 source_path: docs/developer-and-api-docs/in-app-messages/in-app-messages-on-android/index.md
-source_ref: 59c40504c91bc0b13751c5ef5f348810eb0fd4f2
-source_sha: 65412ae773eaca59531243ff4775fd4457b5b608
-fetched_at: 2026-08-03T20:41:28.539Z
+source_ref: 80c2226068f35b6fef335738f56a39f4f4b3d3ca
+source_sha: f3f2ca59be593169eec0e17b5c09e26ec331714e
+fetched_at: 2026-10-22T13:16:25.629Z
 summary: By default, when an in-app message arrives from the server, the SDK
   automatically shows it if the app is in the foreground. If an in-app message
   is already showing when the new message arrives, the new message will be shown
@@ -199,6 +199,53 @@ apps built fully with Jetpack Compose.
 
 No code changes are required to take advantage of this—just upgrade to SDK
 version 3.9.0 or later. (The host must still be an `Activity`.)
+
+### Controlling the HTML color scheme
+
+By default, HTML in-app messages follow the host activity's Android UI mode.
+This determines whether CSS such as
+`@media (prefers-color-scheme: dark)` uses its light or dark styles.
+
+If your app keeps its theme choice only in Compose state, Android's UI mode may
+not match the theme shown by your composables. In that case, provide the current
+scheme when you configure the SDK:
+
+_Kotlin_
+
+```kotlin
+val inAppColorScheme = AtomicReference(IterableInAppColorScheme.LIGHT)
+
+val config = IterableConfig.Builder()
+    .setInAppColorSchemeProvider(inAppColorScheme::get)
+    .build()
+
+IterableApi.initialize(applicationContext, apiKey, config)
+```
+
+Update the value when your app's Compose theme changes:
+
+```kotlin
+inAppColorScheme.set(
+    if (useDarkTheme) {
+        IterableInAppColorScheme.DARK
+    } else {
+        IterableInAppColorScheme.LIGHT
+    }
+)
+```
+
+The SDK queries the provider whenever it creates an in-app message, so the next
+message uses the updated scheme. If the app always uses one scheme, configure a
+fixed value instead:
+
+```kotlin
+val config = IterableConfig.Builder()
+    .setInAppColorScheme(IterableInAppColorScheme.DARK)
+    .build()
+```
+
+Use `IterableInAppColorScheme.AUTOMATIC` (the default) to follow the host
+activity's Android UI mode.
 
 > [!WARNING]
 > This Compose compatibility applies to **in-app message rendering** only. Iterable's

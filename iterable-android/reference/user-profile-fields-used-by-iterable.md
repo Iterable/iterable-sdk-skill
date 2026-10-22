@@ -8,9 +8,9 @@ title: User Profile Fields Used by Iterable
 source_url: https://support.iterable.com/hc/articles/217744303
 source_repo: Iterable/iterable-docs
 source_path: docs/audience-management/users-and-user-profiles/user-profile-fields-used-by-iterable/index.md
-source_ref: 275e9063f5aa922a9c282d6d34a8aebec3d15448
-source_sha: 51d92087789bba35ac0db9c47d2a9e9c3c7bdfd8
-fetched_at: 2026-10-22T09:59:43.294Z
+source_ref: 80c2226068f35b6fef335738f56a39f4f4b3d3ca
+source_sha: 7cc2d8d3cdada32fe6b70a75e16e0ca17fb6039a
+fetched_at: 2026-10-22T13:16:29.440Z
 summary: User profiles in Iterable contain various fields that Iterable uses for
   specific purposes. This document describes these fields and their meanings.
 ---
@@ -79,6 +79,24 @@ projects, Iterable uses [`userListIds`](#userlistids).
 ### `itblInternal`
 
 A collection of various fields managed by Iterable.
+
+### `itblInternal.emailTrackingPixelConsentMetadata`
+
+Iterable-owned metadata for the [`emailTrackingPixelConsent`](#emailtrackingpixelconsent)
+field. This object includes a timestamp (`changedAt`) and the update source
+(`updatedVia`). Iterable generates these values. Don't send this object in user
+update requests.
+
+The metadata records only the latest consent change. It isn't a versioned
+history of every consent event. `changedAt` is set when the consent value is
+first written, and it updates only when that value actually changes. Writing
+the same value again doesn't change the timestamp. If you need to show consent
+as of a specific date, such as when a particular email was sent, keep a
+timestamped consent log in your own systems.
+
+This metadata isn't shown in the Iterable UI. You can retrieve it with
+[`GET /api/users/{email}`](https://support.iterable.com/hc/articles/204780579#get-api-users-email)
+or [`GET /api/users/byUserId/{userId}`](https://support.iterable.com/hc/articles/204780579#get-api-users-byuserid-userid).
 
 ### `itblInternal.phoneCountry`
 
@@ -227,8 +245,8 @@ When sending messages, Iterable relies on the fields described below.
 
 > [!WARNING]
 > The specific names of these fields are important. For example, Iterable uses the
-> `phoneNumber` field when sending SMS messages; it won't recognize `phone_number`
-> or `PhoneNumber`.
+> `phoneNumber` field when sending SMS and RCS messages; it won't recognize 
+> `phone_number` or `PhoneNumber`.
 
 ### `country`
 
@@ -348,6 +366,31 @@ A user's email address.
   unique identifiers, and how they work, read
   [Project Types and Unique Identifiers](https://support.iterable.com/hc/articles/9216719179796).
 
+### `emailTrackingPixelConsent`
+
+A boolean that stores whether the user has consented to an email tracking pixel.
+When a project is set to [use consent-based open tracking](https://support.iterable.com/hc/articles/206382645#use-consent-based-open-tracking),
+Iterable adds the tracking pixel to marketing emails only when this field is
+`true`. If the field is `false` or missing, marketing emails omit the pixel.
+Transactional emails aren't subject to this check.
+
+This is a system-defined field. Use this field rather than a custom field with
+a similar name.
+
+**Accepted values** - An exact boolean `true` or `false`. Iterable doesn't treat
+the string `"true"` as consent. To withdraw consent, set the field to `false`.
+
+Iterable doesn't collect this consent from recipients and doesn't backfill
+existing profiles. You collect consent in your own systems, then write the
+boolean using existing profile-update paths, such as
+[`POST /api/users/update`](https://support.iterable.com/hc/articles/204780579#post-api-users-update),
+[`POST /api/users/bulkUpdate`](https://support.iterable.com/hc/articles/204780579#post-api-users-bulkupdate),
+CSV or other profile imports, or a
+[User Profile tile](https://support.iterable.com/hc/articles/17743524980756#user-profile-tiles)
+in a Journey.
+
+For more information, see [Using Consent-Based Email Open Tracking](https://support.iterable.com/hc/articles/54025388140820).
+
 ### `ip`
 
 The user's IP address.
@@ -369,7 +412,7 @@ section of your Project Settings page.
 ### `phoneNumber`
 
 A string that represents the user's phone number. Iterable uses this number when
-sending SMS messages.
+sending SMS and RCS messages.
 
 Values must be formatted using [E.164](https://en.wikipedia.org/wiki/E.164).
 For example:
@@ -382,7 +425,7 @@ When you send an SMS to the user, Iterable checks to see if the user has
 Iterable uses `phoneNumber` to look up the country code and add it to the user's
 profile.
 
-Iterable doesn't send SMS campaigns to users without a `phoneNumber` set. 
+Iterable doesn't send SMS or RCS campaigns to users without a `phoneNumber` set. 
 
 > [!WARNING]
 > When updating a `phoneNumber`, if you don't include a country code, Iterable
@@ -405,7 +448,7 @@ To avoid confusion, do not use `profile` as a field name in your user profiles.
 
 The user's time zone, which Iterable uses for the following features:
 
-- [Send Time Optimization](https://support.iterable.com/hc/articles/360050923471)
+- [Send Time Decisioning](https://support.iterable.com/hc/articles/360050923471)
 - [Quiet Hours](https://support.iterable.com/hc/articles/16928857601940)
 - [Sending in Different Time Zones](https://support.iterable.com/hc/articles/14761834767508#sending-in-different-time-zones)
 
@@ -511,7 +554,7 @@ You'll often see the following fields on Iterable system events:
 ## Want to learn more?
 
 For more information about some of the topics in this article, check out this
-Iterable Academy course. Iterable Academy is open to everyone — you don't need
+Iterable Academy course. Iterable Academy is open to everyone—you don't need
 to be an Iterable customer!
 
-- [Foundations: Setting Up Senders](https://academy.iterable.com/setting-up-senders)
+- [Foundations: The User Profile](https://academy.iterable.com/learn/courses/44/foundations-the-user-profile)

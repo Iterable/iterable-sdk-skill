@@ -8,9 +8,9 @@ title: API Keys
 source_url: https://support.iterable.com/hc/articles/360043464871
 source_repo: Iterable/iterable-docs
 source_path: docs/developer-and-api-docs/api/api-keys/index.md
-source_ref: 275e9063f5aa922a9c282d6d34a8aebec3d15448
-source_sha: a471f729824c851571d0c97c020dfc9c68d0dcbc
-fetched_at: 2026-10-19T10:21:48.016Z
+source_ref: 80c2226068f35b6fef335738f56a39f4f4b3d3ca
+source_sha: 5c50818e387680e3801070bb1f9cdb877d70609a
+fetched_at: 2026-10-22T13:16:45.298Z
 summary: "[Iterable's API](https://support.iterable.com/hc/articles/204780579)
   can be used to interact with a project's users, templates, campaigns,
   journeys, and more. To authenticate with the API, you must use an API key."
@@ -187,8 +187,14 @@ access. These keys are classified as either server-side or client-side.
   - [`GET /api/campaigns`](https://support.iterable.com/hc/articles/204780579#get-api-campaigns)
   - [`GET /api/campaigns/metrics`](https://support.iterable.com/hc/articles/204780579#get-api-campaigns-metrics)
   - [`GET /api/campaigns/recurring/{id}/childCampaigns`](https://support.iterable.com/hc/articles/204780579#get-api-campaigns-recurring-id-childcampaigns)
+  - [`GET /api/campaigns/{id}`](https://support.iterable.com/hc/articles/204780579#get-api-campaigns-id)
   - [`GET /api/channels`](https://support.iterable.com/hc/articles/204780579#get-api-channels)
+  - [`GET /api/experiments`](https://support.iterable.com/hc/articles/204780579#get-api-experiments)
   - [`GET /api/experiments/metrics`](https://support.iterable.com/hc/articles/204780579#get-api-experiments-metrics)
+  - [`GET /api/experiments/{experimentId}`](https://support.iterable.com/hc/articles/204780579#get-api-experiments-experimentid)
+  - [`GET /api/experiments/{experimentId}/totals`](https://support.iterable.com/hc/articles/204780579#get-api-experiments-experimentid-totals)
+  - [`GET /api/experiments/{experimentId}/trends`](https://support.iterable.com/hc/articles/204780579#get-api-experiments-experimentid-trends)
+  - [`GET /api/experiments/{experimentId}/variants`](https://support.iterable.com/hc/articles/204780579#get-api-experiments-experimentid-variants)
   - [`GET /api/journeys`](https://support.iterable.com/hc/articles/204780579#get-api-journeys)
   - [`GET /api/lists`](https://support.iterable.com/hc/articles/204780579#get-api-lists)
   - [`GET /api/lists/{listId}/size`](https://support.iterable.com/hc/articles/204780579#get-api-lists-listid-size)
@@ -200,9 +206,11 @@ access. These keys are classified as either server-side or client-side.
   - [`GET /api/snippets/{identifier}`](https://support.iterable.com/hc/articles/204780579#get-api-snippets-identifier)
   - [`GET /api/templates`](https://support.iterable.com/hc/articles/204780579#get-api-templates)
   - [`GET /api/templates/email/get`](https://support.iterable.com/hc/articles/204780579#get-api-templates-email-get)
+  - [`POST /api/templates/email/preview`](https://support.iterable.com/hc/articles/204780579#post-api-templates-email-preview)
   - [`GET /api/templates/embedded/get`](https://support.iterable.com/hc/articles/204780579#get-api-templates-embedded-get)
   - [`GET /api/templates/getByClientTemplateId`](https://support.iterable.com/hc/articles/204780579#get-api-templates-getbyclienttemplateid)
   - [`GET /api/templates/inapp/get`](https://support.iterable.com/hc/articles/204780579#get-api-templates-inapp-get)
+  - [`POST /api/templates/inapp/preview`](https://support.iterable.com/hc/articles/204780579#post-api-templates-inapp-preview)
   - [`GET /api/templates/push/get`](https://support.iterable.com/hc/articles/204780579#get-api-templates-push-get)
   - [`GET /api/templates/sms/get`](https://support.iterable.com/hc/articles/204780579#get-api-templates-sms-get)
   - [`GET /api/users/getFields`](https://support.iterable.com/hc/articles/204780579#get-api-users-getfields)
@@ -218,6 +226,7 @@ access. These keys are classified as either server-side or client-side.
   - [`POST /api/events/trackInAppOpen`](https://support.iterable.com/hc/articles/204780579#post-api-events-trackinappopen)
   - [`POST /api/events/trackPushOpen`](https://support.iterable.com/hc/articles/204780579#post-api-events-trackpushopen)
   - [`POST /api/events/trackWebPushClick`](https://support.iterable.com/hc/articles/204780579#post-api-events-trackwebpushclick)
+  - [`GET /api/inApp/getPriorityMessage`](https://support.iterable.com/hc/articles/204780579#get-api-inapp-getprioritymessage)
   - [`POST /api/users/disableDevice`](https://support.iterable.com/hc/articles/204780579#post-api-users-disabledevice)
   - [`POST /api/users/registerBrowserToken`](https://support.iterable.com/hc/articles/204780579#post-api-users-registerbrowsertoken)
   - [`POST /api/users/registerDeviceToken`](https://support.iterable.com/hc/articles/204780579#post-api-users-registerdevicetoken)
@@ -287,6 +296,7 @@ access. These keys are classified as either server-side or client-side.
   - [`POST /api/events/trackInAppOpen`](https://support.iterable.com/hc/articles/204780579#post-api-events-trackinappopen)
   - [`POST /api/events/trackWebPushClick`](https://support.iterable.com/hc/articles/204780579#post-api-events-trackwebpushclick)
   - [`GET /api/inApp/getMessages`](https://support.iterable.com/hc/articles/204780579#get-api-inapp-getmessages)
+  - [`GET /api/inApp/getPriorityMessage`](https://support.iterable.com/hc/articles/204780579#get-api-inapp-getprioritymessage)
   - [`GET /api/inApp/web/getMessages`](https://support.iterable.com/hc/articles/204780579#get-api-inapp-web-getmessages)
   - [`POST /api/users/merge`](https://support.iterable.com/hc/articles/204780579#post-api-users-merge)
     (For merging an anonymous user only; to merge known users, use a 
@@ -470,11 +480,11 @@ To delete an API key:
 ## Want to learn more?
 
 For more information about some of the topics in this article, check out these 
-resources. Iterable Academy is open to everyone — you don't need 
+resources. Iterable Academy is open to everyone—you don't need 
 to be an Iterable customer!
 
 **Iterable Academy**
-- [Creating and Managing Your API Key](https://academy.iterable.com/setting-up-and-using-an-api-key-in-iterable)
+- [Creating and Managing Your API Key](https://academy.iterable.com/learn/courses/143/creating-and-managing-your-api-key)
 
 **Support docs**
 - [Getting Started with Iterable's API](https://support.iterable.com/hc/articles/41044692130196)

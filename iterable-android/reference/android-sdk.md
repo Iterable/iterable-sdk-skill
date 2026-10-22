@@ -8,9 +8,9 @@ title: Iterable's Android SDK
 source_url: https://support.iterable.com/hc/articles/360035019712
 source_repo: Iterable/iterable-docs
 source_path: docs/developer-and-api-docs/iterables-ios-and-android-sdks/android-sdk/index.md
-source_ref: 275e9063f5aa922a9c282d6d34a8aebec3d15448
-source_sha: f3094449749a0fbb538376b2305ed42eb4323b52
-fetched_at: 2026-09-11T13:22:39.216Z
+source_ref: 80c2226068f35b6fef335738f56a39f4f4b3d3ca
+source_sha: 409e35287b42260bd9463820ffaadba81bb69933
+fetched_at: 2026-10-22T13:16:25.351Z
 summary: This article describes how to install and configure Iterable's [Android
   SDK](https://github.com/Iterable/iterable-android-sdk).
 ---
@@ -82,9 +82,9 @@ dependencies to your application's `build.gradle`:
 
 ```groovy
 dependencies{
-    implementation 'com.iterable:iterableapi:3.5.3'
+    implementation 'com.iterable:iterableapi:3.11.1'
     // Optional, contains Inbox UI components:
-    implementation 'com.iterable:iterableapi-ui:3.5.3' 
+    implementation 'com.iterable:iterableapi-ui:3.11.1'
     // Version 17.4.0+ is required for push notifications and in-app message features:
     implementation 'com.google.firebase:firebase-messaging:X.X.X' 
 }
@@ -379,9 +379,22 @@ to fetch a new token, call `setExpiringAuthTokenRefreshPeriod` on `IterableConfi
 ```java
 IterableConfig config = new IterableConfig.Builder()
   // ... other configuration options ...
-  .setExpiringAuthTokenRefreshPeriod(time_in_seconds).build();
+  .setExpiringAuthTokenRefreshPeriod(45.0).build();
 IterableApi.initialize(context, "<YOUR_API_KEY>", config);
 ```
+
+The value is in **seconds**, and defaults to 60. As of SDK version 3.11.0,
+fractional seconds are supported (for example, `0.5`).
+
+> [!WARNING]
+> Pass a positive value. The SDK logs and ignores `null`, `NaN`, and negative
+> values, keeping whatever period was set before the call (the 60-second default,
+> unless an earlier call set something else). Values above about 10 years are
+> clamped to that ceiling. Zero is valid, and means the SDK refreshes the token
+> only after it has expired.
+
+Before SDK version 3.11.0, this method accepted only whole seconds (a `Long`).
+That overload is deprecated but still supported, so no code changes are required.
 
 ##### Step 5.6.3: Set an auth retry policy
 
@@ -568,6 +581,64 @@ To learn how to use Iterable's Android SDK with Embedded Messaging, read
 
 This section describes how to upgrade from earlier versions of Iterable's
 Android SDK.
+
+### Upgrading to 3.11.0
+
+[Version 3.11.0](https://github.com/Iterable/iterable-android-sdk/releases/tag/3.11.0)
+of Iterable's Android SDK makes HTML in-app messages follow the device's
+light/dark setting, adds cross-SDK identifiers to `IterableDataRegion`, and
+accepts fractional seconds for the expiring auth token refresh period. **No code
+changes are required to upgrade**, but review the following changes:
+
+#### HTML in-app messages now follow the device's light/dark setting
+
+> [!WARNING]
+> The following in-app color scheme changes my change how your existing in-app 
+> campaigns look.
+
+In earlier versions, the in-app message container always reported
+`prefers-color-scheme: dark` to the message HTML. As a result, a campaign with an
+`@media (prefers-color-scheme: dark)` block always rendered its dark styles, even
+on a device in light mode. Starting with version 3.11.0, in-app messages follow
+the host activity's light-dark configuration.
+
+If your in-app campaigns declare dark styles, they'll now render their light
+styles when the device is in light mode—which may be the first time you've seen
+them do so. Campaigns that don't declare dark styles are unaffected, as is
+rendering in dark mode.
+
+To set the color scheme yourself instead of following the device, use the new
+`setInAppColorScheme()` or `setInAppColorSchemeProvider()` options on
+`IterableConfig.Builder`. The provider is evaluated for each new in-app message,
+so apps that keep their theme in Jetpack Compose state (rather than in an XML
+theme) can return the current scheme. For more information, read
+[In-App Messages on Android](https://support.iterable.com/hc/articles/360035537231).
+
+#### New: cross-SDK identifiers for `IterableDataRegion`
+
+`IterableDataRegion` now exposes `getRegionCode()` (for example, `"EU"`) and
+`getCode()` (`0` for US, `1` for EU), along with the static
+`IterableDataRegion.from(String)` and `IterableDataRegion.from(int)` factories.
+These match the values used by Iterable's React Native and Flutter SDKs, and are
+mainly useful if you bridge Iterable configuration from cross-platform code.
+Selecting a data region with `setDataRegion(IterableDataRegion.EU)` is unchanged.
+
+#### Deprecated: `IterableConstants.BASE_URL_API` and `BASE_URL_LINKS`
+
+Both constants are hardcoded to the US data region, and the SDK doesn't use
+them—it resolves its endpoint from the configured `IterableDataRegion`. They
+still resolve to the same values, so no action is required in this release.
+
+**These constants will be removed in 3.12.0.** If your app references either one,
+switch to `IterableDataRegion.getEndpoint()` before upgrading to that version.
+
+#### Removed: the unused `encryptionEnforced` option
+
+The `encryptionEnforced` field has been removed from `IterableConfig`. Since SDK
+version 3.5.5 it has had no public setter and no effect on the SDK's behavior, so
+no app can be affected. To control whether the SDK encrypts stored user data, use
+`setKeychainEncryption(boolean)`; to be notified when the SDK can't decrypt stored
+data, use `setDecryptionFailureHandler(...)`.
 
 ### Upgrading to 3.10.0
 
