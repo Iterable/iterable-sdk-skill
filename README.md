@@ -135,8 +135,31 @@ select **iterable**, and select **Enable auto-update**.
 
 ### Cursor
 
-Cursor requires version 3.9 or later. Clone the repository and link the skill
-directories:
+Cursor requires version 3.9 or later. Install the skills as a plugin:
+
+1. Open **Customize** in the sidebar.
+2. Select **+ Add**, then **From GitHub Repository**.
+3. Enter `https://github.com/Iterable/iterable-sdk-skill`.
+4. Find **iterable-sdk**, select **Install**, and choose the project or user
+   scope.
+
+The plugin installs the skills, the scripts they run, and the Context7 MCP
+server. Team admins can also add the repository as a team marketplace.
+
+To test a local checkout, clone it into Cursor's local plugin folder:
+
+```bash
+git clone https://github.com/Iterable/iterable-sdk-skill.git ~/.cursor/plugins/local/iterable-sdk
+```
+
+Run **Developer: Reload Window**, then confirm the skills in **Customize**.
+Cursor skips a symlink in that folder that points to a clone elsewhere. On
+Teams and Enterprise plans, an admin must allow local plugin imports.
+
+#### Fallback: link the skill directories
+
+If you can't install plugins, clone the repository and link the skill
+directories. This installs the skills without the Context7 MCP server:
 
 ```bash
 git clone --depth 1 https://github.com/Iterable/iterable-sdk-skill.git ~/iterable-skills
@@ -271,7 +294,9 @@ codex plugin marketplace upgrade iterable
 
 Then start a new Codex session.
 
-For Cursor's clone-and-link installation:
+For Cursor, manage the installed plugin from **Customize**. For a local
+plugin checkout, run `git pull` in `~/.cursor/plugins/local/iterable-sdk` and
+reload the window. For the clone-and-link fallback:
 
 ```bash
 cd ~/iterable-skills
@@ -293,8 +318,10 @@ codex plugin remove iterable-sdk@iterable
 codex plugin marketplace remove iterable
 ```
 
-For Cursor's clone-and-link installation, delete the links in
-`~/.cursor/skills/` and the `~/iterable-skills` clone.
+For Cursor, uninstall the plugin from **Customize**, or delete
+`~/.cursor/plugins/local/iterable-sdk` for a local checkout. For the
+clone-and-link fallback, delete the links in `~/.cursor/skills/` and the
+`~/iterable-skills` clone.
 
 Uninstalling the plugin leaves cloud resources in place. Before you uninstall,
 run `.iterable/teardown` from your project to remove the Google service account,
