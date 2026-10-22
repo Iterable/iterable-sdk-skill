@@ -164,9 +164,10 @@ If you reach the filesystem root without finding it, the install is
 incomplete. Say so and stop. Do not guess at a path, and do not reimplement any of
 these checks by hand.
 
-## Before you run anything
+## Android: before you run anything
 
-The first command is not the ladder. It is the question that asks whether to start one:
+This section is the Android program's; the iOS path starts as *Choose the platform before
+running a ladder* says. On Android, the first command is not the ladder. It is the question that asks whether to start one:
 
 ```
 <root>/bin/agent question opening
@@ -174,8 +175,8 @@ The first command is not the ladder. It is the question that asks whether to sta
 
 **Ask it, and wait for an answer, before you run any other command here.** It spends no
 credentials, reads nothing, and writes nothing — not even a workspace directory — so it
-is safe to be the first thing that happens. Render it exactly as *When the tool hands you
-a question* says: `context` above the selector, verbatim, then the options.
+is safe to be the first thing that happens. Render it exactly as *Rendering a tool screen* says:
+`context` printed above the selector, verbatim, then `prompt` whole and the options.
 
 This ordering is the point and it is easy to get wrong. A status read runs the whole
 eighteen-gate ladder against their Firebase projects, so a question carried in its output
@@ -237,8 +238,9 @@ Render it as one `AskUserQuestion`:
   version of it still comes back "yes".
 - `requires`, when it is not empty, goes in the same message. It is what they have to do
   themselves, in their own terminal.
-- `header` is the chip, `prompt` is the question, and each entry in `options` is one
-  option — `label` as the label, `description` as the description.
+- `header` is the chip and `prompt` goes in whole, line breaks included: on a step screen
+  it carries the step itself, with the question as its last line. Each entry in
+  `options` is one option — `label` as the label, `description` as the description.
 - When they pick one, run that option's `commands` in order, then read the ladder again.
 - An option with a non-empty `relay` has **no** commands for you. That is a command only
   the developer can run — it hosts a sign-in, or takes a key with the echo off. Print it,
@@ -347,6 +349,7 @@ relay the block, do not look for a flag that gets you past it, and never set
 | `iterable_keys` | Four steps in their Iterable account that only they can do. Ask `next.question`, then walk them **one at a time** — see *The four Iterable steps* below. The two keys reach the workspace with `iterable-keys --take server\|mobile`, off their clipboard; never into this conversation. |
 | `install_app` / `run_app` | The Google and Iterable halves are green. If the app has no Iterable integration yet, continue as *Where this goes next* says first. Otherwise this is the Android device half—hand off to `iterable-android-verify`. Until a device is on record `next.question` is the device picker, worth asking even when only one is attached: a phone left plugged in to charge is "the only device", takes the proof push, and the developer watching an emulator reports that nothing arrived. The verifier may open the selected app after installation; signing in and allowing notifications still happen inside their app, by their hand. |
 | `send_proof` | The Android device half—hand off to `iterable-android-verify`. |
+| `investigate` | A device-half check is red (token, registration, or delivery). Relay `next.summary` verbatim—it is a defect, not pending work—and hand off to `iterable-android-verify`, which owns it. |
 | `done` | A real push reached the device. Say which device and chain onward. |
 
 `next.command` is the command for that step when there is one. Run it; do not
@@ -471,15 +474,16 @@ between is to keep it to **one step per message**.
 these four cannot be automated, and that the keys never come through this conversation.
 Ask it. Then, for each step the chain gives you:
 
-1. Run `<root>/bin/agent question iterable_step N`. Its `context` **is** the step — the
-   numbered clicks, the URL, and the one or two arrows that matter — so show every line of
-   it above the selector, as it came out. Do not summarise it, do not retype the URLs, do
+1. Run `<root>/bin/agent question iterable_step N`. Its `prompt` **is** the step — the
+   numbered clicks, the URL, and the one or two arrows that matter — with the question as
+   its last line, so pass it to `AskUserQuestion` whole, as it came out; its `context`
+   is the relay instruction, printed above the selector as usual. Do not summarise it, do not retype the URLs, do
    not merge two steps into one message. A shortened step is the most expensive mistake in
    this whole setup: "FCM type: Data notifications" condensed to "enable notifications"
    breaks push while every other check still reads as configured.
 2. Then wait. Step N+1 does not exist until they answer, and the answer names it. If you
-   find yourself writing the instructions for a dashboard screen, you have skipped the
-   `context` — nothing here needs you to compose a step, and a composed one has already
+   find yourself writing the instructions for a dashboard screen, you have cut the
+   `prompt` — nothing here needs you to compose a step, and a composed one has already
    told a developer to rename a file this tool stopped writing.
 3. Its options arrive with the commands that enact them, so the walk cannot lose its
    place or skip a screen. On step 1 two of them are `--take server` and `--take mobile`:
@@ -514,7 +518,7 @@ writes `.iterable/.env` at mode 0600 with three empty names — never overwritin
 value, because an Iterable key is shown once. Without arguments and without a terminal
 it prints all four at once — that is the form for a script, not for a conversation.
 You do not need to call it on the chat path: `agent question iterable_step N` already
-carries the same clicks in its `context`, from the same source.
+carries the same clicks in its `prompt`, from the same source.
 
 - **Never ask anyone to paste a key into the conversation.** Not as a question, not
   as an `AskUserQuestion` option, not "just to check the format". `--take` exists so

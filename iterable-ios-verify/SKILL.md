@@ -160,10 +160,10 @@ When `next.kind` is:
 | `repair_device_connection` / `retry_device_read` | The device inventory was unreadable. Repair the connection as the summary says; `retry_device_read` re-runs the verifier once. |
 | `build_app` | Build first and record the resulting exact `.app` path. `ios-install` never builds. |
 | `install_app` | Run `ios-install` for the already-built exact `.app`, then re-run. |
-| `prepare_delivery` / `prepare_delivery_b` | Physical iPhone or instrumented run only. Run the exact purpose-scoped SpringBoard inspection from `next.command`. |
-| `deliver_user_a` / `deliver_user_b` | Physical iPhone or instrumented run only. Announce the exact identity and marker, then run the exact confirmed `ios-deliver target` command. |
-| `observe_user_targeted` / `retry_delivery_observation` / `observe_user_b` | Physical iPhone or instrumented run only. Run the exact `ios-observe delivery` command without resending. |
-| `inspect_delivery` / `inspect_delivery_logs` | Physical iPhone or instrumented run only. Run the exact diagnostic command; these never authorize another send. |
+| `prepare_delivery` / `prepare_delivery_b` | Instrumented run only. Run the exact purpose-scoped SpringBoard inspection from `next.command`. |
+| `deliver_user_a` / `deliver_user_b` | Instrumented run only. Announce the exact identity and marker, then run the exact confirmed `ios-deliver target` command. |
+| `observe_user_targeted` / `retry_delivery_observation` / `observe_user_b` | Instrumented run only. Run the exact `ios-observe delivery` command without resending. |
+| `inspect_delivery` / `inspect_delivery_logs` | Instrumented run only. Run the exact diagnostic command; these never authorize another send. |
 | `review_send_manifest` | Stop: the send manifest is invalid or incomplete. Do not send again until the run is reviewed or restarted. |
 | `launch_app` / `restore_app` | Instrumented run only. Run the exact `ios-launch` command, then re-run. |
 | `observe_tap` / `observe_logout` / `review_instrumentation` | Instrumented run only. The developer performs the recorded tap or logout; `review_instrumentation` reports missing journal evidence without repeating a UI action. |
@@ -188,8 +188,9 @@ that receipt: it re-reads the same Simulator store and log itself, and after the
 developer clears Notification Center it accepts only the full log chain
 (received with this nonce, requested, saved, delivered).
 
-On a physical iPhone and in instrumented runs, `ios-launch`, `ios-send`, and
-`ios-observe` stay separate actors and `ios-deliver` sequences them: it waits
+A standard run on a physical iPhone also sends through `ios-prove`, and the
+developer reads the code back (`readback_code`). In instrumented runs,
+`ios-launch`, `ios-send`, and `ios-observe` stay separate actors and `ios-deliver` sequences them: it waits
 for a secure observer arm receipt before invoking the sender once.
 `ios-observe inspect` non-interactively reads accessibility state and a
 bounded, redacted relevant log tail, then caches a mode-`0600`, short-lived
