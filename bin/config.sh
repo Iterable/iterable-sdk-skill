@@ -1104,21 +1104,6 @@ next_part_banner() { # [gate name] [its verdict]
 # The one thing stopping the run, printed where nobody can scroll past it. Which
 # gate that is has already been decided by next_action — this is only how it looks,
 # so the styling can never disagree with the routing.
-# ASK.md names the first unfinished step, pending or red, from next_action: the banner
-# and the agent path follow the same source, so a pending step before the first red one
-# is never skipped.
-write_ask_md() {
-  local gate cmd summary
-  IFS="$NEXT_SEP" read -r _ _ gate cmd summary <<< "$(next_action)"
-  [[ -n "$gate" ]] || { gate="$1"; summary="$2"; }
-  {
-    printf '# ASK.md\n\nWaiting on you at **%s**, which only you can clear.\n\n    %s\n' "$(gate_name "$gate")" "$summary"
-    [[ -z "$cmd" ]] || printf '\nStart it with:\n\n    %s\n' "$cmd"
-    printf '\nDo that, then run this again — nothing already green will be redone:\n\n    %s\n\n' "$(cmd_path onboard)"
-    printf '_Written %s. The tool overwrites this file each time it blocks._\n' "$(date '+%Y-%m-%d %H:%M')"
-  } > "$WS/ASK.md"
-}
-
 blocker_banner() {
   local owner kind gate cmd summary name colour label
   IFS="$NEXT_SEP" read -r owner kind gate cmd summary <<< "$(next_action)"

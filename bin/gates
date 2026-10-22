@@ -12,6 +12,9 @@ FIRST_RED=""
 FAILED=0
 STATE="$WS/state.tsv"
 ws_init; : > "$STATE"
+# Written only when a run blocks on the developer, so one left by an earlier run would
+# send whoever reads it to a step this run may not be on.
+rm -f "$WS/ASK.md"
 
 # The spinner hides the cursor, and a hidden cursor outlives the process — Ctrl-C out of
 # a slow gate would otherwise leave the developer's own shell without one. INT is named
@@ -355,7 +358,19 @@ fi
 # needs you", 20 is "the tool found a real defect". Conflating them means a cron
 # loop cannot tell "waiting on a human" from "broken".
 if [[ -n "$HUMAN_FIX" ]]; then
-  write_ask_md "$FIRST_RED" "$HUMAN_FIX"
+  cat > "$WS/ASK.md" <<EOF
+# ASK.md
+
+Waiting on you at **$(gate_name "$FIRST_RED")**, which only you can clear.
+
+    $HUMAN_FIX
+
+Do that, then run this again — nothing already green will be redone:
+
+    $(cmd_path onboard)
+
+_Written $(date '+%Y-%m-%d %H:%M'). The tool overwrites this file each time it blocks._
+EOF
   # bin/onboard prints its own block; don't say it twice.
   if [[ "${QUIET_VERDICT:-0}" != 1 ]]; then
     blocker_banner

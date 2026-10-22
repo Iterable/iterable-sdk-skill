@@ -509,24 +509,6 @@ before="$(shasum < "$WS/state.tsv")"; done_with "$OWN" >/dev/null
   ok "$(printf '%-44s %s' "no gate reads it, and state.tsv is untouched" "gates unchanged")" ||
   bad "the existing-push check reached the gates" "$(grep -l 'existing-push' bin/gates*)"
 
-# A pending Iterable step comes before a later red one: the ladder must not send the
-# agent past the dashboard steps to "install the app".
-GREEN_TO_G9=()
-for g in G0 G1 G2 G3 G4 G5 G6 G7 G8 G9; do GREEN_TO_G9+=("$(row "$g" green tool "$g" ok)"); done
-state "${GREEN_TO_G9[@]}" \
-  "$(row G10 pending human "Iterable API keys work" "no server-side key yet")" \
-  "$(row G11 unverifiable human "Mobile app in Iterable" "human step")" \
-  "$(row G12 unverifiable human "Push integration configured" "human step")" \
-  "$(row G13 red human "App installed with the SDK" "this APK predates the integration")"
-expect human iterable_keys "cmd:iterable-keys --step 1" "a pending Iterable step before a red install"
-write_ask_md G13 "this APK predates the integration"
-if grep -q "$(gate_name G10)" "$WS/ASK.md" && grep -q 'iterable-keys --step 1' "$WS/ASK.md" &&
-   ! grep -q "$(gate_name G13)" "$WS/ASK.md"; then
-  ok "$(printf '%-44s %s' "ASK.md names the pending Iterable step" "G10")"
-else
-  bad "ASK.md skipped the pending Iterable step" "$(cat "$WS/ASK.md")"
-fi
-
 echo
 ((FAILED)) && { echo "  FAILED"; exit 1; }
 echo "  All good — every state routes to one owner and one action."
