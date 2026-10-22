@@ -55,6 +55,102 @@ that it has not run.
 **W7 — The proof.** A real push lands on a real device, verified by something that did not
 perform the step it is verifying. The tool never grades its own work.
 
+## Native iOS provider path
+
+Native iOS keeps the same conducted, provider-first contract without pretending
+Apple and Firebase have identical control planes:
+
+1. Record the feature scope. For push, confirm the exact application target:
+   status reads the Bundle ID and product name from the app's build settings
+   and `choose_bundle` offers them as one runnable `record-target`.
+2. For push, ask the developer to choose one Apple setup strategy: reuse an
+   existing ready setup, follow a guided Account Holder or Admin handoff, or,
+   only when they hold one, use an App Store Connect Team API key.
+   The guided handoff walks one Apple Developer step per screen (App ID, Push
+   Notifications, APNs key), and each screen's `prompt` names its action so a
+   selector shown without its `context` still says what to do. The Team-key
+   path reads App Store Connect, shows the exact plan, and writes the App ID
+   and Push Notifications only after the developer approves it.
+3. Record existing and guided read-back as developer-confirmed
+   (`developer_observed`, `tool_verified: false`); only the Team-key read-back
+   is `tool_verified`. The tool never signs in to an Apple account.
+4. Import the deliberately retained APNs key from the `.p8` path the developer
+   answers with (Key ID from the file name, Team ID from `DEVELOPMENT_TEAM`).
+   `validate-apns` then proves the key, Key ID, and Team ID with one APNs
+   sandbox probe; it does not prove the App ID. Then
+   move to the Iterable Mobile key, the Server-side key, and the iOS
+   app/APNs dashboard configuration. A rejected key routes to its replace
+   screen rather than to the same validation again.
+5. Integrate the selected SDK features and hand runtime evidence to the
+   independent verifier.
+
+Every screen on that path either carries a command to run or names the human
+action and waits; `tests/ios-provision-transitions.sh` walks it with fakes and
+fails on an empty command, a human step without a question, or a step that
+comes back unchanged. Changing the selected Bundle ID invalidates
+target-bound local state before the flow resumes.
+
+## Native iOS verification-only path
+
+A request to verify an app that is already integrated does not restart the
+integration or Apple provisioning flow:
+
+1. `ios-verify status` is the first call. With no proof run it hands back the
+   proof screen itself: the detected bundle, a prefilled device (a single
+   eligible booted Simulator is selected and shown), and one free-text answer
+   for the identity the app is signed in with. A Simulator implies the APNs
+   sandbox, so the environment is not asked. `ios-verify inspect` reads the
+   project without requiring `.iterable/ios/` when there is no context at all.
+2. The screen's command records a behavioral proof run and makes no app edits.
+   An existing run is offered as keep or restart, and a run older than 24 hours
+   must be restarted. Instrumented proof is used only after an explicit request
+   for a benchmark, evaluation, or callback-level diagnostic run.
+3. A new integration completed in the current session may record its exact
+   built artifact; a standalone verification reuses the installed application
+   and reports that the current source/build is not linked to that proof.
+   `ios-install` never builds. Standard proof never relaunches the app.
+4. The verifier checks the exact user and device registration remotely. On a
+   Simulator it also checks that Iterable holds that Simulator's current APNs
+   token. Before requesting one missing manual action it performs short-lived,
+   purpose-scoped screen and log inspections that may foreground the app but
+   never tap, type, grant permission, or navigate.
+5. With an imported APNs key, the verifier asks Apple directly (I13) whether it
+   accepts pushes for the app's real Simulator token, using one silent probe
+   that is a diagnostic, never delivery; a refusal is named with its fix.
+   On a Simulator, `ios-prove` checks the Simulator, Iterable, and that same
+   Apple answer,
+   moves the app out of the foreground, and sends one marked push through the
+   Iterable API with a fresh nonce. It reads the Simulator's notification store
+   and Unified Log: APNs delivery is the Simulator `apsd` receipt carrying this
+   run's nonce, joined to the stored notification by its SpringBoard digest. A
+   locally injected record, a wrong nonce, or a duplicate never passes. A miss
+   is named from the log and is never resent; restarting is the developer's
+   decision. `ios-verify` re-derives the same verdict from the Simulator on its
+   own.
+6. On a physical iPhone, `ios-prove` sends one push whose body shows a
+   six-character code, sent as a per-send merge field so the template holds only
+   a placeholder; only its scrypt hash is stored. The developer reads the
+   code from the phone and `ios-prove readback` checks it (three wrong codes end
+   the run). It then tries `log collect --device-udid` without elevation to
+   corroborate exactly one alert push for the app; a refusal skips
+   corroboration and is reported, never escalated. `done` says the proof is
+   developer-observed and that the physical path has not been tested by the
+   maintainers. Production APNs is allowed here.
+
+So the standard Simulator path is `ios-verify status` → the proof screen's
+command → `ios-prove --confirm` → `ios-verify status`: four tool calls and one
+developer answer.
+
+Profile/event mutation checks, tap routing, logout, second-user ownership, and
+callback ordering belong to the explicit instrumented benchmark path.
+
+Normal push proof uses the same API-targeted template proof as Android and
+reads its arrival from the selected device's own records. Dashboard direct
+Test Push remains optional troubleshooting and never blocks completion.
+
+Only missing verification credentials return to their narrow capture command.
+Missing proof metadata is not evidence that the SDK integration is missing.
+
 ## What divergence looks like
 
 The three classes, because they need different fixes and get confused constantly:

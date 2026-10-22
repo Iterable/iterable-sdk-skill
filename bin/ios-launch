@@ -1,0 +1,176 @@
+#!/usr/bin/env bash
+# Launch actor for a native iOS proof run.
+#
+# The verifier never launches an app. This actor starts the exact recorded
+# bundle with a short-lived non-secret run identifier so the evaluation-only
+# runtime journal can bind facts to one proof run.
+
+set -uo pipefail
+
+BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TOOL_ROOT="$(cd "$BIN/.." && pwd)"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  ios-launch --phase initial|restore|switch [--workspace PATH]
+
+Launches the exact bundle on the selected iPhone or Simulator with
+ITERABLE_PROOF_RUN_ID, ITERABLE_PROOF_EXPIRES_AT, and ITERABLE_PROOF_PHASE.
+It may terminate an existing process so launch/restore evidence is causal. It
+records only a scoped launch receipt. It does not tap, type, accept notification
+permission, or navigate the app.
+EOF
+}
+
+die() {
+  printf 'error: %s\n' "$*" >&2
+  exit 30
+}
+
+PHASE=""
+WORKSPACE_OVERRIDE=""
+while (($#)); do
+  case "$1" in
+    --phase)
+      (($# >= 2)) || die "--phase needs a value"
+      PHASE="$2"
+      shift 2
+      ;;
+    --phase=*)
+      PHASE="${1#*=}"
+      shift
+      ;;
+    --workspace)
+      (($# >= 2)) || die "--workspace needs a value"
+      WORKSPACE_OVERRIDE="$2"
+      shift 2
+      ;;
+    --workspace=*)
+      WORKSPACE_OVERRIDE="${1#*=}"
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      die "unknown option: $1"
+      ;;
+  esac
+done
+[[ "$PHASE" == initial || "$PHASE" == restore || "$PHASE" == switch ]] ||
+  die "--phase must be initial, restore, or switch"
+
+if [[ -n "$WORKSPACE_OVERRIDE" ]]; then
+  WORKSPACE="$WORKSPACE_OVERRIDE"
+elif [[ -n "${IOS_WORKSPACE:-}" ]]; then
+  WORKSPACE="$IOS_WORKSPACE"
+else
+  project_root="$(git rev-parse --show-toplevel 2>/dev/null)" || project_root="$PWD"
+  [[ "$project_root" != "$TOOL_ROOT" ]] ||
+    die "run this from the iOS app being proved, not from the skill repository"
+  WORKSPACE="$project_root/.iterable/ios"
+fi
+
+TARGET="$WORKSPACE/proof-target.json"
+[[ -f "$TARGET" ]] || die "record the proof target before launching"
+
+read_target() {
+  node -e '
+    const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
+    process.stdout.write(String(v[process.argv[2]] || ""));
+  ' "$TARGET" "$1"
+}
+
+BUNDLE_ID="$(read_target bundle_id)"
+DEVICE_ID="$(read_target device)"
+RECORDED_DEVICE_KIND="$(read_target device_kind)"
+RUN_ID="$(read_target run_id)"
+IDENTITY="$(read_target identity)"
+SWITCH_IDENTITY="$(read_target switch_identity)"
+[[ -n "$BUNDLE_ID" && -n "$DEVICE_ID" && -n "$RUN_ID" ]] ||
+  die "the proof target must name a bundle, device, and run ID"
+[[ "$RECORDED_DEVICE_KIND" == simulator || "$RECORDED_DEVICE_KIND" == physical ]] ||
+  die "the proof target has no valid device kind"
+
+EXPIRES_AT="$(node -e '
+  process.stdout.write(new Date(Date.now()+2*60*60*1000).toISOString());
+')"
+ENVIRONMENT_JSON="$(node -e '
+  const [run,expires,phase]=process.argv.slice(1);
+  process.stdout.write(JSON.stringify({
+    ITERABLE_PROOF_RUN_ID:run,
+    ITERABLE_PROOF_EXPIRES_AT:expires,
+    ITERABLE_PROOF_PHASE:phase
+  }));
+' "$RUN_ID" "$EXPIRES_AT" "$PHASE")"
+
+write_launch_receipt() {
+  local device_kind="$1"
+  local directory="$WORKSPACE/launches" file="$WORKSPACE/launches/$PHASE.json"
+  mkdir -p "$directory"
+  chmod 700 "$directory"
+  (
+    umask 077
+    node -e '
+      const fs=require("fs");
+      fs.writeFileSync(process.argv[1],JSON.stringify({
+        launched:true,
+        phase:process.argv[2],
+        bundle_id:process.argv[3],
+        device:process.argv[4],
+        device_kind:process.argv[5],
+        run_id:process.argv[6],
+        launched_at:new Date().toISOString(),
+        expires_at:process.argv[7]
+      },null,2)+"\n",{mode:0o600});
+    ' "$file" "$PHASE" "$BUNDLE_ID" "$DEVICE_ID" "$device_kind" \
+      "$RUN_ID" "$EXPIRES_AT"
+  )
+  chmod 600 "$file"
+}
+
+print_next_step() {
+  printf 'Re-run ios-verify status now. It will read Iterable and the selected device before asking for any manual action.\n'
+}
+
+command -v xcrun >/dev/null 2>&1 || die "xcrun is not installed"
+
+simulators="$(xcrun simctl list devices --json 2>/dev/null || true)"
+if printf '%s' "$simulators" | node -e '
+  let input="";
+  process.stdin.on("data",c=>input+=c).on("end",()=>{
+    let v; try { v=JSON.parse(input) } catch { process.exit(1) }
+    const want=process.argv[1];
+    const devices=Object.values(v.devices||{}).flat();
+    process.exit(devices.some(d=>d.udid===want && d.state==="Booted") ? 0 : 1);
+  });
+' "$DEVICE_ID"; then
+  [[ "$RECORDED_DEVICE_KIND" == simulator ]] ||
+    die "the selected UDID is a Simulator but proof-target.json records $RECORDED_DEVICE_KIND"
+  SIMCTL_CHILD_ITERABLE_PROOF_RUN_ID="$RUN_ID" \
+    SIMCTL_CHILD_ITERABLE_PROOF_EXPIRES_AT="$EXPIRES_AT" \
+    SIMCTL_CHILD_ITERABLE_PROOF_PHASE="$PHASE" \
+    xcrun simctl launch --terminate-running-process "$DEVICE_ID" "$BUNDLE_ID" \
+      >/dev/null ||
+    die "Simulator could not launch $BUNDLE_ID on $DEVICE_ID"
+  write_launch_receipt simulator
+  printf 'Launched %s on Simulator %s for proof phase %s.\n' \
+    "$BUNDLE_ID" "$DEVICE_ID" "$PHASE"
+  print_next_step
+  exit 0
+fi
+
+[[ "$RECORDED_DEVICE_KIND" == physical ]] ||
+  die "the selected UDID is not a booted Simulator but proof-target.json records simulator"
+xcrun devicectl device process launch \
+  --device "$DEVICE_ID" \
+  --terminate-existing \
+  --environment-variables "$ENVIRONMENT_JSON" \
+  "$BUNDLE_ID" >/dev/null ||
+  die "CoreDevice could not launch $BUNDLE_ID on $DEVICE_ID"
+write_launch_receipt physical
+printf 'Launched %s on physical iPhone %s for proof phase %s.\n' \
+  "$BUNDLE_ID" "$DEVICE_ID" "$PHASE"
+print_next_step

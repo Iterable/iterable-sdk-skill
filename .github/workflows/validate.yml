@@ -8,11 +8,15 @@ on:
     branches: [main]
     paths:
       - iterable-android/**
+      - iterable-android-verify/**
+      - iterable-ios/**
+      - iterable-ios-verify/**
       - iterable-react-native/**
       - iterable-provision/**
-      - iterable-verify/**
       - pipeline/**
       - bin/**
+      - tools/**
+      - copy/**
       - tests/**
       - agents/**
       - Makefile
@@ -26,11 +30,15 @@ on:
     branches: [main]
     paths:
       - iterable-android/**
+      - iterable-android-verify/**
+      - iterable-ios/**
+      - iterable-ios-verify/**
       - iterable-react-native/**
       - iterable-provision/**
-      - iterable-verify/**
       - pipeline/**
       - bin/**
+      - tools/**
+      - copy/**
       - tests/**
       - agents/**
       - Makefile
@@ -82,7 +90,8 @@ jobs:
   # suites run here too.
   shell:
     runs-on: macos-latest
-    timeout-minutes: 15
+    # The iOS suites roughly doubled the runtime (22-30 minutes locally).
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v4

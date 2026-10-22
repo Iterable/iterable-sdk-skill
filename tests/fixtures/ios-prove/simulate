@@ -1,0 +1,203 @@
+#!/usr/bin/env bash
+# Plays the Simulator's side of a proof send from scrubbed real recordings.
+#
+#   simulate register <devices-root> <udid> <bundle> [environment]
+#   simulate deliver <scenario> <devices-root> <udid> <bundle> <marker> <nonce> <template-id> <log-file>
+#   simulate device-log <one|none|two> <ndjson-out>
+#
+# Scenarios: apns, nobundle, injected, wrongnonce, suppressed, never, duplicate.
+# The device log follows the SpringBoard lines published from physical iPhones in
+# firebase/flutterfire#13073 and #10603; on a device apsd logs its payload as <private>.
+
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+READER="$HERE/../../../bin/ios-notify-read.js"
+DIRECTORY=0B5E8D2A-3C1F-4E7A-9B6D-2F8C4A1E7D90
+
+notifications_dir() {
+  printf '%s/%s/data/Library/UserNotifications' "$1" "$2"
+}
+
+render_log() {
+  local template="$1" marker="$2" nonce="$3" template_id="$4" identifier="$5" digest="$6" base_ms="$7"
+  node -e '
+    const fs=require("fs");
+    const [file,marker,nonce,templateId,identifier,digest,base]=process.argv.slice(1);
+    const stamp=ms=>{
+      const t=new Date(ms), p=(n,w=2)=>String(n).padStart(w,"0");
+      return `${t.getUTCFullYear()}-${p(t.getUTCMonth()+1)}-${p(t.getUTCDate())} `+
+        `${p(t.getUTCHours())}:${p(t.getUTCMinutes())}:${p(t.getUTCSeconds())}.${p(t.getUTCMilliseconds(),3)}000+0000`;
+    };
+    const text=fs.readFileSync(file,"utf8")
+      .replace(/__TS\+(\d+)__/g,(_,off)=>stamp(Number(base)+Number(off)))
+      .replaceAll("__MARKER__",marker).replaceAll("__NONCE__",nonce)
+      .replaceAll("__TEMPLATE_ID__",templateId).replaceAll("__IDENTIFIER__",identifier)
+      .replaceAll("__DIGEST__",digest);
+    process.stdout.write(text.split("\n").filter(l=>l && !l.includes("\"finished\"")).join("\n")+"\n");
+  ' "$template" "$marker" "$nonce" "$template_id" "$identifier" "$digest" "$base_ms"
+}
+
+render_record() {
+  local template="$1" marker="$2" nonce="$3" template_id="$4" identifier="$5" created_ns="$6"
+  sed -e "s/__MARKER__/$marker/g" -e "s/__NONCE__/$nonce/g" \
+    -e "s/__TEMPLATE_ID__/$template_id/g" -e "s/__IDENTIFIER__/$identifier/g" \
+    -e "s/__CREATED_NS__/$created_ns/g" "$HERE/$template"
+}
+
+APNS_RECORD=delivered-apns.xml.tmpl
+SB_PATH="/Library/Developer/CoreSimulator/Volumes/iOS_23C54/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.2.simruntime/Contents/Resources/RuntimeRoot/System/Library/CoreServices/SpringBoard.app/SpringBoard"
+UN_CORE_PATH="/Library/Developer/CoreSimulator/Volumes/iOS_23C54/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.2.simruntime/Contents/Resources/RuntimeRoot/System/Library/PrivateFrameworks/UserNotificationsCore.framework/UserNotificationsCore"
+
+synthetic_line() {
+  local base_ms="$1" off="$2" message="$3"
+  node -e '
+    const [base,off,message,sb,core]=process.argv.slice(1);
+    const t=new Date(Number(base)+Number(off)), p=(n,w=2)=>String(n).padStart(w,"0");
+    const stamp=`${t.getUTCFullYear()}-${p(t.getUTCMonth()+1)}-${p(t.getUTCDate())} ${p(t.getUTCHours())}:${p(t.getUTCMinutes())}:${p(t.getUTCSeconds())}.${p(t.getUTCMilliseconds(),3)}000+0000`;
+    console.log(JSON.stringify({timestamp:stamp,processImagePath:sb,senderImagePath:core,subsystem:"com.apple.UserNotifications",category:"RemoteNotifications",messageType:"Default",eventMessage:message}));
+  ' "$base_ms" "$off" "$message" "$SB_PATH" "$UN_CORE_PATH"
+}
+
+case "${1:-}" in
+  register)
+    root="$(notifications_dir "$2" "$3")"
+    mkdir -p "$root/$DIRECTORY"
+    sed -e "s/__BUNDLE__/$4/" -e "s/__DIRECTORY__/$DIRECTORY/" "$HERE/Library.plist.tmpl" > "$root/Library.plist"
+    sed -e "s/__ENVIRONMENT__/${5:-development}/" "$HERE/PushRegistration.plist.tmpl" \
+      > "$root/$DIRECTORY/PushRegistration.plist"
+    ;;
+  deliver)
+    scenario="$2" root="$(notifications_dir "$3" "$4")" marker="$6" nonce="$7" template_id="$8" log="$9"
+    base_ms="$(node -e 'process.stdout.write(String(Date.now()))')"
+    created_ns="$(node -e 'process.stdout.write(String((Date.now()-Date.UTC(2001,0,1))/1000))')"
+    identifier="$(node -e 'process.stdout.write(require("crypto").randomUUID().toUpperCase())')"
+    digest="$(node "$READER" digest "$identifier")"
+    store="$root/$DIRECTORY/DeliveredNotifications.plist"
+    other_nonce="$(node -e 'process.stdout.write(require("crypto").randomBytes(32).toString("hex"))')"
+    apns_log() { render_log "$HERE/log-apns.ndjson.tmpl" "$marker" "${1:-$nonce}" "$template_id" "$identifier" "$digest" "${2:-$base_ms}"; }
+    case "$scenario" in
+      apns|duplicate)
+        render_record "$APNS_RECORD" "$marker" "$nonce" "$template_id" "$identifier" "$created_ns" > "$store"
+        apns_log >> "$log"
+        if [[ "$scenario" == duplicate ]]; then
+          second="$(node -e 'process.stdout.write(require("crypto").randomUUID().toUpperCase())')"
+          render_log "$HERE/log-apns.ndjson.tmpl" "$marker" "$nonce" "$template_id" "$second" \
+            "$(node "$READER" digest "$second")" "$((base_ms + 1500))" >> "$log"
+        fi
+        ;;
+      nobundle)
+        render_record "$APNS_RECORD" "$marker" "$nonce" "$template_id" "$identifier" "$created_ns" |
+          sed -e 's#<string>com.example.dogshelter</string>#<string></string>#' > "$store"
+        apns_log >> "$log"
+        ;;
+      injected)
+        render_record delivered-injected.xml.tmpl "$marker" "$nonce" "$template_id" "$identifier" "$created_ns" > "$store"
+        render_log "$HERE/log-injected.ndjson.tmpl" "$marker" "$nonce" "$template_id" "$identifier" "$digest" "$base_ms" >> "$log"
+        ;;
+      copied)
+        render_record "$APNS_RECORD" "$marker" "$nonce" "$template_id" "$identifier" "$created_ns" > "$store"
+        render_log "$HERE/log-injected.ndjson.tmpl" "$marker" "$nonce" "$template_id" "$identifier" "$digest" "$base_ms" >> "$log"
+        ;;
+      wrongnonce)
+        render_record "$APNS_RECORD" "$marker" "$other_nonce" "$template_id" "$identifier" "$created_ns" > "$store"
+        apns_log "$other_nonce" >> "$log"
+        ;;
+      redacted)
+        render_record "$APNS_RECORD" "$marker" "$nonce" "$template_id" "$identifier" "$created_ns" > "$store"
+        apns_log | node -e '
+          let i=""; process.stdin.on("data",c=>i+=c).on("end",()=>{
+            for (const line of i.split("\n").filter(Boolean)) {
+              const v=JSON.parse(line);
+              if (v.subsystem==="com.apple.apsd") v.eventMessage=v.eventMessage.replace(/with payload \x27\{[\s\S]*\}\x27/,"with payload \x27<private>\x27");
+              console.log(JSON.stringify(v));
+            }
+          });' >> "$log"
+        ;;
+      sibling)
+        render_record "$APNS_RECORD" "$marker" "$nonce" "$template_id" "$identifier" "$created_ns" > "$store"
+        apns_log | sed -e 's/com\.example\.dogshelter/com.example.dogshelter.widget/g' >> "$log"
+        ;;
+      forged)
+        render_record "$APNS_RECORD" "$marker" "$nonce" "$template_id" "$identifier" "$created_ns" > "$store"
+        apns_log | sed -E 's#"(processImagePath|senderImagePath)": "[^"]*"#"\1": "/Users/dev/Library/Developer/CoreSimulator/Devices/SIM/data/Containers/Bundle/Application/APP/DogShelter.app/DogShelter"#g' >> "$log"
+        ;;
+      savingno)
+        render_record "$APNS_RECORD" "$marker" "$nonce" "$template_id" "$identifier" "$created_ns" > "$store"
+        apns_log | sed -e 's/Saving notification \([0-9A-F-]*\): YES \[ hasAlertContent: YES, shouldPresentAlert: YES/Saving notification \1: NO [ hasAlertContent: YES, shouldPresentAlert: NO/' >> "$log"
+        ;;
+      earliernonce)
+        render_record "$APNS_RECORD" "$marker" "$other_nonce" "$template_id" \
+          "$(node -e 'process.stdout.write(require("crypto").randomUUID().toUpperCase())')" \
+          "$(node -e 'process.stdout.write(String((Date.now()-600000-Date.UTC(2001,0,1))/1000))')" > "$store"
+        apns_log >> "$log"
+        ;;
+      stale)
+        render_record "$APNS_RECORD" "$marker" "$nonce" "$template_id" "$identifier" \
+          "$(node -e 'process.stdout.write(String((Date.now()-3600000-Date.UTC(2001,0,1))/1000))')" > "$store"
+        apns_log >> "$log"
+        ;;
+      suppressed)
+        render_log "$HERE/log-suppressed.ndjson.tmpl" "$marker" "$nonce" "$template_id" "$identifier" "$digest" "$base_ms" >> "$log"
+        ;;
+      foreign)
+        render_record "$APNS_RECORD" "$marker" "$nonce" "$template_id" "$identifier" "$created_ns" > "$store"
+        render_log "$HERE/log-apns.ndjson.tmpl" ITBL-IOS-PROOF-FFFFFFFFFFFF "$other_nonce" "$template_id" \
+          "$identifier" "$digest" "$base_ms" >> "$log"
+        ;;
+      concurrent)
+        render_record "$APNS_RECORD" "$marker" "$nonce" "$template_id" "$identifier" "$created_ns" > "$store"
+        apns_log >> "$log"
+        render_log "$HERE/log-apns.ndjson.tmpl" ITBL-IOS-PROOF-EEEEEEEEEEEE "$other_nonce" "$template_id" "$identifier" "$digest" "$((base_ms + 600))" |
+          grep '"com.apple.apsd"' >> "$log"
+        ;;
+      othersuppressed)
+        render_record "$APNS_RECORD" "$marker" "$nonce" "$template_id" "$identifier" "$created_ns" > "$store"
+        apns_log >> "$log"
+        other="$(node -e 'process.stdout.write(require("crypto").randomUUID().toUpperCase())')"
+        render_log "$HERE/log-suppressed.ndjson.tmpl" ITBL-IOS-PROOF-EEEEEEEEEEEE "$other_nonce" "$template_id" "$other" \
+          "$(node "$READER" digest "$other")" "$((base_ms + 4000))" >> "$log"
+        ;;
+      forgedsender)
+        render_record "$APNS_RECORD" "$marker" "$nonce" "$template_id" "$identifier" "$created_ns" > "$store"
+        apns_log | sed -E 's#"senderImagePath": "[^"]*"#"senderImagePath": "/System/Library/PrivateFrameworks/Unrelated.framework/Unrelated"#g' >> "$log"
+        ;;
+      siblingsb)
+        render_record "$APNS_RECORD" "$marker" "$nonce" "$template_id" "$identifier" "$created_ns" > "$store"
+        apns_log | sed -e '/"com.apple.apsd"/!s/\[com\.example\.dogshelter\] /[com.example.dogshelter.widget] /g' >> "$log"
+        ;;
+      unjoined)
+        render_record "$APNS_RECORD" "$marker" "$nonce" "$template_id" "$identifier" "$created_ns" > "$store"
+        other="$(node -e 'process.stdout.write(require("crypto").randomUUID().toUpperCase())')"
+        render_log "$HERE/log-apns.ndjson.tmpl" "$marker" "$nonce" "$template_id" "$other" \
+          "$(node "$READER" digest "$other")" "$base_ms" >> "$log"
+        ;;
+      notauth)
+        synthetic_line "$base_ms" 5 "Received incoming message for push disabled app com.example.dogshelter" >> "$log"
+        ;;
+      noentitlement)
+        synthetic_line "$base_ms" 5 "No valid 'aps-environment' entitlement string found for application 'com.example.dogshelter': (null). Notifications will not be delivered." >> "$log"
+        ;;
+      unregistered)
+        synthetic_line "$base_ms" 5 "Received incoming message for unregistered app com.example.dogshelter" >> "$log"
+        ;;
+      never) ;;
+      *) echo "unknown scenario: $scenario" >&2; exit 2 ;;
+    esac
+    ;;
+  device-log)
+    scenario="$2" out="$3"
+    base_ms="$(node -e 'process.stdout.write(String(Date.now()))')"
+    : > "$out"
+    count=0
+    case "$scenario" in one) count=1 ;; two) count=2 ;; none) count=0 ;; *) echo "unknown device-log scenario" >&2; exit 2 ;; esac
+    for ((i = 0; i < count; i++)); do
+      identifier="$(node -e 'process.stdout.write(require("crypto").randomUUID().toUpperCase())')"
+      render_log "$HERE/log-device.ndjson.tmpl" x x 0 "$identifier" "$(node "$READER" digest "$identifier")" \
+        "$((base_ms + i * 4000))" >> "$out"
+    done
+    ;;
+  *)
+    echo "usage: simulate register|deliver|device-log ..." >&2
+    exit 2
+    ;;
+esac

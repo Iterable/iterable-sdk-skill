@@ -49,7 +49,7 @@ fi
 # So: if anything a client actually gets differs from main, this has to differ too. The
 # manifests themselves are not on that list — the bump is the change, and requiring it to
 # justify itself would be a rule nothing could satisfy.
-SHIPPED_PATHS="bin agents iterable-provision iterable-android iterable-react-native iterable-verify mcp.json .mcp.json"
+SHIPPED_PATHS="bin tools copy agents iterable-provision iterable-android iterable-android-verify iterable-ios iterable-ios-verify iterable-react-native mcp.json .mcp.json"
 BASE=main
 if [[ "$(git rev-parse --abbrev-ref HEAD 2>/dev/null)" == "$BASE" ]]; then
   ok "$(printf '%-48s %s' "the version is not checked against itself" "on $BASE")"
@@ -127,7 +127,7 @@ done
 # client session — a build role put there costs a client tokens for something they
 # could never invoke. Pinned as an exact list on purpose: adding to a client's
 # always-on cost should take a deliberate edit here, not just a new file.
-SHIPPED="gate-auditor gcp-provisioner iterable-api-client web-operator"
+SHIPPED="gate-auditor gcp-provisioner ios-provisioner iterable-api-client web-operator"
 have=""
 for a in agents/*.md; do
   [[ -f "$a" ]] || continue
@@ -155,7 +155,7 @@ fi
 # machine in it is an instruction to use a directory the client does not have — and it
 # reads authoritative, so it gets followed before it gets doubted.
 hits="$(grep -rn "$HOME\|/Users/" --include='*.md' \
-          iterable-provision iterable-android iterable-react-native iterable-verify agents \
+          iterable-provision iterable-android iterable-android-verify iterable-ios iterable-ios-verify iterable-react-native agents \
           2>/dev/null | grep -v '/Users/you\b' || true)"
 if [[ -z "$hits" ]]; then
   ok "no path from this machine in any skill or agent"

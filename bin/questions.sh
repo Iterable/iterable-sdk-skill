@@ -878,7 +878,7 @@ q_iterable_step() {
   # in the transcript, which is the one thing this walk is arranged to avoid.
   if ((n == 4)); then
     printf ',"free_text":%s' "$(q_free_text \
-      "the address your app signs in with, e.g. dogshelter.test@example.com" \
+      "the address your app signs in with, e.g. you@example.com" \
       "records ITBL_EMAIL and re-runs the ladder" \
       "$BIN/agent set ITBL_EMAIL={{answer}}")"
   fi

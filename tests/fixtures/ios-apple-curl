@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# Fake curl for the APNs sandbox probe and the App Store Connect provisioning
+# endpoints. The signed token arrives on stdin (curl -K -), as in production;
+# its header's kid picks the outcome. State lives in $APPLE_FAKE_STATE.
+config="$(cat)"
+state="${APPLE_FAKE_STATE:?}"
+method=GET body="" url=""
+while (($#)); do
+  case "$1" in
+    -X) method="$2"; shift 2 ;;
+    -d) body="$2"; shift 2 ;;
+    -H|-w) shift 2 ;;
+    https://*) url="$1"; shift ;;
+    *) shift ;;
+  esac
+done
+token="$(sed -n 's/^header = "[Aa]uthorization: [Bb]earer \(.*\)"$/\1/p' <<< "$config")"
+kid="$(node -e '
+  try { process.stdout.write(JSON.parse(Buffer.from(process.argv[1].split(".")[0], "base64url")).kid || "") } catch {}
+' "$token")"
+printf '%s %s %s\n' "$method" "${url#https://}" "$kid" >> "$state/apple-calls"
+
+reply() { printf '%s\n%s\n' "$2" "$1"; exit 0; }
+
+case "$url" in
+  https://api.sandbox.push.apple.com/3/device/*)
+    case "$kid" in
+      BADKEY0001) reply 403 '{"reason":"InvalidProviderToken"}' ;;
+      TOPICKEY01) reply 400 '{"reason":"TopicDisallowed"}' ;;
+      BADTOPIC01) reply 400 '{"reason":"BadTopic"}' ;;
+      NETDOWN001) printf 'curl: (6) Could not resolve host\n000\n'; exit 6 ;;
+      *) reply 400 '{"reason":"BadDeviceToken"}' ;;
+    esac
+    ;;
+  https://api.appstoreconnect.apple.com/*)
+    [[ ! -f "$state/asc-401" ]] ||
+      reply 401 '{"errors":[{"status":"401","code":"NOT_AUTHORIZED","title":"Authentication credentials are missing or invalid."}]}'
+    [[ ! -f "$state/asc-403" ]] ||
+      reply 403 '{"errors":[{"status":"403","code":"FORBIDDEN_ERROR","detail":"The API key in use does not allow this request"}]}'
+    path="${url#https://api.appstoreconnect.apple.com}"
+    case "$method $path" in
+      "GET /v1/bundleIds?"*)
+        if [[ -f "$state/asc-bundle" ]]; then
+          reply 200 "{\"data\":[{\"type\":\"bundleIds\",\"id\":\"BID123\",\"attributes\":{\"identifier\":\"$(cat "$state/asc-bundle")\",\"platform\":\"IOS\"}}]}"
+        fi
+        reply 200 '{"data":[]}'
+        ;;
+      "POST /v1/bundleIds")
+        [[ ! -f "$state/asc-409" ]] ||
+          reply 409 '{"errors":[{"status":"409","code":"ENTITY_ERROR.ATTRIBUTE.INVALID","detail":"An App ID with this Identifier is not available."}]}'
+        node -e 'process.stdout.write(JSON.parse(process.argv[1]).data.attributes.identifier)' "$body" > "$state/asc-bundle"
+        reply 201 '{"data":{"type":"bundleIds","id":"BID123"}}'
+        ;;
+      "GET /v1/bundleIds/BID123/bundleIdCapabilities"*)
+        [[ -f "$state/asc-push" ]] &&
+          reply 200 '{"data":[{"type":"bundleIdCapabilities","attributes":{"capabilityType":"PUSH_NOTIFICATIONS"}}]}'
+        reply 200 '{"data":[]}'
+        ;;
+      "POST /v1/bundleIdCapabilities")
+        touch "$state/asc-push"
+        reply 201 '{"data":{"type":"bundleIdCapabilities","id":"BID123_PUSH_NOTIFICATIONS"}}'
+        ;;
+    esac
+    reply 404 '{"errors":[{"status":"404","code":"NOT_FOUND"}]}'
+    ;;
+esac
+exit 99

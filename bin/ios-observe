@@ -1,0 +1,670 @@
+#!/usr/bin/env bash
+# iOS device observation actor for ios-verify.
+#
+# This actor never sends a message, taps, types, or edits the app. It binds a
+# repository-owned agent-device session to either SpringBoard or the installed
+# app, which may foreground that target and therefore trigger normal lifecycle
+# callbacks. It waits for one developer-supplied non-secret expectation and
+# records a scoped receipt only when that observation succeeds.
+
+set -uo pipefail
+
+BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TOOL_ROOT="$(cd "$BIN/.." && pwd)"
+source "$BIN/ios-simulator.sh"
+AGENT_DEVICE="${IOS_AGENT_DEVICE:-$TOOL_ROOT/tools/agent-device}"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  ios-observe delivery --kind direct|user-targeted|user-targeted-switch [--await-send --arm-token TOKEN] [--timeout MS] [--workspace PATH]
+  ios-observe app --kind tap-route|logout-switch [--timeout MS] [--workspace PATH]
+  ios-observe inspect --kind app|notifications|logs [--purpose PURPOSE] [--timeout MS] [--workspace PATH]
+
+Before delivery observation, leave the notification visible on the selected
+iPhone or booted Simulator. Before app observation, perform the tap, logout, or account
+switch yourself on the selected iOS device and leave the expected result visible. The actor reads one
+tool-generated expectation from the proof target; it does not tap, type, accept
+permission, send, or navigate. --marker and --expect are accepted only when
+they exactly repeat the recorded value.
+
+`--await-send` is reserved for ios-deliver. It binds SpringBoard first, records
+an arm receipt, waits for the sender's non-repeatable intent, and only then
+starts the visible-marker wait. This closes the short-banner race without
+letting the observer send or letting the sender decide delivery.
+
+`inspect` is non-interactive and writes no proof receipt. Binding the target may
+foreground it, so the cache records that lifecycle boundary explicitly. It
+returns the current app or SpringBoard accessibility snapshot, or a bounded
+relevant app-log tail. It also caches a short-lived run-and-purpose-scoped
+diagnostic summary so the verifier can choose the next action without asking
+the developer to repeat work; that cache is not proof.
+EOF
+}
+
+die() {
+  printf 'error: %s\n' "$*" >&2
+  exit 30
+}
+
+pending() {
+  printf 'pending: %s\n' "$*" >&2
+  exit 40
+}
+
+file_mode() {
+  stat -f '%Lp' "$1" 2>/dev/null || stat -c '%a' "$1" 2>/dev/null
+}
+
+redact_sensitive_logs() {
+  sed -E \
+    -e 's/(Api-Key|Authorization|Bearer|ITERABLE_[A-Z0-9_]*KEY|apiKey)[=: ]+[A-Za-z0-9._~+\/=-]+/\1=<redacted>/Ig' \
+    -e 's/[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}/<redacted-jwt>/g'
+}
+
+COMMAND="${1:-}"
+shift || true
+KIND=""
+PURPOSE="general"
+MARKER=""
+EXPECT=""
+TIMEOUT_MS=30000
+WORKSPACE_OVERRIDE=""
+AWAIT_SEND=false
+ARM_TOKEN=""
+while (($#)); do
+  case "$1" in
+    --kind)
+      (($# >= 2)) || die "--kind needs a value"
+      KIND="$2"
+      shift 2
+      ;;
+    --kind=*)
+      KIND="${1#*=}"
+      shift
+      ;;
+    --purpose)
+      (($# >= 2)) || die "--purpose needs a value"
+      PURPOSE="$2"
+      shift 2
+      ;;
+    --purpose=*)
+      PURPOSE="${1#*=}"
+      shift
+      ;;
+    --marker)
+      (($# >= 2)) || die "--marker needs a value"
+      MARKER="$2"
+      shift 2
+      ;;
+    --marker=*)
+      MARKER="${1#*=}"
+      shift
+      ;;
+    --expect)
+      (($# >= 2)) || die "--expect needs a value"
+      EXPECT="$2"
+      shift 2
+      ;;
+    --expect=*)
+      EXPECT="${1#*=}"
+      shift
+      ;;
+    --timeout)
+      (($# >= 2)) || die "--timeout needs a value"
+      TIMEOUT_MS="$2"
+      shift 2
+      ;;
+    --timeout=*)
+      TIMEOUT_MS="${1#*=}"
+      shift
+      ;;
+    --await-send)
+      AWAIT_SEND=true
+      shift
+      ;;
+    --arm-token)
+      (($# >= 2)) || die "--arm-token needs a value"
+      ARM_TOKEN="$2"
+      shift 2
+      ;;
+    --arm-token=*)
+      ARM_TOKEN="${1#*=}"
+      shift
+      ;;
+    --workspace)
+      (($# >= 2)) || die "--workspace needs a value"
+      WORKSPACE_OVERRIDE="$2"
+      shift 2
+      ;;
+    --workspace=*)
+      WORKSPACE_OVERRIDE="${1#*=}"
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      die "unknown option: $1"
+      ;;
+  esac
+done
+
+[[ "$TIMEOUT_MS" =~ ^[0-9]+$ ]] && ((TIMEOUT_MS >= 1000 && TIMEOUT_MS <= 60000)) ||
+  die "--timeout must be between 1000 and 60000 milliseconds"
+case "$COMMAND:$KIND" in
+  delivery:direct|delivery:user-targeted|delivery:user-targeted-switch)
+    SESSION_APP="com.apple.springboard"
+    ;;
+  app:tap-route|app:logout-switch)
+    SESSION_APP=""
+    ;;
+  inspect:app|inspect:logs)
+    SESSION_APP=""
+    ;;
+  inspect:notifications)
+    SESSION_APP="com.apple.springboard"
+    ;;
+  *)
+    usage >&2
+    exit 30
+    ;;
+esac
+case "$PURPOSE" in
+  general|identity|registration|pre-send|pre-send-switch|delivery-timeout|delivery-timeout-switch) ;;
+  *) die "--purpose must be general, identity, registration, pre-send, pre-send-switch, delivery-timeout, or delivery-timeout-switch" ;;
+esac
+if [[ "$COMMAND" != inspect && "$PURPOSE" != general ]]; then
+  die "--purpose is available only with inspect"
+fi
+if [[ "$AWAIT_SEND" == true ]]; then
+  [[ "$COMMAND" == delivery ]] ||
+    die "--await-send is available only for delivery observation"
+  [[ "$ARM_TOKEN" =~ ^[A-Za-z0-9_-]{16,128}$ ]] ||
+    die "--await-send requires a valid coordinator --arm-token"
+elif [[ -n "$ARM_TOKEN" ]]; then
+  die "--arm-token requires --await-send"
+fi
+
+if [[ -n "$WORKSPACE_OVERRIDE" ]]; then
+  WORKSPACE="$WORKSPACE_OVERRIDE"
+elif [[ -n "${IOS_WORKSPACE:-}" ]]; then
+  WORKSPACE="$IOS_WORKSPACE"
+else
+  project_root="$(git rev-parse --show-toplevel 2>/dev/null)" || project_root="$PWD"
+  [[ "$project_root" != "$TOOL_ROOT" ]] ||
+    die "run this from the iOS app being verified, not from the skill repository"
+  WORKSPACE="$project_root/.iterable/ios"
+fi
+TARGET="$WORKSPACE/proof-target.json"
+[[ -f "$TARGET" ]] || die "record the proof target with ios-provision first"
+[[ "$(file_mode "$TARGET")" == 600 ]] || die "proof-target.json must be mode 0600"
+[[ -x "$AGENT_DEVICE" ]] || die "the pinned agent-device wrapper is not installed"
+
+BUNDLE_ID="$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.bundle_id||""))' "$TARGET")"
+DEVICE_ID="$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.device||""))' "$TARGET")"
+RECORDED_DEVICE_KIND="$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.device_kind||""))' "$TARGET")"
+ENVIRONMENT="$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.environment||""))' "$TARGET")"
+STARTED_AT="$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.started_at||""))' "$TARGET")"
+RUN_ID="$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.run_id||""))' "$TARGET")"
+INITIAL_IDENTITY="$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.identity||""))' "$TARGET")"
+SWITCH_IDENTITY="$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.switch_identity||""))' "$TARGET")"
+case "$COMMAND:$KIND" in
+  delivery:direct)
+    EXPECTATION="$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.markers?.direct||""))' "$TARGET")"
+    ;;
+  delivery:user-targeted)
+    EXPECTATION="$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.markers?.user_targeted||""))' "$TARGET")"
+    ;;
+  delivery:user-targeted-switch)
+    EXPECTATION="$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.markers?.user_targeted_switch||""))' "$TARGET")"
+    ;;
+  app:tap-route)
+    EXPECTATION="$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.expectations?.tap_route||""))' "$TARGET")"
+    ;;
+  app:logout-switch)
+    EXPECTATION="$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.expectations?.logout_switch||""))' "$TARGET")"
+    ;;
+  inspect:*)
+    EXPECTATION=""
+    ;;
+esac
+[[ -n "$BUNDLE_ID" && -n "$DEVICE_ID" ]] ||
+  die "the proof target must name a bundle ID and selected iOS device"
+[[ "$RECORDED_DEVICE_KIND" == simulator || "$RECORDED_DEVICE_KIND" == physical ]] ||
+  die "the proof target has no valid device kind"
+[[ -n "$RUN_ID" ]] || die "the proof target has no run ID"
+[[ "$ENVIRONMENT" == development || "$ENVIRONMENT" == production ]] ||
+  die "the proof target has no valid environment"
+node -e 'process.exit(Number.isNaN(Date.parse(process.argv[1])) ? 1 : 0)' "$STARTED_AT" ||
+  die "the proof target has no valid run start time"
+if [[ "$COMMAND" != inspect ]]; then
+  [[ -n "$EXPECTATION" && "$EXPECTATION" != *$'\n'* && "$EXPECTATION" != *$'\t'* ]] ||
+    die "the proof target has no valid one-line expectation for $KIND"
+  ((${#EXPECTATION} <= 160)) || die "the recorded observation expectation is too long"
+  if [[ -n "$MARKER" && "$MARKER" != "$EXPECTATION" ]]; then
+    die "--marker does not match the tool-generated marker for this proof run"
+  fi
+  if [[ -n "$EXPECT" && "$EXPECT" != "$EXPECTATION" ]]; then
+    die "--expect does not match the recorded app expectation for this proof run"
+  fi
+fi
+[[ -n "$SESSION_APP" ]] || SESSION_APP="$BUNDLE_ID"
+DEVICE_KIND=physical
+if command -v xcrun >/dev/null 2>&1; then
+  simulators="$(xcrun simctl list devices --json 2>/dev/null || true)"
+  if printf '%s' "$simulators" | node -e '
+    let input="";
+    process.stdin.on("data",c=>input+=c).on("end",()=>{
+      let value; try { value=JSON.parse(input) } catch { process.exit(1) }
+      const wanted=process.argv[1];
+      const devices=Object.values(value.devices||{}).flat();
+      process.exit(devices.some(
+        device=>device.udid===wanted && device.state==="Booted"
+      ) ? 0 : 1);
+    });
+  ' "$DEVICE_ID"; then
+    DEVICE_KIND=simulator
+  fi
+fi
+[[ "$DEVICE_KIND" == "$RECORDED_DEVICE_KIND" ]] ||
+  die "the live device type does not match proof-target.json"
+if [[ "$DEVICE_KIND" == simulator && "$ENVIRONMENT" != development &&
+      ( "$COMMAND" == delivery || "$KIND" == tap-route ) ]]; then
+  die "iOS Simulator supports APNs sandbox observation only"
+fi
+if [[ "$DEVICE_KIND" == simulator &&
+      ( "$COMMAND" == delivery || "$KIND" == tap-route ) ]]; then
+  ios_simulator_host_supports_apns ||
+    die "this Mac/Xcode combination is not eligible for real APNs Simulator delivery"
+  ios_simulator_device_supports_apns "$simulators" "$DEVICE_ID" ||
+    die "the selected Simulator must be booted, available, and use an iOS 16+ runtime"
+fi
+MANIFEST=""
+SEND_TIMESTAMP=""
+validate_send_manifest() {
+  MANIFEST="$WORKSPACE/sends/$ENVIRONMENT/$KIND.json"
+  [[ -f "$MANIFEST" && "$(file_mode "$MANIFEST")" == 600 ]] ||
+    die "no secure $KIND send manifest exists; use ios-send before observing delivery"
+  EXPECTATION_HASH="$(printf '%s' "$EXPECTATION" | shasum -a 256 | awk '{print $1}')"
+  node -e '
+    const fs=require("fs");
+    const v=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+    const [kind,bundle,device,deviceKind,environment,runId,markerHash,start]=process.argv.slice(2);
+    const source=kind==="direct"
+      ? "iterable-dashboard-test-push"
+      : "iterable-api-template-proof";
+    const timestamp=v.sent_at || v.prepared_at;
+    const acceptedState=v.sent===true ||
+      (v.contract===3 && v.state==="prepared" && v.sent===false);
+    const valid=acceptedState &&
+      v.kind===kind &&
+      v.source===source &&
+      v.bundle_id===bundle &&
+      v.device===device &&
+      v.device_kind===deviceKind &&
+      v.environment===environment &&
+      v.run_id===runId &&
+      v.marker_sha256===markerHash &&
+      !Number.isNaN(Date.parse(timestamp)) &&
+      Date.parse(timestamp)>=Date.parse(start);
+    process.exit(valid ? 0 : 1);
+  ' "$MANIFEST" "$KIND" "$BUNDLE_ID" "$DEVICE_ID" "$DEVICE_KIND" \
+    "$ENVIRONMENT" "$RUN_ID" "$EXPECTATION_HASH" "$STARTED_AT" ||
+    die "the $KIND send manifest does not match this proof run"
+  SEND_TIMESTAMP="$(node -e '
+    const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
+    process.stdout.write(String(v.sent_at||v.prepared_at||""));
+  ' "$MANIFEST")"
+}
+if [[ "$COMMAND" == delivery && "$AWAIT_SEND" != true ]]; then
+  validate_send_manifest
+fi
+
+PERSIST_OUTPUT=false
+ARM_FILE=""
+WAIT_PID=""
+if [[ "$COMMAND" == inspect ]]; then
+  OPEN_OUT="$(mktemp "${TMPDIR:-/tmp}/iterable-ios-observe-open.XXXXXX")" || exit 30
+  WAIT_OUT="$(mktemp "${TMPDIR:-/tmp}/iterable-ios-observe-wait.XXXXXX")" || exit 30
+else
+  [[ "$RUN_ID" =~ ^[A-Za-z0-9._-]+$ ]] ||
+    die "the proof run ID is unsafe for an observation path"
+  RUN_OUTPUT_DIR="$WORKSPACE/observations/runs/$RUN_ID/$KIND"
+  mkdir -p "$RUN_OUTPUT_DIR"
+  chmod 700 "$WORKSPACE/observations" \
+    "$WORKSPACE/observations/runs" \
+    "$WORKSPACE/observations/runs/$RUN_ID" \
+    "$RUN_OUTPUT_DIR"
+  OUTPUT_STAMP="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+  OPEN_OUT="$RUN_OUTPUT_DIR/agent-device-open-$OUTPUT_STAMP.log"
+  WAIT_OUT="$RUN_OUTPUT_DIR/agent-device-wait-$OUTPUT_STAMP.log"
+  : > "$OPEN_OUT"
+  : > "$WAIT_OUT"
+  chmod 600 "$OPEN_OUT" "$WAIT_OUT"
+  PERSIST_OUTPUT=true
+fi
+cleanup() {
+  if [[ -n "$WAIT_PID" ]] && kill -0 "$WAIT_PID" 2>/dev/null; then
+    kill "$WAIT_PID" 2>/dev/null || true
+    wait "$WAIT_PID" 2>/dev/null || true
+  fi
+  "$AGENT_DEVICE" close >/dev/null 2>&1 || true
+  [[ -z "$ARM_FILE" ]] || rm -f "$ARM_FILE"
+  if [[ "$PERSIST_OUTPUT" != true ]]; then
+    case "$OPEN_OUT" in
+      "${TMPDIR:-/tmp}"/iterable-ios-observe-open.*|/private/tmp/iterable-ios-observe-open.*)
+        rm -f "$OPEN_OUT"
+        ;;
+    esac
+    case "$WAIT_OUT" in
+      "${TMPDIR:-/tmp}"/iterable-ios-observe-wait.*|/private/tmp/iterable-ios-observe-wait.*)
+        rm -f "$WAIT_OUT"
+        ;;
+    esac
+  fi
+}
+trap cleanup EXIT INT TERM
+
+if ! "$AGENT_DEVICE" open "$SESSION_APP" \
+    --platform ios \
+    --udid "$DEVICE_ID" \
+    --foreground \
+    --timeout "$TIMEOUT_MS" \
+    --json > "$OPEN_OUT" 2>&1; then
+  die "agent-device could not bind to $SESSION_APP on the selected iOS device"
+fi
+
+if [[ "$AWAIT_SEND" == true ]]; then
+  ARM_DIR="$WORKSPACE/observations/armed"
+  ARM_FILE="$ARM_DIR/$KIND.json"
+  mkdir -p "$ARM_DIR"
+  chmod 700 "$ARM_DIR"
+  "$AGENT_DEVICE" wait text "$EXPECTATION" "$TIMEOUT_MS" \
+    --json > "$WAIT_OUT" 2>&1 &
+  WAIT_PID=$!
+  if ! kill -0 "$WAIT_PID" 2>/dev/null; then
+    wait "$WAIT_PID" 2>/dev/null || true
+    WAIT_PID=""
+    die "agent-device could not start the notification-marker wait"
+  fi
+  (
+    umask 077
+    node -e '
+      const fs=require("fs");
+      fs.writeFileSync(process.argv[1],JSON.stringify({
+        contract:1,
+        armed:true,
+        kind:process.argv[2],
+        bundle_id:process.argv[3],
+        device:process.argv[4],
+        environment:process.argv[5],
+        run_id:process.argv[6],
+        coordinator_token:process.argv[7],
+        armed_at:new Date().toISOString()
+      },null,2)+"\n",{mode:0o600});
+    ' "$ARM_FILE" "$KIND" "$BUNDLE_ID" "$DEVICE_ID" "$ENVIRONMENT" \
+      "$RUN_ID" "$ARM_TOKEN"
+  )
+  chmod 600 "$ARM_FILE"
+  manifest_deadline=$((SECONDS + 60))
+  while [[ ! -f "$WORKSPACE/sends/$ENVIRONMENT/$KIND.json" ]]; do
+    ((SECONDS < manifest_deadline)) ||
+      die "the observer was armed, but no sender intent appeared within 60 seconds"
+    sleep 0.05
+  done
+  validate_send_manifest
+  wait "$WAIT_PID"
+  WAIT_RC=$?
+  WAIT_PID=""
+fi
+
+if [[ "$COMMAND" == inspect ]]; then
+  INSPECTION_DIR="$WORKSPACE/observations"
+  mkdir -p "$INSPECTION_DIR"
+  chmod 700 "$INSPECTION_DIR"
+  case "$KIND" in
+    app|notifications)
+      SNAPSHOT_OUT="$(mktemp "${TMPDIR:-/tmp}/iterable-ios-observe-snapshot.XXXXXX")" ||
+        exit 30
+      if ! "$AGENT_DEVICE" snapshot --force-full --json > "$SNAPSHOT_OUT" 2>&1; then
+        die "agent-device could not read the current $KIND accessibility state"
+      fi
+      log_path=""
+      log_tail=""
+      if [[ "$KIND" == app ]]; then
+        LOG_PATH_OUT="$(mktemp "${TMPDIR:-/tmp}/iterable-ios-observe-log-path.XXXXXX")" ||
+          exit 30
+        "$AGENT_DEVICE" logs path > "$LOG_PATH_OUT" 2>&1 || true
+        log_path="$(tail -n 1 "$LOG_PATH_OUT" | tr -d '\r')"
+        if [[ -f "$log_path" ]]; then
+          log_tail="$(tail -n 300 "$log_path" |
+            grep -Ei 'Iterable|APNS|remote notification|notification|push|register|error|fail' |
+            tail -n 120 |
+            redact_sensitive_logs ||
+            true)"
+        fi
+        rm -f "$LOG_PATH_OUT"
+      fi
+      inspection_file="$INSPECTION_DIR/current-$KIND-$PURPOSE.json"
+      node -e '
+        const fs=require("fs");
+        const raw=fs.readFileSync(process.argv[1],"utf8").trim();
+        let snapshot;
+        try { snapshot=JSON.parse(raw) } catch { snapshot={raw} }
+        const searchable=(JSON.stringify(snapshot)+"\n"+process.argv[7]).toLowerCase();
+        let classification="visible_state";
+        let summary=`${process.argv[2]} accessibility state was read`;
+        if (process.argv[2]==="notifications") {
+          if (!raw || raw==="{}" || raw==="[]") process.exit(2);
+          classification="springboard_visible";
+          summary="SpringBoard accessibility state was read";
+        } else if (/allow[^\\n]{0,80}notifications|notifications[^\\n]{0,80}(allow|don.t allow)/i.test(searchable)) {
+          classification="notification_permission_visible";
+          summary="the system notification permission prompt is visible";
+        } else if (/(?:iterable|apns|remote notification|notification|push|register).{0,120}(error|failed|failure)/i.test(searchable)) {
+          classification="iterable_or_apns_error_visible";
+          summary="the current app logs contain an Iterable or APNs error";
+        } else if (/\b(log ?out|sign ?out)\b/i.test(searchable) &&
+                   !/\b(log ?in|sign ?in)\b/i.test(searchable)) {
+          classification="authenticated_app_visible";
+          summary="the app appears to have an authenticated session; do not repeat login blindly";
+        } else if (/\b(log ?in|sign ?in)\b|email.{0,40}(field|text field|input)/i.test(searchable)) {
+          classification="identity_entry_visible";
+          summary="the app is showing an identity-entry surface";
+        }
+        const state={
+          inspected:true,
+          kind:process.argv[2],
+          purpose:process.argv[9],
+          bundle_id:process.argv[3],
+          device:process.argv[4],
+          run_id:process.argv[5],
+          observed_at:new Date().toISOString(),
+          non_interactive:true,
+          may_foreground_target:true,
+          classification,
+          summary
+        };
+        fs.writeFileSync(process.argv[6],JSON.stringify(state,null,2)+"\n",{mode:0o600});
+        process.stdout.write(JSON.stringify({
+          ...state,
+          snapshot,
+          log_path:process.argv[8],
+          relevant_log_tail:process.argv[7],
+          state_path:process.argv[6]
+        })+"\n");
+      ' "$SNAPSHOT_OUT" "$KIND" "$BUNDLE_ID" "$DEVICE_ID" "$RUN_ID" \
+        "$inspection_file" "$log_tail" "$log_path" "$PURPOSE"
+      chmod 600 "$inspection_file"
+      rm -f "$SNAPSHOT_OUT"
+      ;;
+    logs)
+      LOG_PATH_OUT="$(mktemp "${TMPDIR:-/tmp}/iterable-ios-observe-log-path.XXXXXX")" ||
+        exit 30
+      "$AGENT_DEVICE" logs path > "$LOG_PATH_OUT" 2>&1 || true
+      log_path="$(tail -n 1 "$LOG_PATH_OUT" | tr -d '\r')"
+      if [[ -f "$log_path" ]]; then
+        log_tail="$(tail -n 300 "$log_path" |
+          grep -Ei 'Iterable|APNS|remote notification|notification|push|register|error|fail' |
+          tail -n 120 |
+          redact_sensitive_logs || true)"
+      else
+        log_tail=""
+      fi
+      inspection_file="$INSPECTION_DIR/current-logs-$PURPOSE.json"
+      node -e '
+        const fs=require("fs");
+        const tail=process.argv[5];
+        const hasError=/(?:iterable|apns|remote notification|notification|push|register).{0,120}(error|failed|failure)/i.test(tail);
+        const state={
+          inspected:true,
+          kind:"logs",
+          purpose:process.argv[7],
+          bundle_id:process.argv[1],
+          device:process.argv[2],
+          run_id:process.argv[3],
+          observed_at:new Date().toISOString(),
+          non_interactive:true,
+          may_foreground_target:true,
+          classification:hasError ? "iterable_or_apns_error_visible" : "logs_read",
+          summary:hasError
+            ? "the current app logs contain an Iterable or APNs error"
+            : "the current app logs contain no recognized Iterable or APNs error"
+        };
+        fs.writeFileSync(process.argv[4],JSON.stringify(state,null,2)+"\n",{mode:0o600});
+        process.stdout.write(JSON.stringify({
+          ...state,
+          log_path:process.argv[6],
+          relevant_tail:tail,
+          state_path:process.argv[4]
+        })+"\n");
+      ' "$BUNDLE_ID" "$DEVICE_ID" "$RUN_ID" "$inspection_file" "$log_tail" \
+        "$log_path" "$PURPOSE"
+      chmod 600 "$inspection_file"
+      rm -f "$LOG_PATH_OUT"
+      ;;
+  esac
+  exit 0
+fi
+
+record_receipt() {
+  local observer="$1" evidence_path="${2:-}"
+  local evidence_hash=""
+  RECEIPT_DIR="$WORKSPACE/proof/$ENVIRONMENT"
+  RECEIPT="$RECEIPT_DIR/$KIND.json"
+  mkdir -p "$RECEIPT_DIR"
+  chmod 700 "$WORKSPACE/proof" "$RECEIPT_DIR"
+  EXPECTATION_HASH="$(printf '%s' "$EXPECTATION" | shasum -a 256 | awk '{print $1}')"
+  if [[ -n "$evidence_path" ]]; then
+    evidence_hash="$(printf '%s' "$evidence_path" | shasum -a 256 | awk '{print $1}')"
+  fi
+  (
+    umask 077
+    node -e '
+      const fs=require("fs");
+      const value={
+        observed:true,
+        kind:process.argv[2],
+        bundle_id:process.argv[3],
+        device:process.argv[4],
+        device_kind:process.argv[5],
+        environment:process.argv[6],
+        expectation_sha256:process.argv[7],
+        run_id:process.argv[8],
+        observed_at:new Date().toISOString(),
+        observer:process.argv[9],
+        observer_output:process.argv[10]
+      };
+      if (process.argv[11]) {
+        value.durable_evidence_path_sha256=process.argv[11];
+      }
+      fs.writeFileSync(process.argv[1],JSON.stringify(value,null,2)+"\n",{mode:0o600});
+    ' "$RECEIPT" "$KIND" "$BUNDLE_ID" "$DEVICE_ID" "$DEVICE_KIND" \
+      "$ENVIRONMENT" "$EXPECTATION_HASH" "$RUN_ID" "$observer" \
+      "$WAIT_OUT" "$evidence_hash"
+  )
+  chmod 600 "$RECEIPT"
+  rm -f "$WORKSPACE/observations/attempts/$KIND.json"
+}
+
+simulator_durable_delivery() {
+  [[ "$COMMAND" == delivery && "$DEVICE_KIND" == simulator ]] || return 1
+  [[ "$DEVICE_ID" =~ ^[A-Za-z0-9-]+$ && -n "$SEND_TIMESTAMP" && -f "$MANIFEST" ]] || return 1
+  local nonce_hash store
+  nonce_hash="$(node -e '
+    const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
+    process.stdout.write(/^[0-9a-f]{64}$/.test(String(v.delivery_nonce_sha256||"")) ? v.delivery_nonce_sha256 : "");
+  ' "$MANIFEST" 2>/dev/null)"
+  [[ -n "$nonce_hash" ]] || return 1
+  store="$(node "$BIN/ios-notify-read.js" store "$(ios_simulator_devices_root)" \
+    "$DEVICE_ID" "$BUNDLE_ID" 2>/dev/null)" || return 1
+  DURABLE_EVIDENCE="$(node -e '
+    const s=JSON.parse(process.argv[1]);
+    const [marker,nonceHash,sentAt]=process.argv.slice(2);
+    const hit=(s.records||[]).find(r=>r.marker===marker && r.nonce_sha256===nonceHash &&
+      r.created && Date.parse(r.created)>=Date.parse(sentAt)-2000);
+    if (!hit) process.exit(1);
+    process.stdout.write(`${s.directory}/${hit.identifier}`);
+  ' "$store" "$EXPECTATION" "$nonce_hash" "$SEND_TIMESTAMP")" || return 1
+}
+
+WAIT_FAILED=false
+if [[ "$AWAIT_SEND" == true ]]; then
+  ((WAIT_RC == 0)) || WAIT_FAILED=true
+elif ! "$AGENT_DEVICE" wait text "$EXPECTATION" "$TIMEOUT_MS" \
+    --json > "$WAIT_OUT" 2>&1; then
+  WAIT_FAILED=true
+fi
+if [[ "$WAIT_FAILED" == true ]]; then
+  DURABLE_EVIDENCE=""
+  if simulator_durable_delivery; then
+    record_receipt "simulator-delivered-notifications" "$DURABLE_EVIDENCE"
+    printf 'Observed %s in the selected Simulator'\''s durable delivered-notification record after the banner was no longer visible. Recorded a scoped receipt at %s.\n' \
+      "$KIND" "$RECEIPT"
+    exit 0
+  fi
+  ATTEMPT_DIR="$WORKSPACE/observations/attempts"
+  ATTEMPT="$ATTEMPT_DIR/$KIND.json"
+  mkdir -p "$ATTEMPT_DIR"
+  chmod 700 "$WORKSPACE/observations" "$ATTEMPT_DIR"
+  (
+    umask 077
+    node -e '
+      const fs=require("fs");
+      const path=process.argv[1];
+      let previous={};
+      try { previous=JSON.parse(fs.readFileSync(path,"utf8")) } catch {}
+      const sameRun=previous.run_id===process.argv[6] &&
+        previous.bundle_id===process.argv[2] &&
+        previous.device===process.argv[3] &&
+        previous.environment===process.argv[5] &&
+        previous.kind===process.argv[4];
+      const value={
+        contract:1,
+        kind:process.argv[4],
+        bundle_id:process.argv[2],
+        device:process.argv[3],
+        environment:process.argv[5],
+        run_id:process.argv[6],
+        attempts:sameRun ? Number(previous.attempts||0)+1 : 1,
+        last_result:"timeout",
+        attempted_at:new Date().toISOString(),
+        observer_output:process.argv[7],
+        durable_simulator_record_checked:process.argv[8]==="true"
+      };
+      fs.writeFileSync(path,JSON.stringify(value,null,2)+"\n",{mode:0o600});
+    ' "$ATTEMPT" "$BUNDLE_ID" "$DEVICE_ID" "$KIND" "$ENVIRONMENT" "$RUN_ID" \
+      "$WAIT_OUT" "$([[ "$DEVICE_KIND" == simulator && "$COMMAND" == delivery ]] && printf true || printf false)"
+  )
+  chmod 600 "$ATTEMPT"
+  if [[ "$COMMAND" == delivery ]]; then
+    pending "the notification marker is not visible yet on the selected iPhone"
+  fi
+  pending "the expected app result is not visible yet on the selected iOS device"
+fi
+
+record_receipt "agent-device accessibility"
+printf 'Observed %s on the selected iOS device and recorded a scoped receipt at %s.\n' \
+  "$KIND" "$RECEIPT"

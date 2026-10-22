@@ -1,0 +1,308 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+fixture="$repo_root/eval/fixtures/ios/basic-swiftui"
+source "$repo_root/bin/ios-simulator.sh"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  tools/ios-eval check
+  tools/ios-eval build [workspace]
+  tools/ios-eval build-apns [workspace]
+  tools/ios-eval new <scenario> <baseline|skill|discovery>
+  tools/ios-eval run <workspace> [device-udid]
+  tools/ios-eval run-apns <workspace> [device-udid]
+  tools/ios-eval push <bundle-id> <payload.apns> [device-udid]
+EOF
+}
+
+check_tools() {
+  echo "Xcode"
+  xcodebuild -version
+  echo
+  echo "Swift"
+  swift --version
+  echo
+  echo "XcodeGen"
+  if command -v xcodegen >/dev/null 2>&1; then
+    xcodegen --version
+  else
+    echo "missing — install with: brew install xcodegen"
+  fi
+  echo
+  echo "Installed iOS simulator runtimes"
+  xcrun simctl list runtimes | sed -n '/iOS/p'
+  echo
+  echo "Real APNs Simulator host eligibility"
+  if ios_simulator_host_supports_apns; then
+    echo "eligible for APNs sandbox; select a booted iOS 16+ Simulator"
+  else
+    echo "not eligible; use a physical iPhone for real APNs proof"
+  fi
+}
+
+copy_fixture() {
+  local destination="$1"
+  rsync -a \
+    --exclude '.derived-data/' \
+    --exclude 'BaselineApp.xcodeproj/' \
+    --exclude 'App/Info.plist' \
+    "$fixture/" "$destination/"
+}
+
+build_workspace() {
+  local workspace="${1:-}"
+  local proof_mode="${2:-injected}"
+  local disposable=false
+  if [[ -z "$workspace" ]]; then
+    workspace="$(mktemp -d "/private/tmp/iterable-ios-build.XXXXXX")"
+    copy_fixture "$workspace"
+    disposable=true
+  fi
+  if [[ ! -f "$workspace/project.yml" ]]; then
+    echo "error: no project.yml in $workspace" >&2
+    exit 2
+  fi
+  if ! command -v xcodegen >/dev/null 2>&1; then
+    echo "error: xcodegen is required; install with: brew install xcodegen" >&2
+    exit 2
+  fi
+
+  local build_status
+  if (
+    cd "$workspace"
+    xcodegen generate
+    if [[ "$proof_mode" == apns ]]; then
+      xcodebuild \
+        -quiet \
+        -project BaselineApp.xcodeproj \
+        -scheme BaselineApp \
+        -destination 'generic/platform=iOS Simulator' \
+        -derivedDataPath .derived-data \
+        build
+    else
+      xcodebuild \
+        -quiet \
+        -project BaselineApp.xcodeproj \
+        -scheme BaselineApp \
+        -destination 'generic/platform=iOS Simulator' \
+        -derivedDataPath .derived-data \
+        CODE_SIGNING_ALLOWED=NO \
+        build
+    fi
+  ); then
+    build_status=0
+  else
+    build_status=$?
+  fi
+  if [[ "$build_status" -eq 0 && "$proof_mode" == apns ]]; then
+    local app_path="$workspace/.derived-data/Build/Products/Debug-iphonesimulator/BaselineApp.app"
+    local executable
+    [[ -d "$app_path" ]] || {
+      echo "error: APNs build product not found at $app_path" >&2
+      return 2
+    }
+    codesign --verify --deep --strict "$app_path" >/dev/null 2>&1 || {
+      echo "error: APNs Simulator build does not pass local signature verification" >&2
+      return 2
+    }
+    executable="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' \
+      "$app_path/Info.plist")"
+    ios_simulator_executable_entitlements "$app_path/$executable" |
+      plutil -extract aps-environment raw -o - - 2>/dev/null |
+      grep -qx development || {
+        echo "error: APNs Simulator build lacks aps-environment=development in its simulated entitlements" >&2
+        return 2
+      }
+    xcrun vtool -show-build "$app_path/$executable" 2>/dev/null |
+      grep -Eq 'platform[[:space:]]+IOSSIMULATOR([[:space:]]|$)' || {
+        echo "error: APNs build is not an IOSSIMULATOR artifact" >&2
+        return 2
+      }
+  fi
+
+  if [[ "$disposable" == true ]]; then
+    case "$workspace" in
+      /private/tmp/iterable-ios-build.*|/tmp/iterable-ios-build.*)
+        rm -rf "$workspace"
+        ;;
+      *)
+        echo "error: refusing to remove unexpected build workspace: $workspace" >&2
+        return 2
+        ;;
+    esac
+  fi
+  return "$build_status"
+}
+
+new_workspace() {
+  local scenario="${1:-}"
+  local arm="${2:-}"
+  if [[ -z "$scenario" ||
+        ( "$arm" != "baseline" && "$arm" != "skill" && "$arm" != "discovery" ) ]]; then
+    usage >&2
+    exit 2
+  fi
+
+  local workspace
+  workspace="$(mktemp -d "/private/tmp/iterable-ios-${scenario}-${arm}.XXXXXX")"
+  copy_fixture "$workspace"
+  git -C "$workspace" init -q
+  git -C "$workspace" config user.name "Iterable iOS Eval"
+  git -C "$workspace" config user.email "ios-eval@localhost"
+  git -C "$workspace" add .
+  git -C "$workspace" commit -q -m "Initial iOS evaluation fixture"
+  echo "$workspace"
+}
+
+run_workspace() {
+  local workspace="${1:-}"
+  local device_udid="${2:-}"
+  local proof_mode="${3:-injected}"
+  if [[ -z "$workspace" ]]; then
+    usage >&2
+    exit 2
+  fi
+
+  if [[ -z "$device_udid" ]]; then
+    local booted_devices
+    local booted_count
+    booted_devices="$(
+      xcrun simctl list devices available |
+        awk -F '[()]' '/iPhone/ && /Booted/ { print $2 }'
+    )"
+    booted_count="$(printf '%s\n' "$booted_devices" | sed '/^$/d' | wc -l | tr -d ' ')"
+    if [[ "$booted_count" -gt 1 ]]; then
+      echo "error: multiple iPhone simulators are booted; pass the intended UDID:" >&2
+      xcrun simctl list devices available | awk '/iPhone/ && /Booted/'
+      exit 2
+    fi
+    device_udid="$(printf '%s\n' "$booted_devices" | sed -n '1p')"
+  fi
+  if [[ -z "$device_udid" ]]; then
+    device_udid="$(
+      xcrun simctl list devices available |
+        awk -F '[()]' '/iPhone/ && /(Shutdown|Booted)/ { device = $2 } END { print device }'
+    )"
+  fi
+  if [[ -z "$device_udid" ]]; then
+    echo "error: no available iPhone simulator found" >&2
+    exit 2
+  fi
+
+  echo "Using iPhone simulator $device_udid"
+  xcrun simctl boot "$device_udid" >/dev/null 2>&1 || true
+  xcrun simctl bootstatus "$device_udid" -b
+  if [[ "$proof_mode" == apns ]]; then
+    local devices_json
+    ios_simulator_host_supports_apns || {
+      echo "error: this Mac/Xcode combination cannot receive real APNs on Simulator" >&2
+      exit 2
+    }
+    devices_json="$(xcrun simctl list devices --json)"
+    ios_simulator_device_supports_apns "$devices_json" "$device_udid" || {
+      echo "error: run-apns requires a booted, available iOS 16+ Simulator" >&2
+      exit 2
+    }
+  fi
+  build_workspace "$workspace" "$proof_mode"
+
+  local app_path="$workspace/.derived-data/Build/Products/Debug-iphonesimulator/BaselineApp.app"
+  if [[ ! -d "$app_path" ]]; then
+    echo "error: built app not found at $app_path" >&2
+    exit 2
+  fi
+  local bundle_id
+  bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app_path/Info.plist")"
+  xcrun simctl install "$device_udid" "$app_path"
+  local developer_dir
+  local simulator_app
+  local device_hub_app
+  developer_dir="$(xcode-select -p)"
+  simulator_app="$developer_dir/Applications/Simulator.app"
+  device_hub_app="$(dirname "$developer_dir")/Applications/DeviceHub.app"
+  if [[ -d "$device_hub_app" ]]; then
+    open "$device_hub_app" ||
+      echo "warning: app installed, but DeviceHub could not be opened" >&2
+  elif [[ -d "$simulator_app" ]]; then
+    open "$simulator_app" ||
+      echo "warning: app installed, but Simulator could not be opened" >&2
+  else
+    echo "No Simulator or DeviceHub app found; opening the project in Xcode instead"
+    open -a Xcode "$workspace/BaselineApp.xcodeproj" ||
+      echo "warning: app installed, but Xcode could not be opened" >&2
+  fi
+  xcrun simctl launch "$device_udid" "$bundle_id"
+}
+
+push_payload() {
+  local bundle_id="${1:-}"
+  local payload="${2:-}"
+  local device_udid="${3:-}"
+  if [[ -z "$bundle_id" || -z "$payload" || ! -f "$payload" ]]; then
+    usage >&2
+    exit 2
+  fi
+  if ! python3 -m json.tool "$payload" >/dev/null; then
+    echo "error: invalid JSON payload: $payload" >&2
+    exit 2
+  fi
+  if [[ -z "$device_udid" ]]; then
+    local booted_devices
+    local booted_count
+    booted_devices="$(
+      xcrun simctl list devices available |
+        awk -F '[()]' '/iPhone/ && /Booted/ { print $2 }'
+    )"
+    booted_count="$(printf '%s\n' "$booted_devices" | sed '/^$/d' | wc -l | tr -d ' ')"
+    if [[ "$booted_count" -gt 1 ]]; then
+      echo "error: multiple iPhone simulators are booted; pass the intended UDID:" >&2
+      xcrun simctl list devices available | awk '/iPhone/ && /Booted/'
+      exit 2
+    fi
+    device_udid="$(printf '%s\n' "$booted_devices" | sed -n '1p')"
+  fi
+  if [[ -z "$device_udid" ]]; then
+    echo "error: no booted iPhone simulator found" >&2
+    exit 2
+  fi
+  if ! xcrun simctl get_app_container "$device_udid" "$bundle_id" app >/dev/null 2>&1; then
+    echo "error: $bundle_id is not installed on simulator $device_udid" >&2
+    exit 2
+  fi
+
+  echo "Injecting $payload into $bundle_id on simulator $device_udid"
+  xcrun simctl push "$device_udid" "$bundle_id" "$payload"
+  echo "This proves Simulator notification handling only, not APNs or Iterable delivery."
+}
+
+case "${1:-}" in
+  check)
+    check_tools
+    ;;
+  build)
+    build_workspace "${2:-}"
+    ;;
+  build-apns)
+    build_workspace "${2:-}" apns
+    ;;
+  new)
+    new_workspace "${2:-}" "${3:-}"
+    ;;
+  run)
+    run_workspace "${2:-}" "${3:-}"
+    ;;
+  run-apns)
+    run_workspace "${2:-}" "${3:-}" apns
+    ;;
+  push)
+    push_payload "${2:-}" "${3:-}" "${4:-}"
+    ;;
+  *)
+    usage >&2
+    exit 2
+    ;;
+esac

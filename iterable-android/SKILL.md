@@ -13,7 +13,8 @@ description: >-
   prerequisite is missing rather than wrong — no `google-services.json`, no
   Iterable mobile API key, no configured push integration — that is
   `iterable-provision`, which creates and proves them; never fabricate one
-  here. To prove a push actually reaches a device, `iterable-verify`.
+  here. To prove a push actually reaches a device,
+  `iterable-android-verify`.
 ---
 
 # Iterable Android SDK
@@ -46,7 +47,8 @@ the long tail under one bucket, e.g.:
 
 - Push notifications (FCM)
 - Event tracking + user profiles
-- Other (inbox, embedded, deep links) — describe in the option
+- Deep links: App Links and custom URL schemes
+- Other (inbox, embedded) — describe in the option
 
 (If they just want the basics, that's the "init + identify only" path — let
 them say so via the free-form "Other" the tool always provides.)
@@ -122,7 +124,7 @@ If `iterable-provision` is installed, its `bin/agent` carries this as a `notice`
 field — relay that verbatim instead, so the tool and the conversation say the same
 thing. Either way say it once, plainly, and do not soften it into "I've double-checked
 everything". Proof is the next section, and the strongest form of it is a real push
-landing on a real device — `iterable-verify` does that.
+landing on a real device—`iterable-android-verify` does that.
 
 ### Proving it works when you don't have the dashboard
 
@@ -648,8 +650,8 @@ before writing any code is the fastest way to compact mid-task.
 - React Native — that is the sibling skill `iterable-react-native`. Do not
   load it, and do not emit JS / `@iterable/react-native-sdk` APIs, for a
   native Android app.
-- iOS or Web SDKs — those will live in sibling skills (`iterable-ios`,
-  `iterable-web`) once authored.
+- Native iOS — that is the sibling skill `iterable-ios`. The Web SDK is not
+  covered by these skills.
 - Iterable platform / dashboard configuration. Direct the user to
   [support.iterable.com](https://support.iterable.com) for dashboard help.
 - JWT *server-side* implementation. The skill assumes the team has, or will

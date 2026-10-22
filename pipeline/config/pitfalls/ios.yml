@@ -1,0 +1,266 @@
+# Pitfall index for the native iOS SDK skill.
+#
+# Mirrors `iterable-ios/PITFALLS.md` headings 1..N; tests/pitfalls-agree.sh
+# fails when they drift. Ids are stable: an entry moved out of the shipped skill
+# keeps its id here with `moved_to`, and its full text lives at that path.
+# Triggers are reserved case-insensitive discovery metadata; current evaluation
+# and reporting use the explicit pitfall IDs and titles.
+
+platform: ios
+
+pitfalls:
+  - id: 1
+    title: Token push environment has no matching Iterable credential
+    triggers:
+      - "sandbox"
+      - "production"
+      - "TestFlight"
+      - "pushPlatform"
+    features: [push-notifications, integration]
+
+  - id: 2
+    title: Active user at tap time is treated as the notification recipient
+    moved_to: eval/scenarios/ios-benchmark.md
+    triggers:
+      - "recipient (id|identifier|ownership)"
+      - "custom raw"
+      - "custom payload"
+      - "account switch"
+      - "old notification"
+    features: [push-notifications, deep-linking, user-profiles]
+
+  - id: 3
+    title: Notification permission callback mutates the next user session
+    moved_to: eval/scenarios/ios-benchmark.md
+    triggers:
+      - "requestAuthorization"
+      - "getNotificationSettings"
+      - "delayed callback"
+      - "session (token|generation|identity)"
+    features: [push-notifications, user-profiles]
+
+  - id: 4
+    title: Direct Test Push is used to claim logout or targeting works
+    triggers:
+      - "Test Push"
+      - "device token"
+      - "user-targeted"
+      - "logout.*(push|notification|token|target)"
+    features: [push-notifications, user-profiles]
+
+  - id: 5
+    title: No safe way to distinguish APNs failure from registration failure
+    triggers:
+      - "Contact Lookup"
+      - "didFailToRegisterForRemoteNotifications"
+      - "DEBUG"
+      - "didRegisterForRemoteNotifications"
+    features: [push-notifications, integration]
+
+  - id: 6
+    title: General pasteboard token copy is described as non-persistent
+    triggers:
+      - "UIPasteboard"
+      - "localOnly"
+      - "expirationDate"
+      - "Universal Clipboard"
+    features: [push-notifications, integration, security]
+
+  - id: 7
+    title: Launch or action handling bypasses recipient validation
+    moved_to: eval/scenarios/ios-benchmark.md
+    triggers:
+      - "actionIdentifier"
+      - "launchOptions"
+      - "content-available"
+      - "terminated"
+      - "custom action"
+    features: [push-notifications, deep-linking, user-profiles]
+
+  - id: 8
+    title: SwiftUI onOpenURL enters a trusted personalized route
+    moved_to: eval/scenarios/ios-benchmark.md
+    triggers:
+      - "onOpenURL"
+      - "external URL"
+      - "(custom|URL) scheme.*(trust|ownership)"
+      - "source trust"
+    features: [deep-linking, user-profiles, security]
+
+  - id: 9
+    title: Skipped SDK initialization leaves an Apple callback unfinished
+    triggers:
+      - "(empty|missing|invalid).*API key"
+      - "isInitialized"
+      - "pendingNotificationResponse"
+      - "completion.*(skipped|missing|uninitialized)"
+    features: [push-notifications, integration]
+
+  - id: 10
+    title: Privacy copy lists app-selected fields as all Iterable data
+    triggers:
+      - "Iterable receives only"
+      - "sends only"
+      - "device metadata"
+      - "SDK-managed"
+    features: [integration, push-notifications, in-app-messages, security]
+
+  - id: 11
+    title: XcodeGen writes Push capability metadata as a string
+    triggers:
+      - "SystemCapabilities"
+      - "XcodeGen.*(string|stringif)"
+      - "TargetAttributes"
+    features: [push-notifications, integration]
+
+  - id: 12
+    title: Notification-center delegate never assigned or assigned late
+    triggers:
+      - "UNUserNotificationCenter\\.current\\(\\)\\.delegate"
+      - "onAppear.*delegate"
+      - "willPresent"
+      - "terminated.*(tap|response)"
+    features: [push-notifications, integration, deep-linking]
+
+  - id: 13
+    title: Restored profile fields are dropped before SDK initialization
+    moved_to: eval/scenarios/ios-benchmark.md
+    triggers:
+      - "pending identity"
+      - "restored.*profile"
+      - "initialize.*favorites"
+      - "queue.*profile"
+    features: [integration, user-profiles]
+
+  - id: 14
+    title: Notification permission exists only in a settings screen
+    moved_to: eval/scenarios/ios-benchmark.md
+    triggers:
+      - "first favorite"
+      - "contextual.*permission"
+      - "Not Now"
+      - "notification settings"
+    features: [push-notifications, user-profiles]
+
+  - id: 15
+    title: URL routing reads observable session state off the main actor
+    moved_to: eval/scenarios/ios-benchmark.md
+    triggers:
+      - "ObservableObject"
+      - "@Published"
+      - "MainActor"
+      - "background.*(URL|route|navigation)"
+    features: [deep-linking, push-notifications, user-profiles]
+
+  - id: 16
+    title: Simulator support is confused with local notification injection
+    triggers:
+      - "simctl push"
+      - "Simulator"
+      - "physical (device|iPhone)"
+      - "\\.apns"
+    features: [push-notifications, integration]
+
+  - id: 17
+    title: JWT-enabled key with no IterableAuthDelegate
+    triggers:
+      - "JWT"
+      - "authDelegate"
+      - "IterableAuthDelegate"
+      - "onAuthTokenRequested"
+    features: [integration, security]
+
+  - id: 18
+    title: Delegate assigned inline is deallocated
+    triggers:
+      - "urlDelegate\\s*=\\s*[A-Z]\\w*\\("
+      - "customActionDelegate\\s*=\\s*[A-Z]\\w*\\("
+      - "authDelegate\\s*=\\s*[A-Z]\\w*\\("
+      - "weak"
+    features: [integration, deep-linking]
+
+  - id: 19
+    title: SwiftUI app has no app-delegate adaptor
+    triggers:
+      - "UIApplicationDelegateAdaptor"
+      - "@main\\s+struct"
+      - "SwiftUI.*(token|AppDelegate)"
+    features: [push-notifications, integration]
+
+  - id: 20
+    title: register(token:) runs before an identity is set
+    triggers:
+      - "register\\(token:"
+      - "autoPushRegistration"
+      - "registerForRemoteNotifications"
+    features: [push-notifications, user-profiles]
+
+  - id: 21
+    title: aps-environment entitlement is missing
+    triggers:
+      - "aps-environment"
+      - "CODE_SIGN_ENTITLEMENTS"
+      - "didFailToRegisterForRemoteNotifications"
+      - "Push Notifications capability"
+    features: [push-notifications, integration]
+
+  - id: 22
+    title: Bundle ID differs across Xcode, Apple, and Iterable
+    triggers:
+      - "Bundle ID"
+      - "PRODUCT_BUNDLE_IDENTIFIER"
+      - "pushIntegrationName"
+    features: [push-notifications, integration]
+
+  - id: 23
+    title: Another SDK owns or swizzles the notification callbacks
+    triggers:
+      - "Firebase"
+      - "FirebaseAppDelegateProxyEnabled"
+      - "OneSignal"
+      - "swizzl"
+    features: [push-notifications, integration]
+
+  - id: 24
+    title: No Notification Service Extension so no images or buttons
+    triggers:
+      - "Notification Service Extension"
+      - "ITBNotificationServiceExtension"
+      - "IterableAppExtensions"
+      - "UNNotificationCategory"
+      - "mutable-content"
+    features: [push-notifications]
+
+  - id: 25
+    title: URL scheme missing from allowedProtocols
+    triggers:
+      - "allowedProtocols"
+      - "CFBundleURLTypes"
+      - "custom (URL )?scheme"
+      - "(tel|mailto|sms|http):"
+    features: [deep-linking]
+
+  - id: 26
+    title: Iterable accepts the send but APNs refuses it with TopicDisallowed
+    triggers:
+      - "TopicDisallowed"
+      - "check-apple"
+      - "Push Notifications capability"
+    features: [push-notifications]
+
+  - id: 27
+    title: Link bounces between the SDK and the app
+    triggers:
+      - "isIterableDeepLink"
+      - "handle\\(universalLink:"
+      - "onOpenURL"
+      - "loop"
+    features: [deep-linking]
+
+  - id: 28
+    title: Universal-link method nearly matches and is never called
+    triggers:
+      - "restorationHandler"
+      - "nearly matches"
+      - "continue userActivity"
+    features: [deep-linking]

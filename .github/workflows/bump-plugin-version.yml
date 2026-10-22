@@ -25,10 +25,14 @@ on:
       # receives, not just the parts that were being edited when it was written.
       - "bin/**"
       - "agents/**"
+      - "tools/**"
+      - "copy/**"
       - "iterable-provision/**"
       - "iterable-android/**"
+      - "iterable-android-verify/**"
+      - "iterable-ios/**"
+      - "iterable-ios-verify/**"
       - "iterable-react-native/**"
-      - "iterable-verify/**"
       - "mcp.json"
       - ".mcp.json"
   workflow_dispatch:

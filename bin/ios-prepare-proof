@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+#
+# First-class preparation actor for verifying an existing Iterable iOS
+# integration. It intentionally exposes no Apple, APNs, Mobile-key, or
+# Server-key credential capture commands.
+
+set -uo pipefail
+
+BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  ios-prepare-proof status [--workspace PATH]
+  ios-prepare-proof proof-status [--workspace PATH]
+  ios-prepare-proof answer [--field FIELD --value VALUE | --clear] [--workspace PATH]
+  ios-prepare-proof proof-answer [--field FIELD --value VALUE | --clear] [--workspace PATH]
+  ios-prepare-proof start --confirm [--workspace PATH]
+  ios-prepare-proof restart --confirm [--workspace PATH]
+
+Prepare a proof run for an existing Iterable iOS integration without entering
+Apple, APNs, or Iterable application provisioning. Normal runs automatically
+use behavioral proof and do not edit the app. Use the low-level proof-mode
+answer only when the developer explicitly requests instrumented callback-level
+diagnostics with the debug-only runtime harness:
+
+  ios-prepare-proof answer --field proof-mode --value instrumented
+
+Credential capture remains explicit and separate:
+
+  ios-provision capture-server --confirm
+  ios-provision validate-server
+EOF
+}
+
+command="${1:-status}"
+shift || true
+
+case "$command" in
+  status|proof-status)
+    exec "$BIN/ios-provision" proof-status "$@"
+    ;;
+  answer|proof-answer)
+    exec "$BIN/ios-provision" proof-answer "$@"
+    ;;
+  start)
+    exec "$BIN/ios-provision" record-proof --from-answers "$@"
+    ;;
+  restart)
+    exec "$BIN/ios-provision" restart-proof "$@"
+    ;;
+  -h|--help|help)
+    usage
+    ;;
+  *)
+    printf 'error: unknown command: %s\n\n' "$command" >&2
+    usage >&2
+    exit 2
+    ;;
+esac

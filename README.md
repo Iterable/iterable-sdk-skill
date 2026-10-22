@@ -5,9 +5,8 @@
 > confidential, may contain inaccuracies, and may change during the beta.
 
 Use these skills with Claude Code, Cursor, or Codex to integrate Iterable's
-Android or React Native SDK. For Android push integrations, the workflow can
-also create the required Firebase resources and verify that a real push
-notification reaches your device.
+native Android, native iOS, or React Native SDK. The workflows gather and prove
+the required external prerequisites before calling an integration complete.
 
 The plugin runs under your coding assistant. The provisioning workflow asks
 before reading or changing scoped cloud resources.
@@ -16,15 +15,16 @@ before reading or changing scoped cloud resources.
 
 | Skill | Purpose |
 |---|---|
-| `iterable-provision` | Creates and verifies Firebase prerequisites, then guides and checks the required Iterable setup. |
+| `iterable-provision` | Produces and verifies Firebase, Apple, APNs, and Iterable prerequisites for the selected platform. |
 | `iterable-android` | Integrates and troubleshoots Iterable's native Android SDK using version-pinned documentation. |
+| `iterable-android-verify` | Independently verifies native Android and React Native Android integrations and push delivery. |
+| `iterable-ios` | Integrates and troubleshoots Iterable's native iOS SDK using Iterable documentation and iOS lifecycle guidance. |
+| `iterable-ios-verify` | Independently verifies an existing native iOS integration, using no-app-edits behavioral proof by default and optional instrumented diagnostics. |
 | `iterable-react-native` | Integrates and troubleshoots `@iterable/react-native-sdk`, including Expo projects. |
-| `iterable-verify` | Verifies an Android push integration by confirming that a real notification reached a selected device. |
 
-The skills can work independently. For a new Android push integration, the
-usual sequence is:
+The skills can work independently. A new push integration normally follows:
 
-`iterable-provision` → `iterable-android` or `iterable-react-native` → `iterable-verify`
+`iterable-provision` → platform integration skill → matching platform verification skill
 
 Skills are model-invoked. Describe the outcome you want rather than running a
 skill by name. For example:
@@ -33,19 +33,20 @@ skill by name. For example:
 - "Integrate Iterable's React Native SDK."
 - "Why isn't my push notification arriving?"
 - "Verify that this integration works on my emulator."
+- "Verify this existing iOS integration without changing the app."
 
 ## Supported workflows
 
 - Native Android SDK integration.
+- Native iOS SDK integration.
 - React Native integration for Android and iOS, including Expo.
 - Firebase provisioning and device-side push verification for Android.
+- Apple/APNs prerequisite guidance and iOS runtime proof.
 - Push notifications, in-app messages, mobile inbox, embedded messaging, deep
   links, JWT authentication, event tracking, and user profiles.
-- Unknown user activation for native Android.
+- Unknown user activation for native Android and native iOS.
 
-Native iOS and web skills are not included. Provisioning and device-side proof
-are Android-first; the React Native skill can integrate the iOS SDK, but it does
-not provision or verify APNs.
+Web SDK integration is not included.
 
 ## Requirements
 
@@ -55,6 +56,9 @@ not provision or verify APNs.
   the required Iterable API keys and mobile configuration.
 - A Google account with access to a Firebase project, or permission to create
   one, when setting up Android push.
+- Apple Developer Program access to the app's team when setting up native iOS
+  push. The workflow cannot replace Apple sign-in, 2FA, agreements, or the
+  one-time download of a newly created APNs private key.
 
 You authenticate with Google and Iterable yourself. The plugin does not ask for
 or handle your account passwords.
@@ -67,12 +71,14 @@ The provisioning and verification workflows require these non-standard tools:
 node --version
 gcloud --version
 adb --version
+xcodebuild -version
 ```
 
 | Tool | Used for | Installation |
 |---|---|---|
 | `gcloud` | Google authentication, Firebase projects, service accounts, IAM, and key creation | [Google Cloud CLI](https://cloud.google.com/sdk/docs/install) or `brew install --cask gcloud-cli` |
 | `adb` | Selecting an Android device and reading the installed app, SDK registration, and arriving notification | Android Studio's SDK Manager or `brew install --cask android-platform-tools` |
+| Xcode command-line tools | Building, signing, installing, and observing native iOS apps | Install Xcode, then select it with `xcode-select` |
 | Node.js | Parsing command and API output | [nodejs.org](https://nodejs.org) or `brew install node` |
 
 The scripts also use Bash, `curl`, and standard Unix utilities. They do not
@@ -83,12 +89,22 @@ install commands with your approval.
 If a required tool is missing, the workflow reports which tool is needed and
 stops without attempting to install it.
 
-### Android device
+### Test device
 
 Device-side verification requires a connected Android device or a running
 emulator with Google Play services. You select the target device, even when
 only one is connected, so the proof is performed on the device you intend to
 test.
+
+For native iOS, development push can be proved on an eligible booted iOS 16+
+Simulator or a signed physical iPhone. Production/TestFlight proof requires a
+physical iPhone.
+
+During native iOS push setup, the developer chooses whether to reuse an
+existing Apple configuration, follow a guided Account Holder or Admin
+handoff, or let an App Store Connect Team API key register the App ID and Push
+Notifications after an approved plan. The imported APNs key is checked with
+one APNs sandbox probe. No extra tools are needed beyond Node, curl, and Xcode.
 
 ## Installation
 
@@ -113,7 +129,7 @@ directories:
 ```bash
 git clone --depth 1 https://github.com/Iterable/iterable-sdk-skill.git ~/iterable-skills
 mkdir -p ~/.cursor/skills
-for skill in iterable-provision iterable-android iterable-react-native iterable-verify; do
+for skill in iterable-provision iterable-android iterable-android-verify iterable-ios iterable-ios-verify iterable-react-native; do
   ln -sfn ~/iterable-skills/$skill ~/.cursor/skills/$skill
 done
 ```
@@ -170,9 +186,9 @@ read-only verifier checks the device for that notification.
 - The generated `.iterable/` workspace is kept inside your project and
   gitignores itself. It can contain credentials and should be treated as
   sensitive.
-- The verification gates only read application and notification state. A
-  separate actor can open the selected app's launcher activity, but it does not
-  tap, type, sign in, or answer permission prompts.
+- The verification gates only read application and notification state.
+  Separate actors can open or foreground the selected app or system surface,
+  but they do not tap, type, sign in, or answer permission prompts.
 
 Your coding assistant runs with your local privileges. Its handling of source
 code and conversation data is governed by the assistant provider and your
@@ -180,11 +196,13 @@ organization's configuration. Install plugins only from sources you trust.
 
 ## Current limitations
 
-- Firebase provisioning and device-side proof support Android only.
+- Firebase provisioning is Android-specific. Native iOS uses Apple/APNs
+  prerequisite guidance and supports Simulator or physical-device proof within
+  the documented environment limits.
 - Creating Iterable API keys, mobile apps, and push integrations requires
   dashboard interaction because these actions do not have public APIs.
-- JWT-enabled mobile API keys are recognized but are not currently supported by
-  the verification workflow.
+- Core verification can run for a JWT-enabled integration, but the app's JWT
+  backend behavior requires separate feature-specific evidence.
 - Some bundled source articles cover multiple mobile platforms and may include
   snippets that are not relevant to the current application.
 - These skills focus on SDK integration. To work with campaign or user data,

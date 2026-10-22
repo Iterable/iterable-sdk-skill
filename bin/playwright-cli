@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# Keep portal recordings and replays on the version evaluated for this repository.
+exec npx -y @playwright/cli@0.1.22 "$@"

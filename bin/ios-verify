@@ -1,0 +1,2827 @@
+#!/usr/bin/env bash
+# Independent, read-only verifier for a native iOS Iterable integration.
+#
+# This program sends no message, launches no app, and operates no UI. Its only
+# outward call besides reads is the Apple check: one silent APNs probe that the
+# Simulator drops, recorded as a diagnostic receipt and never as delivery. Provisioning inputs come from ios-provision. Device
+# observations come from ios-observe, which is a different actor from the
+# sender. A local receipt is accepted only when its scope, device kind, and run
+# timestamp match the current proof target.
+
+set -uo pipefail
+
+BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TOOL_ROOT="$(cd "$BIN/.." && pwd)"
+source "$BIN/ios-simulator.sh"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  ios-verify inspect
+  ios-verify status [--offline] [--workspace PATH]
+  ios-verify check-apple [--workspace PATH]
+
+Run from the iOS app being verified. `inspect` requires no verification
+workspace and does not treat missing proof metadata as a missing integration.
+The verifier is read-only. Prepare a proof run with ios-prepare-proof; capture
+verification credentials with ios-provision when they are not already present.
+Delivery observations are produced by the separate ios-observe actor after a
+separately announced send.
+EOF
+}
+
+die() {
+  printf 'error: %s\n' "$*" >&2
+  exit 30
+}
+
+jstr() {
+  node -e 'process.stdout.write(JSON.stringify(process.argv[1]))' -- "$1"
+}
+
+file_mode() {
+  stat -f '%Lp' "$1" 2>/dev/null || stat -c '%a' "$1" 2>/dev/null
+}
+
+looks_like_ios_project() {
+  local candidate="$1"
+  [[ -f "$candidate/project.yml" ]] ||
+    compgen -G "$candidate/*.xcodeproj/project.pbxproj" >/dev/null ||
+    compgen -G "$candidate/*.xcworkspace" >/dev/null
+}
+
+resolve_workspace() {
+  if [[ -n "${IOS_WORKSPACE:-}" ]]; then
+    printf '%s' "$IOS_WORKSPACE"
+    return
+  fi
+  local project_root
+  project_root="$(git rev-parse --show-toplevel 2>/dev/null)" || project_root="$PWD"
+  if [[ "$project_root" == "$TOOL_ROOT" ]]; then
+    if [[ "$PWD" != "$TOOL_ROOT" ]] && looks_like_ios_project "$PWD"; then
+      project_root="$PWD"
+    else
+      return 30
+    fi
+  fi
+  printf '%s/.iterable/ios' "$project_root"
+}
+
+COMMAND="${1:-status}"
+shift || true
+OFFLINE=false
+WORKSPACE_OVERRIDE=""
+while (($#)); do
+  case "$1" in
+    --offline)
+      OFFLINE=true
+      shift
+      ;;
+    --workspace)
+      (($# >= 2)) || die "--workspace needs a value"
+      WORKSPACE_OVERRIDE="$2"
+      shift 2
+      ;;
+    --workspace=*)
+      WORKSPACE_OVERRIDE="${1#*=}"
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      die "unknown option: $1"
+      ;;
+  esac
+done
+[[ "$COMMAND" == status || "$COMMAND" == inspect || "$COMMAND" == check-apple ]] ||
+  die "unknown command: $COMMAND"
+[[ -z "$WORKSPACE_OVERRIDE" ]] || IOS_WORKSPACE="$WORKSPACE_OVERRIDE"
+
+inspect_project() {
+  local project_root files dependency=false initialization=false identity=false
+  local push=false runtime_proof=false workspace_exists=false next_kind
+  project_root="$(git rev-parse --show-toplevel 2>/dev/null)" || project_root="$PWD"
+  if [[ "$project_root" == "$TOOL_ROOT" ]]; then
+    if [[ "$PWD" != "$TOOL_ROOT" ]] && looks_like_ios_project "$PWD"; then
+      project_root="$PWD"
+    else
+      die "run ios-verify inspect from the iOS app, not from the skill repository"
+    fi
+  fi
+  looks_like_ios_project "$project_root" ||
+    die "the current directory does not look like an iOS project"
+  files="$(
+    find "$project_root" \
+      \( -path '*/.git' -o -path '*/.derived-data' -o -path '*/DerivedData' \
+         -o -path '*/Pods' -o -path '*/.build' \
+         -o -path '*/*Tests' -o -path '*/*Tests/*' \
+         -o -path '*/*UITests' -o -path '*/*UITests/*' \) -prune -o \
+      \( -name '*.swift' -o -name 'project.yml' -o -name 'project.pbxproj' \
+         -o -name 'Package.swift' -o -name 'Package.resolved' \
+         -o -name '*.entitlements' \) \
+      -type f -print 2>/dev/null
+  )"
+  if [[ -n "$files" ]]; then
+    printf '%s\n' "$files" | while IFS= read -r file; do
+      [[ -f "$file" ]] && printf '%s\0' "$file"
+    done > "$TMP/inspect-files"
+    xargs -0 grep -E -l 'IterableSDK|iterable-swift-sdk' \
+      < "$TMP/inspect-files" >/dev/null 2>&1 && dependency=true
+    xargs -0 grep -E -l '^[[:space:]]*(_[[:space:]]*=[[:space:]]*|let[[:space:]]+[A-Za-z0-9_]+[[:space:]]*=[[:space:]]*)?IterableAPI[.]initialize' \
+      < "$TMP/inspect-files" >/dev/null 2>&1 && initialization=true
+    xargs -0 grep -E -l '^[[:space:]]*(IterableAPI[.](email|userId)[[:space:]]*=|IterableAPI[.](setEmail|setUserId)|setEmail[[:space:]]*[(]|setUserId[[:space:]]*[(])' \
+      < "$TMP/inspect-files" >/dev/null 2>&1 && identity=true
+    xargs -0 grep -E -l '^[[:space:]]*([^/].*)?(registerForRemoteNotifications|didRegisterForRemoteNotifications|IterableAPI[.]register)|aps-environment' \
+      < "$TMP/inspect-files" >/dev/null 2>&1 && push=true
+    xargs -0 grep -E -l 'IterableRuntimeProof|ITERABLE_RUNTIME_PROOF|iterable-ios-runtime-proof/1' \
+      < "$TMP/inspect-files" >/dev/null 2>&1 && runtime_proof=true
+  fi
+  [[ -d "$project_root/.iterable/ios" ]] && workspace_exists=true
+  if [[ "$dependency" == true && "$initialization" == true ]]; then
+    next_kind=prepare_proof
+  else
+    next_kind=review_integration
+  fi
+  printf '{'
+  printf '"tool":"iterable-ios-inspect","contract":2,"read_only":true,"signals_are_heuristic":true,'
+  printf '"project_root":%s,"verification_workspace_exists":%s,' \
+    "$(jstr "$project_root")" "$workspace_exists"
+  printf '"signals":{"sdk_dependency":%s,"sdk_initialization":%s,"identity_wiring":%s,"push_wiring":%s,"runtime_proof_source":%s},' \
+    "$dependency" "$initialization" "$identity" "$push" "$runtime_proof"
+  printf '"next":{"kind":%s,"command":%s,"summary":%s}' \
+    "$(jstr "$next_kind")" \
+    "$(jstr "$([[ "$next_kind" == prepare_proof ]] && printf '%s' "$BIN/ios-prepare-proof status")")" \
+    "$(jstr "$([[ "$next_kind" == prepare_proof ]] &&
+      printf '%s' 'The app source contains Iterable dependency and initialization signals. Prepare a fresh verification run; installed runtime evidence, not this heuristic scan, decides behavior.' ||
+      printf '%s' 'The source scan could not find both Iterable dependency and initialization signals in non-test files. Review the selected application target before attempting proof.')")"
+  printf '}\n'
+}
+
+if [[ "$COMMAND" == inspect ]]; then
+  TMP="$(mktemp -d "${TMPDIR:-/tmp}/iterable-ios-inspect.XXXXXX")" || exit 30
+  trap 'case "$TMP" in "${TMPDIR:-/tmp}"/iterable-ios-inspect.*|/private/tmp/iterable-ios-inspect.*) rm -rf "$TMP" ;; esac' EXIT
+  inspect_project
+  exit 0
+fi
+
+WORKSPACE="$(resolve_workspace)" || {
+  printf 'Run this from the iOS app being verified, not from the skill repository.\n' >&2
+  exit 30
+}
+
+SCOPE="$WORKSPACE/scope.json"
+ENV_FILE="$WORKSPACE/.env"
+PROOF_TARGET="$WORKSPACE/proof-target.json"
+OBSERVATIONS="$WORKSPACE/proof"
+SENDS="$WORKSPACE/sends"
+LAUNCHES="$WORKSPACE/launches"
+
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/iterable-ios-verify.XXXXXX")" || exit 30
+STATE="$TMP/state.tsv"
+: > "$STATE"
+trap 'case "$TMP" in "${TMPDIR:-/tmp}"/iterable-ios-verify.*|/private/tmp/iterable-ios-verify.*) rm -rf "$TMP" ;; esac' EXIT
+
+STATUS_JSON=""
+FEATURES=""
+IDENTITY_TYPE=""
+IDENTITY=""
+SWITCH_IDENTITY=""
+BUNDLE_ID=""
+DEVICE_ID=""
+APP_PATH=""
+ENVIRONMENT=""
+STARTED_AT=""
+RUN_ID=""
+DIRECT_MARKER=""
+TARGETED_MARKER=""
+SWITCH_MARKER=""
+TAP_EXPECT=""
+LOGOUT_EXPECT=""
+PROFILE_EXPECTATIONS='[]'
+EVENT_EXPECTATIONS='[]'
+REGION=""
+SERVER_KEY=""
+JWT_ENABLED=""
+PUSH_REQUIRED=false
+RUNTIME_FILE="$TMP/runtime-proof.jsonl"
+DEVICE_KIND=""
+RECORDED_DEVICE_KIND=""
+RECORDED_SIMULATOR_RUNTIME=""
+APNS_ENVIRONMENT=""
+PRODUCTION_FOLLOW_UP_REQUIRED=false
+PROOF_MODE="behavioral"
+SCOPE_VERIFICATION_ONLY=false
+TOKEN_CORRELATED=false
+PHYSICAL_DEVELOPER_OBSERVED=false
+NEXT_QUESTION=null
+
+load_inputs() {
+  command -v node >/dev/null 2>&1 || return 1
+  STATUS_JSON="$("$BIN/ios-provision" status --offline --workspace "$WORKSPACE" 2>/dev/null)" ||
+    return 1
+  FEATURES="$(node -e '
+    const v=JSON.parse(process.argv[1]);
+    process.stdout.write(String(v.scope?.features || ""));
+  ' "$STATUS_JSON")"
+  REGION="$(node -e '
+    const v=JSON.parse(process.argv[1]);
+    process.stdout.write(String(v.scope?.data_region || ""));
+  ' "$STATUS_JSON")"
+  JWT_ENABLED="$(node -e '
+    const v=JSON.parse(process.argv[1]);
+    process.stdout.write(String(v.scope?.jwt_enabled ?? ""));
+  ' "$STATUS_JSON")"
+  SCOPE_VERIFICATION_ONLY="$(node -e '
+    const v=JSON.parse(process.argv[1]);
+    process.stdout.write(String(v.scope?.verification_only===true));
+  ' "$STATUS_JSON")"
+  [[ ",$FEATURES," == *,push-notifications,* ]] && PUSH_REQUIRED=true
+  if [[ -f "$PROOF_TARGET" ]]; then
+    IDENTITY_TYPE="$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.identity_type||""))' "$PROOF_TARGET" 2>/dev/null)"
+    IDENTITY="$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.identity||""))' "$PROOF_TARGET" 2>/dev/null)"
+    SWITCH_IDENTITY="$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.switch_identity||""))' "$PROOF_TARGET" 2>/dev/null)"
+    BUNDLE_ID="$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.bundle_id||""))' "$PROOF_TARGET" 2>/dev/null)"
+    DEVICE_ID="$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.device||""))' "$PROOF_TARGET" 2>/dev/null)"
+    RECORDED_DEVICE_KIND="$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.device_kind||""))' "$PROOF_TARGET" 2>/dev/null)"
+    RECORDED_SIMULATOR_RUNTIME="$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.simulator_runtime||""))' "$PROOF_TARGET" 2>/dev/null)"
+    APP_PATH="$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.app_path||""))' "$PROOF_TARGET" 2>/dev/null)"
+    ENVIRONMENT="$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.environment||""))' "$PROOF_TARGET" 2>/dev/null)"
+    APNS_ENVIRONMENT="$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.apns_environment||""))' "$PROOF_TARGET" 2>/dev/null)"
+    PRODUCTION_FOLLOW_UP_REQUIRED="$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.production_follow_up_required===true))' "$PROOF_TARGET" 2>/dev/null)"
+    PROOF_MODE="$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.proof_mode||"behavioral"))' "$PROOF_TARGET" 2>/dev/null)"
+    STARTED_AT="$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.started_at||""))' "$PROOF_TARGET" 2>/dev/null)"
+    RUN_ID="$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.run_id||""))' "$PROOF_TARGET" 2>/dev/null)"
+    DIRECT_MARKER="$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.markers?.direct||""))' "$PROOF_TARGET" 2>/dev/null)"
+    TARGETED_MARKER="$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.markers?.user_targeted||""))' "$PROOF_TARGET" 2>/dev/null)"
+    SWITCH_MARKER="$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.markers?.user_targeted_switch||""))' "$PROOF_TARGET" 2>/dev/null)"
+    TAP_EXPECT="$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.expectations?.tap_route||""))' "$PROOF_TARGET" 2>/dev/null)"
+    LOGOUT_EXPECT="$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.expectations?.logout_switch||""))' "$PROOF_TARGET" 2>/dev/null)"
+    PROFILE_EXPECTATIONS="$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(JSON.stringify(v.profile_fields||[]))' "$PROOF_TARGET" 2>/dev/null || printf '[]')"
+    EVENT_EXPECTATIONS="$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(JSON.stringify(v.events||[]))' "$PROOF_TARGET" 2>/dev/null || printf '[]')"
+  fi
+  if [[ -f "$ENV_FILE" ]]; then
+    SERVER_KEY="$(sed -n 's/^ITERABLE_SERVER_KEY=//p' "$ENV_FILE" | head -1)"
+  fi
+}
+
+load_inputs || true
+
+APPLE_CHECK=""
+APPLE_CHECKABLE=false
+if [[ "$PROOF_MODE" == behavioral && "$PUSH_REQUIRED" == true &&
+      "$RECORDED_DEVICE_KIND" == simulator && -f "$WORKSPACE/apns.json" ]]; then
+  APPLE_CHECKABLE=true
+fi
+
+run_apple_check() {
+  APPLE_CHECK="$(ios_apns_probe "$WORKSPACE" "$DEVICE_ID" "$BUNDLE_ID" "$ENVIRONMENT")"
+  [[ "$APPLE_CHECK" == *'"status":"not_run"'* ]] && return 0
+  mkdir -p "$WORKSPACE/observations"
+  chmod 700 "$WORKSPACE/observations"
+  (
+    umask 077
+    node -e '
+      const fs=require("fs"), [file,raw,runId,bundle,device,environment]=process.argv.slice(1);
+      const c=JSON.parse(raw);
+      fs.writeFileSync(file,JSON.stringify({
+        contract:1, run_id:runId, bundle_id:bundle, device, environment,
+        status:c.status, classification:c.classification, http_status:c.http_status??null,
+        reason:c.reason??null, probed_at:c.probed_at||new Date().toISOString(),
+        diagnostic_only:true,
+        note:"A silent APNs probe recorded for diagnosis. It is not delivery proof and no gate counts it as delivery."
+      },null,2)+"\n",{mode:0o600});
+    ' "$WORKSPACE/observations/apple-check.json" "$APPLE_CHECK" "$RUN_ID" "$BUNDLE_ID" "$DEVICE_ID" "$ENVIRONMENT"
+  )
+}
+
+apple_check_field() {
+  node -e '
+    let v; try { v=JSON.parse(process.argv[1]) } catch { process.exit(0) }
+    const f=v[process.argv[2]];
+    process.stdout.write(f == null ? "" : Array.isArray(f) ? f.join(" ") : String(f));
+  ' "$APPLE_CHECK" "$1"
+}
+
+if [[ "$COMMAND" == check-apple ]]; then
+  [[ -f "$PROOF_TARGET" && -n "$BUNDLE_ID" && -n "$DEVICE_ID" ]] ||
+    die "record a proof run first (ios-prepare-proof status); the Apple check needs its bundle and device"
+  if [[ "$RECORDED_DEVICE_KIND" != simulator ]]; then
+    printf '{"tool":"iterable-ios-apns-probe","contract":1,"status":"not_run","classification":"physical_skipped","summary":%s,"diagnostic_only":true}\n' \
+      "$(jstr "Not run on a physical iPhone: a silent push would wake the app there. The read-back proof covers the device.")"
+    exit 0
+  fi
+  run_apple_check
+  node -e '
+    const c=JSON.parse(process.argv[1]), bin=process.argv[2];
+    const next=c.status==="ready"
+      ? {owner:"tool",kind:"verify",command:`${bin}/ios-verify status`}
+      : ["apns_key_rejected","apns_key_unreadable"].includes(c.classification)
+        ? {owner:"human",kind:"replace_apns_key",command:`${bin}/ios-provision question --kind replace_apns_key`}
+        : c.status==="inconclusive"
+          ? {owner:"tool",kind:"retry_apple_check",command:`${bin}/ios-verify check-apple`}
+          : {owner:"human",kind:"fix_apple_push",command:`${bin}/ios-verify check-apple`};
+    process.stdout.write(JSON.stringify({...c,next})+"\n");
+  ' "$APPLE_CHECK" "$BIN"
+  case "$(apple_check_field status)" in
+    ready) exit 0 ;;
+    blocked) exit 20 ;;
+    *) exit 40 ;;
+  esac
+fi
+
+apple_gate() {
+  [[ "$OFFLINE" != true ]] || {
+    echo "the Apple check was skipped by --offline"
+    return 2
+  }
+  run_apple_check
+  local summary
+  summary="$(apple_check_field summary)"
+  case "$(apple_check_field status)" in
+    ready) echo "$summary (diagnostic probe; not counted as delivery)"; return 0 ;;
+    blocked) echo "$(apple_check_field classification): $summary"; return 1 ;;
+    *) echo "$(apple_check_field classification): $summary"; return 2 ;;
+  esac
+}
+
+row() {
+  printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" \
+    "$(printf '%s' "$5" | tr '\t\r\n' '   ')" >> "$STATE"
+}
+
+gate_status() {
+  awk -F '\t' -v id="$1" '$1 == id { print $2; exit }' "$STATE"
+}
+
+gate_name() {
+  awk -F '\t' -v id="$1" '$1 == id { print $4; exit }' "$STATE"
+}
+
+gate() {
+  local id="$1" name="$2" prereqs="$3" owner="$4"
+  shift 4
+  if [[ "$prereqs" != - ]]; then
+    local prerequisite
+    IFS=, read -ra _prerequisites <<< "$prereqs"
+    for prerequisite in "${_prerequisites[@]}"; do
+      if [[ "$(gate_status "$prerequisite")" != green ]]; then
+        local blocked_name
+        blocked_name="$(gate_name "$prerequisite")"
+        row "$id" blocked "$owner" "$name" "waiting on ${blocked_name:-$prerequisite}"
+        printf '  ·  %-4s %-34s %s\n' "$id" "$name" "waiting on ${blocked_name:-$prerequisite}" >&2
+        return
+      fi
+    done
+  fi
+
+  local output_file="$TMP/$id.out" rc detail status symbol
+  "$@" > "$output_file" 2>&1
+  rc=$?
+  detail="$(tr '\t\r\n' '   ' < "$output_file")"
+  case "$rc" in
+    0) status=green; symbol=✓ ;;
+    2) status=pending; symbol=· ;;
+    3) status=unverifiable; symbol=~ ;;
+    *) status=red; symbol=✗ ;;
+  esac
+  row "$id" "$status" "$owner" "$name" "${detail:-no evidence}"
+  printf '  %s  %-4s %-34s %s\n' "$symbol" "$id" "$name" "${detail:-no evidence}" >&2
+}
+
+g0() {
+  [[ -n "$STATUS_JSON" ]] || {
+    echo "ios-provision could not read this workspace"
+    return 1
+  }
+  local presence
+  presence="$(node -e '
+    const v=JSON.parse(process.argv[1]);
+    const present=v.scope?.present===true;
+    const valid=v.scope?.valid===true && v.scope?.mode_0600===true;
+    process.stdout.write(valid ? "valid" : present ? "invalid" : "missing");
+  ' "$STATUS_JSON")"
+  if [[ "$presence" == missing ]]; then
+    echo "no integration or verification context has been recorded yet"
+    return 2
+  fi
+  if [[ "$presence" != valid ]]; then
+    echo "the recorded integration or verification context is invalid or insecure"
+    return 1
+  fi
+  echo "verification context is securely recorded for $REGION"
+}
+
+g1() {
+  [[ -f "$PROOF_TARGET" ]] || {
+    echo "no proof target yet — record the exact test identity and expected behavior"
+    return 2
+  }
+  [[ "$(file_mode "$PROOF_TARGET")" == 600 ]] || {
+    echo "proof target mode is $(file_mode "$PROOF_TARGET"), must be 600"
+    return 1
+  }
+  node -e '
+    const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
+    const mode=v.proof_mode || "behavioral";
+    const standard=mode==="behavioral";
+    const instrumented=mode==="instrumented";
+    const valid = (standard || instrumented) &&
+      typeof v.bundle_id === "string" && v.bundle_id.length > 0 &&
+      ["email","user-id"].includes(v.identity_type) &&
+      typeof v.identity === "string" && v.identity.length > 0 &&
+      (standard ||
+        (typeof v.switch_identity === "string" &&
+         v.switch_identity.length > 0 &&
+         v.switch_identity !== v.identity)) &&
+      typeof v.device === "string" &&
+      ["simulator","physical"].includes(v.device_kind) &&
+      (v.device_kind!=="simulator" ||
+        typeof v.simulator_runtime==="string") &&
+      typeof v.app_path === "string" &&
+      ["development","production"].includes(v.environment) &&
+      v.apns_environment===
+        (v.environment==="development" ? "sandbox" : "production") &&
+      typeof v.production_follow_up_required==="boolean" &&
+      Array.isArray(v.profile_fields) && Array.isArray(v.events) &&
+      typeof v.run_id === "string" && v.run_id.length > 0 &&
+      (standard || v.baseline?.identity_exists === false) &&
+      (standard || v.baseline?.switch_identity_exists === false) &&
+      !Number.isNaN(Date.parse(v.baseline?.checked_at)) &&
+      Date.parse(v.baseline.checked_at) <= Date.parse(v.started_at) &&
+      Date.parse(v.started_at) - Date.parse(v.baseline.checked_at) <= 5*60*1000 &&
+      Date.parse(v.started_at) <= Date.now()+5*60*1000 &&
+      typeof v.markers?.user_targeted === "string" &&
+      (standard || typeof v.markers?.user_targeted_switch === "string") &&
+      (standard || typeof v.expectations?.tap_route === "string") &&
+      (standard || typeof v.expectations?.logout_switch === "string") &&
+      !Number.isNaN(Date.parse(v.started_at));
+    process.exit(valid ? 0 : 1);
+  ' "$PROOF_TARGET" "$SCOPE_VERIFICATION_ONLY" || {
+    echo "proof-target.json is incomplete or invalid"
+    return 1
+  }
+  if [[ "$PROOF_MODE" == instrumented &&
+      ",$FEATURES," == *,user-profiles,* &&
+      "$PROFILE_EXPECTATIONS" == '[]' ]]; then
+    echo "user profiles were selected, but no expected profile field was recorded"
+    return 2
+  fi
+  if [[ "$PROOF_MODE" == instrumented &&
+      ",$FEATURES," == *,event-tracking,* &&
+      "$EVENT_EXPECTATIONS" == '[]' ]]; then
+    echo "event tracking was selected, but no expected event name was recorded"
+    return 2
+  fi
+  [[ "$PROOF_MODE" == behavioral || "$PROOF_MODE" == instrumented ]] || {
+    echo "proof-target.json has no valid behavioral or instrumented proof mode"
+    return 1
+  }
+  if [[ -z "$DEVICE_ID" ]]; then
+    echo "proof is missing the selected device"
+    return 2
+  fi
+  if [[ "$PROOF_MODE" == instrumented &&
+      ( -z "$APP_PATH" || -z "$LOGOUT_EXPECT" ) ]]; then
+    echo "instrumented proof is missing the exact .app artifact or logout expectation"
+    return 2
+  fi
+  if [[ "$PROOF_MODE" == instrumented && "$PUSH_REQUIRED" == true &&
+      ( -z "$TARGETED_MARKER" || -z "$SWITCH_MARKER" ||
+        -z "$TAP_EXPECT" || -z "$LOGOUT_EXPECT" ) ]]; then
+    echo "push proof is missing the signed app, generated markers, or visible expectations"
+    return 2
+  fi
+  local existing_send existing_sends
+  existing_sends="$SENDS/$ENVIRONMENT/user-targeted.json"
+  if [[ "$PROOF_MODE" == instrumented ]]; then
+    existing_sends="$existing_sends"$'\n'"$SENDS/$ENVIRONMENT/user-targeted-switch.json"
+  fi
+  while IFS= read -r existing_send; do
+    [[ -f "$existing_send" ]] || continue
+    node -e '
+      const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
+      process.exit([2,3,4].includes(v.contract) ? 0 : 1);
+    ' "$existing_send" 2>/dev/null || {
+      echo "this proof run contains a send from an older payload contract; restart it before sending again"
+      return 2
+    }
+  done <<< "$existing_sends"
+  if node -e 'process.exit(Date.now()-Date.parse(process.argv[1]) > 24*60*60*1000 ? 0 : 1)' "$STARTED_AT"; then
+    echo "this proof run started more than 24 hours ago, so its evidence is stale; start a fresh run"
+    return 2
+  fi
+  if [[ "$PROOF_MODE" == behavioral ]]; then
+    echo "standard $ENVIRONMENT proof for existing $IDENTITY_TYPE identity $IDENTITY, run $RUN_ID, bundle $BUNDLE_ID"
+  else
+    echo "fresh User A/User B $IDENTITY_TYPE identities, instrumented $ENVIRONMENT run $RUN_ID, bundle $BUNDLE_ID"
+  fi
+}
+
+g3() {
+  [[ "$OFFLINE" != true ]] || {
+    echo "live Server-key validation was skipped by --offline"
+    return 2
+  }
+  if [[ -z "$SERVER_KEY" ]]; then
+    echo "no Server-side verification key yet"
+    return 2
+  fi
+  [[ "$(file_mode "$ENV_FILE")" == 600 ]] || {
+    echo "the Server-side verification key is not stored in a mode-0600 file"
+    return 1
+  }
+  local base real_code real_body control_code
+  [[ "$REGION" == EU ]] &&
+    base="https://api.eu.iterable.com" ||
+    base="https://api.iterable.com"
+  secret_request "$SERVER_KEY" GET "$base/api/channels"
+  real_code="$HTTP_CODE"
+  real_body="$HTTP_BODY"
+  secret_request "itbl-ios-verify-invalid-server-key" GET "$base/api/channels"
+  control_code="$HTTP_CODE"
+  [[ "$control_code" == 401 || "$control_code" == 403 ]] || {
+    echo "the invalid Server-key control answered HTTP $control_code"
+    return 1
+  }
+  [[ "$real_code" == 200 ]] &&
+    printf '%s' "$real_body" | node -e '
+      let input="";
+      process.stdin.on("data",c=>input+=c).on("end",()=>{
+        try { process.exit(Array.isArray(JSON.parse(input).channels) ? 0 : 1) }
+        catch { process.exit(1) }
+      });
+    ' || {
+    echo "the Server-side key is no longer valid for this region (HTTP $real_code)"
+    return 1
+  }
+  echo "Server-side key authenticated live with a failing invalid control"
+}
+
+url_encode() {
+  node -e 'process.stdout.write(encodeURIComponent(process.argv[1]))' "$1"
+}
+
+secret_request() {
+  local key="$1" method="$2" url="$3" data="${4:-}"
+  local escaped_key escaped_url output
+  escaped_key="${key//\\/\\\\}"
+  escaped_key="${escaped_key//\"/\\\"}"
+  escaped_url="${url//\\/\\\\}"
+  escaped_url="${escaped_url//\"/\\\"}"
+  output="$(
+    {
+      printf 'header = "Api-Key: %s"\n' "$escaped_key"
+      printf 'url = "%s"\n' "$escaped_url"
+      printf 'request = "%s"\n' "$method"
+      if [[ "$method" == POST ]]; then
+        printf 'header = "Content-Type: application/json"\n'
+        printf 'data = "%s"\n' "$data"
+      fi
+    } | curl -K - -sS -w $'\n%{http_code}' 2>&1
+  )" || true
+  HTTP_CODE="${output##*$'\n'}"
+  HTTP_BODY="${output%$'\n'*}"
+}
+
+iterable_get() {
+  local path="$1" base url
+  [[ "$REGION" == EU ]] &&
+    base="https://api.eu.iterable.com" ||
+    base="https://api.iterable.com"
+  url="$base$path"
+  secret_request "$SERVER_KEY" GET "$url"
+}
+
+fetch_user() {
+  fetch_named_user "$IDENTITY"
+}
+
+fetch_named_user() {
+  local identity="$1"
+  local encoded
+  encoded="$(url_encode "$identity")"
+  if [[ "$IDENTITY_TYPE" == email ]]; then
+    iterable_get "/api/users/getByEmail?email=$encoded"
+  else
+    iterable_get "/api/users/byUserId/$encoded"
+  fi
+}
+
+g4() {
+  fetch_user
+  case "$HTTP_CODE" in
+    200) ;;
+    400)
+      if grep -qi 'no user exists\|not found' <<< "$HTTP_BODY"; then
+        if [[ "$PROOF_MODE" == behavioral ]]; then
+          echo "the exact identity $IDENTITY does not exist in Iterable yet"
+        else
+          echo "User A $IDENTITY does not exist in Iterable yet; open the recorded app, identify as this exact user, and perform the recorded product action"
+        fi
+        return 2
+      fi
+      echo "Iterable rejected the identity lookup"
+      return 1
+      ;;
+    401|403)
+      echo "Iterable rejected the Server-side verification key"
+      return 1
+      ;;
+    *)
+      echo "identity lookup returned HTTP $HTTP_CODE"
+      return 1
+      ;;
+  esac
+  printf '%s' "$HTTP_BODY" | node -e '
+    let input="";
+    process.stdin.on("data",c=>input+=c).on("end",()=>{
+      let v; try { v=JSON.parse(input) } catch { process.exit(1) }
+      const user=v.user;
+      const kind=process.argv[1], expected=process.argv[2];
+      if (!user) process.exit(2);
+      const actual=kind==="email" ? user.email : user.userId;
+      process.exit(String(actual||"")===expected ? 0 : 1);
+    });
+  ' "$IDENTITY_TYPE" "$IDENTITY"
+  local rc=$?
+  if ((rc == 2)); then
+    echo "the identity lookup returned no exact User A $IDENTITY"
+    return 2
+  fi
+  ((rc == 0)) || {
+    echo "the returned user does not match the exact test identity"
+    return 1
+  }
+  if [[ "$PROOF_MODE" == behavioral ]]; then
+    echo "exact identity $IDENTITY exists in Iterable"
+  else
+    echo "exact User A $IDENTITY exists in Iterable"
+  fi
+}
+
+g5() {
+  [[ ",$FEATURES," == *,user-profiles,* ]] || {
+    echo "profile updates not selected"
+    return 0
+  }
+  fetch_user
+  [[ "$HTTP_CODE" == 200 ]] || {
+    echo "could not read the user profile (HTTP $HTTP_CODE)"
+    return 1
+  }
+  printf '%s' "$HTTP_BODY" | node -e '
+    let input="";
+    process.stdin.on("data",c=>input+=c).on("end",()=>{
+      let v; try { v=JSON.parse(input) } catch { process.exit(1) }
+      const fields=v.user?.dataFields || {};
+      const expected=JSON.parse(process.argv[1]);
+      const missing=[], mismatched=[];
+      for (const item of expected) {
+        const raw=typeof item==="string" ? item : String(item.path||"");
+        const separator=raw.indexOf("=");
+        const path=separator<0 ? raw : raw.slice(0,separator);
+        let current=fields;
+        let found=true;
+        for (const part of path.split(".").filter(Boolean)) {
+          if (current && Object.prototype.hasOwnProperty.call(current,part)) current=current[part];
+          else { missing.push(path); found=false; break; }
+        }
+        if (found && separator>=0) {
+          const encoded=raw.slice(separator+1);
+          let wanted;
+          try { wanted=JSON.parse(encoded) } catch { wanted=encoded }
+          if (JSON.stringify(current)!==JSON.stringify(wanted)) mismatched.push(path);
+        }
+      }
+      if (missing.length) {
+        console.error(`missing expected field(s): ${[...new Set(missing)].join(", ")}`);
+        process.exit(2);
+      }
+      if (mismatched.length) {
+        console.error(`wrong value for expected field(s): ${[...new Set(mismatched)].join(", ")}`);
+        process.exit(1);
+      }
+      console.log(`${expected.length} expected profile field(s) matched`);
+    });
+  ' "$PROFILE_EXPECTATIONS"
+  local rc=$?
+  ((rc == 2)) && return 2
+  return "$rc"
+}
+
+fetch_events() {
+  local encoded
+  encoded="$(url_encode "$IDENTITY")"
+  if [[ "$IDENTITY_TYPE" == email ]]; then
+    iterable_get "/api/events/$encoded?limit=200"
+  else
+    iterable_get "/api/events/byUserId/$encoded?limit=200"
+  fi
+}
+
+g6() {
+  [[ ",$FEATURES," == *,event-tracking,* ]] || {
+    echo "custom event tracking not selected"
+    return 0
+  }
+  fetch_events
+  [[ "$HTTP_CODE" == 200 ]] || {
+    echo "could not read the user's events (HTTP $HTTP_CODE)"
+    return 1
+  }
+  printf '%s' "$HTTP_BODY" | node -e '
+    let input="";
+    process.stdin.on("data",c=>input+=c).on("end",()=>{
+      let v; try { v=JSON.parse(input) } catch { process.exit(1) }
+      const start=Date.parse(process.argv[1]);
+      const expected=JSON.parse(process.argv[2]);
+      const all=Array.isArray(v.events) ? v.events : [];
+      const eventName=e=>String(e.eventName||e.eventType||e.messageType||"");
+      const eventTime=e=>{
+        for (const candidate of [e.createdAt,e.createdAtMillis,e.timestamp,e.eventTime,e.occurredAt]) {
+          if (typeof candidate==="number") {
+            const value=candidate < 1e12 ? candidate*1000 : candidate;
+            if (Number.isFinite(value)) return value;
+          }
+          const value=Date.parse(candidate);
+          if (!Number.isNaN(value)) return value;
+        }
+        return NaN;
+      };
+      const recent=all.filter(e=>eventTime(e)>=start);
+      if (all.length && recent.length===0 && all.every(e=>Number.isNaN(eventTime(e)))) {
+        console.error("Iterable returned events without a parseable timestamp; this run cannot be isolated");
+        process.exit(3);
+      }
+      const missing=[], duplicates=[];
+      for (const item of expected) {
+        const raw=typeof item==="string" ? item : String(item.name||"");
+        const separator=raw.lastIndexOf("=");
+        const hasCount=separator>0 && /^\d+$/.test(raw.slice(separator+1));
+        const name=hasCount ? raw.slice(0,separator) : raw;
+        const wanted=hasCount ? Number(raw.slice(separator+1)) : 1;
+        const actual=recent.filter(e=>eventName(e)===name).length;
+        if (actual===0) missing.push(name);
+        else if (actual!==wanted) duplicates.push(`${name}: expected ${wanted}, saw ${actual}`);
+      }
+      if (missing.length) {
+        console.error(`no current-run event yet for: ${[...new Set(missing)].join(", ")}`);
+        process.exit(2);
+      }
+      if (duplicates.length) {
+        console.error(
+          `current proof-run event count is not isolated — ${duplicates.join("; ")}; ` +
+          "restart proof before diagnosing duplicate tracking"
+        );
+        process.exit(2);
+      }
+      console.log(`${expected.length} expected current-run event count(s) matched`);
+    });
+  ' "$STARTED_AT" "$EVENT_EXPECTATIONS"
+  return $?
+}
+
+receipt_matches() {
+  local kind="$1" expectation="$2"
+  local receipt="$OBSERVATIONS/$ENVIRONMENT/$kind.json"
+  [[ -f "$receipt" ]] || return 2
+  [[ "$(file_mode "$receipt")" == 600 ]] || return 1
+  local expectation_hash
+  expectation_hash="$(printf '%s' "$expectation" | shasum -a 256 | awk '{print $1}')"
+  local sent_at=""
+  case "$kind" in
+    direct|user-targeted|user-targeted-switch)
+      local manifest="$SENDS/$ENVIRONMENT/$kind.json"
+      [[ -f "$manifest" ]] || return 2
+      [[ "$(file_mode "$manifest")" == 600 ]] || return 1
+      local identity="$IDENTITY" required_source="iterable-api-template-proof"
+      [[ "$kind" != user-targeted-switch ]] || identity="$SWITCH_IDENTITY"
+      [[ "$kind" != direct ]] || required_source="iterable-dashboard-test-push"
+      local identity_hash
+      identity_hash="$(printf '%s' "$identity" | shasum -a 256 | awk '{print $1}')"
+      sent_at="$(node -e '
+        const fs=require("fs");
+        const v=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+        const [kind,source,bundle,device,deviceKind,environment,runId,markerHash,identityHash,start]=
+          process.argv.slice(2);
+        const targeted=source==="iterable-api-template-proof";
+        const timestamp=v.sent_at || v.prepared_at;
+        const acceptedState=v.sent===true ||
+          (v.contract===3 && v.state==="prepared" && v.sent===false);
+        const valid=(!targeted || [2,3].includes(v.contract)) &&
+          acceptedState &&
+          v.kind===kind &&
+          v.source===source &&
+          v.bundle_id===bundle &&
+          v.device===device &&
+          v.device_kind===deviceKind &&
+          v.environment===environment &&
+          v.run_id===runId &&
+          v.marker_sha256===markerHash &&
+          v.recipient_sha256===identityHash &&
+          (!targeted ||
+            (/^[0-9a-f]{64}$/.test(String(v.delivery_nonce_sha256||"")) &&
+             /^[0-9a-f]{64}$/.test(String(v.payload_sha256||"")) &&
+             Number.isInteger(v.template_id) && v.template_id>0)) &&
+          !Number.isNaN(Date.parse(timestamp)) &&
+          Date.parse(timestamp)>=Date.parse(start);
+        if (!valid) process.exit(1);
+        process.stdout.write(timestamp);
+      ' "$manifest" "$kind" "$required_source" "$BUNDLE_ID" "$DEVICE_ID" \
+        "$DEVICE_KIND" "$ENVIRONMENT" "$RUN_ID" "$expectation_hash" \
+        "$identity_hash" "$STARTED_AT")" || return 1
+      ;;
+  esac
+  node -e '
+    const fs=require("fs");
+    const receipt=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+    const [kind,bundle,device,deviceKind,environment,start,expectationHash,runId,sentAt]=
+      process.argv.slice(2);
+    const valid=receipt.observed===true &&
+      receipt.kind===kind &&
+      receipt.bundle_id===bundle &&
+      receipt.device===device &&
+      receipt.device_kind===deviceKind &&
+      receipt.environment===environment &&
+      receipt.run_id===runId &&
+      receipt.expectation_sha256===expectationHash &&
+      !Number.isNaN(Date.parse(receipt.observed_at)) &&
+      Date.parse(receipt.observed_at)>=Date.parse(start) &&
+      (!sentAt || Date.parse(receipt.observed_at)>=Date.parse(sentAt));
+    process.exit(valid ? 0 : 1);
+  ' "$receipt" "$kind" "$BUNDLE_ID" "$DEVICE_ID" "$DEVICE_KIND" \
+    "$ENVIRONMENT" "$STARTED_AT" "$expectation_hash" "$RUN_ID" "$sent_at"
+}
+
+g7() {
+  fetch_user
+  [[ "$HTTP_CODE" == 200 ]] || {
+    echo "could not read the user's device record (HTTP $HTTP_CODE)"
+    return 1
+  }
+  local allow_disabled=false token_hash token_rc
+  receipt_matches user-targeted "$TARGETED_MARKER" && allow_disabled=true
+  # A standard run's receipt is re-derived by I14 itself; here it only explains a
+  # device that was disabled after the proved send.
+  if [[ "$PROOF_MODE" == behavioral && -f "$OBSERVATIONS/$ENVIRONMENT/user-targeted.json" ]] &&
+      node -e '
+        const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
+        process.exit(v.observed===true && v.run_id===process.argv[2] &&
+          v.bundle_id===process.argv[3] && v.device===process.argv[4] ? 0 : 1);
+      ' "$OBSERVATIONS/$ENVIRONMENT/user-targeted.json" "$RUN_ID" "$BUNDLE_ID" "$DEVICE_ID" 2>/dev/null; then
+    allow_disabled=true
+  fi
+  if [[ "$PROOF_MODE" == behavioral ]]; then
+    printf '%s' "$HTTP_BODY" | node -e '
+      let input="";
+      process.stdin.on("data",c=>input+=c).on("end",()=>{
+        let v; try { v=JSON.parse(input) } catch { process.exit(1) }
+        const bundle=process.argv[1], allowDisabled=process.argv[2]==="true";
+        const devices=v.user?.dataFields?.devices || v.user?.devices;
+        if (!Array.isArray(devices)) {
+          console.error("User A has no registered devices yet");
+          process.exit(2);
+        }
+        const mine=devices.filter(d=>
+          d.appPackageName===bundle || d.applicationName===bundle
+        );
+        if (!mine.length) {
+          console.error(`User A has no device registered for ${bundle} yet`);
+          process.exit(2);
+        }
+        const live=mine.filter(d=>d.endpointEnabled===true);
+        if (!live.length) {
+          if (allowDisabled) {
+            console.log(`${bundle} was registered to User A before the verified targeted send and is now disabled`);
+            return;
+          }
+          console.error(`${bundle} is registered, but endpointEnabled is false`);
+          process.exit(2);
+        }
+        const enabled=live.filter(d=>d.notificationsEnabled!==false);
+        if (!enabled.length) {
+          console.error(`${bundle} is registered, but notificationsEnabled is false`);
+          process.exit(2);
+        }
+        console.log(`${enabled.length} enabled ${bundle} device record(s) found for behavioral proof`);
+      });
+    ' "$BUNDLE_ID" "$allow_disabled"
+    local registered_rc=$?
+    ((registered_rc == 0)) || return "$registered_rc"
+    [[ "$RECORDED_DEVICE_KIND" == simulator ]] || return 0
+    local simulator_token devices
+    simulator_token="$(node "$BIN/ios-notify-read.js" store "$(ios_simulator_devices_root)" \
+      "$DEVICE_ID" "$BUNDLE_ID" 2>/dev/null | node -e '
+        let i=""; process.stdin.on("data",c=>i+=c).on("end",()=>{
+          try { process.stdout.write(String(JSON.parse(i).registration?.token_sha256||"")) } catch {}
+        });
+      ')"
+    devices="$(printf '%s' "$HTTP_BODY" |
+      node "$BIN/ios-notify-read.js" iterable-devices "$BUNDLE_ID" "$simulator_token" 2>/dev/null)"
+    [[ "$devices" != *'"enabled":0'* ]] || return 0
+    if [[ "$devices" == *'"token_match":true'* ]]; then
+      TOKEN_CORRELATED=true
+      echo "Iterable holds this Simulator's current APNs token for $BUNDLE_ID"
+    elif [[ "$devices" == *'"token_comparable":true'* ]]; then
+      echo "Iterable's enabled $BUNDLE_ID device token is not this Simulator's current APNs token; open the app signed in as $IDENTITY on this Simulator so the SDK registers it"
+      return 2
+    fi
+    return 0
+  fi
+  token_hash="$(runtime_apns_token_hash)"
+  token_rc=$?
+  if ((token_rc == 2)); then
+    echo "the current run has no APNs token correlated with Iterable registration yet"
+    return 2
+  fi
+  ((token_rc == 0)) || {
+    echo "the current run has ambiguous APNs token evidence"
+    return 1
+  }
+  printf '%s' "$HTTP_BODY" | node -e '
+    const crypto=require("crypto");
+    let input="";
+    process.stdin.on("data",c=>input+=c).on("end",()=>{
+      let v; try { v=JSON.parse(input) } catch { process.exit(1) }
+      const bundle=process.argv[1], allowDisabled=process.argv[2]==="true";
+      const expectedTokenHash=process.argv[3];
+      const devices=v.user?.dataFields?.devices || v.user?.devices;
+      if (!Array.isArray(devices)) {
+        console.error("the exact user has no registered devices yet");
+        process.exit(2);
+      }
+      const tokenHash=device=>{
+        const token=String(device.token||"").replace(/\s+/g,"").toLowerCase();
+        if (!/^[0-9a-f]+$/.test(token) || token.length%2!==0) return "";
+        return crypto.createHash("sha256").update(Buffer.from(token,"hex")).digest("hex");
+      };
+      const mine=devices.filter(d=>
+        (d.appPackageName===bundle || d.applicationName===bundle) &&
+        tokenHash(d)===expectedTokenHash
+      );
+      if (!mine.length) {
+        console.error(`the exact APNs token is not registered for ${bundle} yet`);
+        process.exit(2);
+      }
+      const live=mine.filter(d=>d.endpointEnabled===true);
+      if (!live.length) {
+        if (allowDisabled) {
+          console.log(`the ${bundle} endpoint is now disabled; the exact User A marker proves it was targeted before logout`);
+          process.exit(0);
+        }
+        console.error(`the ${bundle} device exists but endpointEnabled is false`);
+        process.exit(1);
+      }
+      const enabled=live.filter(d=>d.notificationsEnabled!==false);
+      if (!enabled.length) {
+        console.error(`the ${bundle} device exists but notificationsEnabled is false`);
+        process.exit(1);
+      }
+      console.log(`${enabled.length} enabled ${bundle} device record(s)`);
+    });
+  ' "$BUNDLE_ID" "$allow_disabled" "$token_hash"
+  return $?
+}
+
+devicectl_json() {
+  xcrun devicectl --timeout 15 --quiet --json-output - "$@" 2>/dev/null
+}
+
+g8() {
+  [[ "$OFFLINE" != true ]] || {
+    echo "device reads were skipped by --offline"
+    return 2
+  }
+  command -v xcrun >/dev/null 2>&1 || {
+    echo "xcrun is not installed"
+    return 1
+  }
+  local simulators
+  simulators="$(xcrun simctl list devices --json 2>/dev/null || true)"
+  if printf '%s' "$simulators" | node -e '
+    let input="";
+    process.stdin.on("data",c=>input+=c).on("end",()=>{
+      let v; try { v=JSON.parse(input) } catch { process.exit(1) }
+      const want=process.argv[1];
+      const devices=Object.values(v.devices||{}).flat();
+      process.exit(devices.some(d=>d.udid===want && d.state==="Booted") ? 0 : 1);
+    });
+  ' "$DEVICE_ID"; then
+    DEVICE_KIND=simulator
+    [[ "$RECORDED_DEVICE_KIND" == simulator ]] || {
+      echo "the selected UDID is a Simulator but the proof target records $RECORDED_DEVICE_KIND"
+      return 1
+    }
+    if [[ "$PUSH_REQUIRED" == true && "$ENVIRONMENT" != development ]]; then
+      echo "iOS Simulator supports the APNs sandbox only; production proof requires a physical or distributed build"
+      return 1
+    fi
+    if [[ "$PUSH_REQUIRED" == true ]]; then
+      ios_simulator_host_supports_apns || {
+        echo "this Mac/Xcode combination is not eligible for real APNs Simulator delivery"
+        return 1
+      }
+      ios_simulator_device_supports_apns "$simulators" "$DEVICE_ID" || {
+        echo "the selected Simulator must be booted, available, and use an iOS 16+ runtime"
+        return 1
+      }
+      local current_runtime
+      current_runtime="$(ios_simulator_device_runtime "$simulators" "$DEVICE_ID")" ||
+        return 1
+      [[ "$current_runtime" == "$RECORDED_SIMULATOR_RUNTIME" ]] || {
+        echo "the selected Simulator runtime changed from $RECORDED_SIMULATOR_RUNTIME to $current_runtime"
+        return 1
+      }
+      echo "selected booted Simulator is available for real APNs sandbox proof"
+    else
+      echo "selected booted Simulator is available"
+    fi
+    return 0
+  fi
+  if [[ "$RECORDED_DEVICE_KIND" == simulator ]]; then
+    DEVICE_KIND=simulator
+    printf '%s' "$simulators" | node -e '
+      let input="";
+      process.stdin.on("data",c=>input+=c).on("end",()=>{
+        let v; try { v=JSON.parse(input) } catch { process.exit(2) }
+        const want=process.argv[1];
+        const devices=Object.values(v.devices||{}).flat();
+        const match=devices.find(d=>d.udid===want);
+        if (!match) process.exit(1);
+        if (match.isAvailable===false) process.exit(3);
+        process.exit(0);
+      });
+    ' "$DEVICE_ID"
+    local simulator_rc=$?
+    if ((simulator_rc == 0)); then
+      echo "the selected Simulator exists but is not booted; boot the recorded target and continue"
+      return 2
+    fi
+    if ((simulator_rc == 3)); then
+      echo "the selected Simulator exists but is unavailable"
+      return 1
+    fi
+    if ((simulator_rc == 2)); then
+      echo "CoreSimulator could not return readable device state"
+      return 2
+    fi
+    echo "the selected Simulator no longer exists"
+    return 1
+  fi
+  local devices
+  [[ "$RECORDED_DEVICE_KIND" == physical ]] || return 1
+  devices="$(devicectl_json list devices)" || {
+    echo "CoreDevice could not list connected devices"
+    return 2
+  }
+  printf '%s' "$devices" | node -e '
+    let input="";
+    process.stdin.on("data",c=>input+=c).on("end",()=>{
+      let root; try { root=JSON.parse(input) } catch { process.exit(1) }
+      const want=process.argv[1], matches=[];
+      const scalar=(object,pattern)=>Object.entries(object)
+        .filter(([key,value])=>pattern.test(key) &&
+          ["string","number","boolean"].includes(typeof value))
+        .map(([,value])=>String(value));
+      const deepScalar=(object,pattern)=>{
+        const out=[];
+        const walk=value=>{
+          if (!value || typeof value!=="object") return;
+          for (const [key,child] of Object.entries(value)) {
+            if (pattern.test(key) &&
+                ["string","number","boolean"].includes(typeof child)) {
+              out.push(String(child));
+            } else {
+              walk(child);
+            }
+          }
+        };
+        walk(object);
+        return out;
+      };
+      const physicalIPhone=object=>{
+        if (!object || typeof object!=="object" || Array.isArray(object)) return false;
+        const identifiers=scalar(
+          object,
+          /^(identifier|udid|deviceId|deviceIdentifier)$/i
+        );
+        if (!identifiers.includes(want)) return false;
+        const descriptive=deepScalar(
+          object,
+          /(name|platform|productType|deviceClass|deviceFamily|hardwareModel|reality)/i
+        ).join(" ").toLowerCase();
+        if (/\bsimulat(?:ed|or)\b|\bvirtual\b/.test(descriptive)) return false;
+        if (!/\biphone\b|\bios\b/.test(descriptive)) return false;
+        const connection=deepScalar(
+          object,
+          /(connectionState|connectionStatus|state|visibility|pairingState)/i
+        ).join(" ").toLowerCase();
+        return !/\b(disconnected|unavailable|offline|unpaired)\b/.test(connection);
+      };
+      const visit=v=>{
+        if (!v || typeof v!=="object") return;
+        if (physicalIPhone(v)) matches.push(v);
+        for (const child of Object.values(v)) visit(child);
+      };
+      visit(root);
+      if (!matches.length) {
+        console.error("selected physical iPhone is not connected");
+        process.exit(2);
+      }
+      console.log("selected physical iPhone is visible to CoreDevice");
+    });
+  ' "$DEVICE_ID"
+  local rc=$?
+  ((rc != 0)) || DEVICE_KIND=physical
+  return "$rc"
+}
+
+plist_value() {
+  plutil -extract "$2" raw -o - "$1" 2>/dev/null
+}
+
+artifact_contains_runtime_proof() {
+  local file
+  while IFS= read -r -d '' file; do
+    LC_ALL=C grep -aFq 'iterable-ios-runtime-proof/1' "$file" 2>/dev/null &&
+      return 0
+  done < <(find "$APP_PATH" -maxdepth 3 -type f -print0 2>/dev/null)
+  return 1
+}
+
+g9() {
+  [[ -n "$APP_PATH" ]] || {
+    echo "no .app path was recorded for this push run"
+    return 2
+  }
+  [[ -d "$APP_PATH" && -f "$APP_PATH/Info.plist" ]] || {
+    echo "the recorded .app bundle no longer exists at its exact path"
+    return 1
+  }
+  command -v plutil >/dev/null 2>&1 || {
+    echo "plutil is not installed"
+    return 1
+  }
+  local artifact_bundle
+  artifact_bundle="$(plist_value "$APP_PATH/Info.plist" CFBundleIdentifier)" || {
+    echo "the app artifact has no readable CFBundleIdentifier"
+    return 1
+  }
+  [[ "$artifact_bundle" == "$BUNDLE_ID" ]] || {
+    echo "the app artifact bundle ID is $artifact_bundle, not $BUNDLE_ID"
+    return 1
+  }
+  if [[ "$PUSH_REQUIRED" != true ]]; then
+    echo "exact app artifact uses bundle $BUNDLE_ID"
+    return 0
+  fi
+  command -v codesign >/dev/null 2>&1 || {
+    echo "codesign is not installed"
+    return 1
+  }
+  codesign --verify --deep --strict "$APP_PATH" >/dev/null 2>&1 || {
+    echo "the recorded .app does not pass local code-signature verification"
+    return 1
+  }
+  local entitlements aps_environment application_identifier
+  local executable platform expected_platform entitlement_source
+  executable="$(plist_value "$APP_PATH/Info.plist" CFBundleExecutable)" || {
+    echo "the app artifact has no readable CFBundleExecutable"
+    return 1
+  }
+  [[ -f "$APP_PATH/$executable" ]] || {
+    echo "the app artifact executable is missing"
+    return 1
+  }
+  platform="$(xcrun vtool -show-build "$APP_PATH/$executable" 2>/dev/null)" || {
+    echo "the app executable platform could not be read"
+    return 1
+  }
+  [[ "$RECORDED_DEVICE_KIND" == simulator ]] &&
+    expected_platform=IOSSIMULATOR || expected_platform=IOS
+  grep -Eq "platform[[:space:]]+$expected_platform([[:space:]]|$)" \
+    <<< "$platform" || {
+      echo "the app executable is not built for $expected_platform"
+      return 1
+    }
+
+  if [[ "$RECORDED_DEVICE_KIND" == simulator ]]; then
+    [[ "$ENVIRONMENT" == development ]] || {
+      echo "a Simulator artifact can prove only the development APNs environment"
+      return 1
+    }
+    entitlements="$(ios_simulator_executable_entitlements "$APP_PATH/$executable")" || {
+      echo "the Simulator executable has no readable __TEXT,__entitlements section"
+      return 1
+    }
+    entitlement_source="Xcode simulated entitlements"
+    application_identifier="$(printf '%s' "$entitlements" |
+      plutil -extract application-identifier raw -o - - 2>/dev/null)" || {
+      echo "the Simulator executable has no simulated application-identifier"
+      return 1
+    }
+    [[ "$application_identifier" == "$BUNDLE_ID" ||
+        "$application_identifier" == *".$BUNDLE_ID" ]] || {
+      echo "the Simulator application-identifier $application_identifier does not match $BUNDLE_ID"
+      return 1
+    }
+  else
+    entitlements="$(codesign -d --entitlements :- "$APP_PATH" 2>/dev/null)" || {
+      echo "the physical-device app's code-signature entitlements could not be read"
+      return 1
+    }
+    entitlement_source="code-signature entitlements"
+  fi
+
+  aps_environment="$(printf '%s' "$entitlements" |
+    plutil -extract aps-environment raw -o - - 2>/dev/null)" || {
+    echo "the app has no aps-environment in its $entitlement_source"
+    return 1
+  }
+  [[ "$aps_environment" == "$ENVIRONMENT" ]] || {
+    echo "the app uses aps-environment=$aps_environment in its $entitlement_source, not $ENVIRONMENT"
+    return 1
+  }
+  if [[ "$PROOF_MODE" == instrumented ]] &&
+      ! artifact_contains_runtime_proof; then
+    echo "instrumented proof was selected, but this app artifact does not contain the Iterable runtime-proof harness; add the evaluation-only harness, rebuild this exact path, or restart as behavioral proof"
+    return 1
+  fi
+  echo "artifact valid for $PROOF_MODE proof; bundle $BUNDLE_ID; aps-environment=$aps_environment from $entitlement_source; platform=$expected_platform"
+}
+
+g10() {
+  [[ "$OFFLINE" != true ]] || {
+    echo "installed-app read was skipped by --offline"
+    return 2
+  }
+  if [[ -z "$APP_PATH" ]]; then
+    if [[ "$DEVICE_KIND" == simulator ]]; then
+      local installed_app installed_bundle
+      installed_app="$(xcrun simctl get_app_container "$DEVICE_ID" "$BUNDLE_ID" app 2>/dev/null)" || {
+        echo "$BUNDLE_ID is not installed on the selected Simulator"
+        return 2
+      }
+      installed_bundle="$(plist_value "$installed_app/Info.plist" CFBundleIdentifier)" || {
+        echo "the installed Simulator app has no readable bundle identifier"
+        return 1
+      }
+      [[ "$installed_bundle" == "$BUNDLE_ID" ]] || {
+        echo "the selected Simulator returned a different installed bundle"
+        return 1
+      }
+      echo "$BUNDLE_ID is already installed on the selected Simulator; standard proof does not require reinstalling it"
+      return 0
+    fi
+    local installed_apps
+    installed_apps="$(devicectl_json device info apps --device "$DEVICE_ID" --bundle-id "$BUNDLE_ID")" || {
+      echo "CoreDevice could not read installed apps on the selected iPhone"
+      return 2
+    }
+    printf '%s' "$installed_apps" | node -e '
+      let input="";
+      process.stdin.on("data",c=>input+=c).on("end",()=>{
+        let root; try { root=JSON.parse(input) } catch { process.exit(1) }
+        const want=process.argv[1];
+        let found=false;
+        const visit=value=>{
+          if (found || !value || typeof value!=="object") return;
+          if (!Array.isArray(value) && Object.entries(value).some(
+            ([key,item])=>/bundle.*identifier/i.test(key) && String(item)===want
+          )) found=true;
+          for (const child of Object.values(value)) visit(child);
+        };
+        visit(root);
+        if (!found) {
+          console.error(`${want} is not installed on the selected iPhone`);
+          process.exit(2);
+        }
+        console.log(`${want} is already installed on the selected iPhone; standard proof does not require reinstalling it`);
+      });
+    ' "$BUNDLE_ID"
+    return $?
+  fi
+  local local_version local_build
+  local_version="$(plist_value "$APP_PATH/Info.plist" CFBundleShortVersionString)" || {
+    echo "the signed app has no readable CFBundleShortVersionString"
+    return 1
+  }
+  local_build="$(plist_value "$APP_PATH/Info.plist" CFBundleVersion)" || {
+    echo "the signed app has no readable CFBundleVersion"
+    return 1
+  }
+  if [[ "$DEVICE_KIND" == simulator ]]; then
+    local installed_app installed_version installed_build
+    local local_executable installed_executable local_hash installed_hash
+    installed_app="$(xcrun simctl get_app_container "$DEVICE_ID" "$BUNDLE_ID" app 2>/dev/null)" || {
+      echo "$BUNDLE_ID is not installed on the selected Simulator"
+      return 2
+    }
+    installed_version="$(plist_value "$installed_app/Info.plist" CFBundleShortVersionString)" ||
+      return 3
+    installed_build="$(plist_value "$installed_app/Info.plist" CFBundleVersion)" ||
+      return 3
+    [[ "$installed_version" == "$local_version" &&
+        "$installed_build" == "$local_build" ]] || {
+      echo "the Simulator has $installed_version ($installed_build), not the recorded $local_version ($local_build)"
+      return 1
+    }
+    local_executable="$(plist_value "$APP_PATH/Info.plist" CFBundleExecutable)" ||
+      return 1
+    installed_executable="$(plist_value "$installed_app/Info.plist" CFBundleExecutable)" ||
+      return 1
+    [[ "$installed_executable" == "$local_executable" &&
+        -f "$APP_PATH/$local_executable" &&
+        -f "$installed_app/$installed_executable" ]] || {
+      echo "the installed Simulator app executable does not match the recorded artifact"
+      return 1
+    }
+    local_hash="$(shasum -a 256 "$APP_PATH/$local_executable" | awk '{print $1}')"
+    installed_hash="$(shasum -a 256 "$installed_app/$installed_executable" |
+      awk '{print $1}')"
+    [[ "$installed_hash" == "$local_hash" ]] || {
+      echo "the Simulator has a different executable despite matching version/build"
+      return 1
+    }
+    echo "$BUNDLE_ID $local_version ($local_build) with the exact executable is installed on the selected Simulator"
+    return 0
+  fi
+  local apps
+  apps="$(devicectl_json device info apps --device "$DEVICE_ID" --bundle-id "$BUNDLE_ID")" || {
+    echo "CoreDevice could not read installed apps on the selected iPhone"
+    return 2
+  }
+  printf '%s' "$apps" | node -e '
+    let input="";
+    process.stdin.on("data",c=>input+=c).on("end",()=>{
+      let root; try { root=JSON.parse(input) } catch { process.exit(1) }
+      const want=process.argv[1], version=process.argv[2], build=process.argv[3];
+      let found=null;
+      const visit=v=>{
+        if (found || !v || typeof v!=="object") return;
+        if (!Array.isArray(v)) {
+          for (const [key,value] of Object.entries(v)) {
+            if (/bundle.*identifier/i.test(key) && String(value)===want) {
+              found=v;
+              break;
+            }
+          }
+        }
+        for (const child of Object.values(v)) visit(child);
+      };
+      visit(root);
+      if (!found) {
+        console.error(`${want} is not installed on the selected iPhone`);
+        process.exit(2);
+      }
+      const entries=Object.entries(found);
+      const values=pattern=>entries
+        .filter(([key])=>pattern.test(key))
+        .map(([,value])=>String(value));
+      const versions=values(/short.*version|marketing.*version|versionString|^version$/i);
+      const builds=values(/bundle.*version|build/i);
+      if (!versions.includes(version) || !builds.includes(build)) {
+        console.error(
+          `${want} is installed, but CoreDevice did not report the recorded version ${version} (${build})`
+        );
+        process.exit(3);
+      }
+      console.log(`${want} ${version} (${build}) is installed on the selected iPhone`);
+    });
+  ' "$BUNDLE_ID" "$local_version" "$local_build"
+  return $?
+}
+
+pull_runtime_proof() {
+  [[ -s "$RUNTIME_FILE" ]] && return 0
+  [[ "$OFFLINE" != true ]] || return 2
+  local source="Library/Application Support/IterableProof/runs/$RUN_ID.jsonl"
+  if [[ "$DEVICE_KIND" == simulator ]]; then
+    local container
+    container="$(xcrun simctl get_app_container "$DEVICE_ID" "$BUNDLE_ID" data 2>/dev/null)" ||
+      return 2
+    [[ -f "$container/$source" ]] || return 2
+    cp "$container/$source" "$RUNTIME_FILE" || return 2
+    [[ -s "$RUNTIME_FILE" ]]
+    return
+  fi
+  xcrun devicectl device info apps \
+    --device "$DEVICE_ID" \
+    --bundle-id "$BUNDLE_ID" \
+    --require-container-access \
+    --quiet >/dev/null 2>&1 || return 2
+  xcrun devicectl device copy from \
+    --device "$DEVICE_ID" \
+    --domain-type appDataContainer \
+    --domain-identifier "$BUNDLE_ID" \
+    --source "$source" \
+    --destination "$RUNTIME_FILE" \
+    --quiet >/dev/null 2>&1 || return 2
+  [[ -s "$RUNTIME_FILE" ]]
+}
+
+identity_hmac() {
+  local canonical_run_id
+  canonical_run_id="$(printf '%s' "$RUN_ID" | tr '[:upper:]' '[:lower:]')"
+  node -e '
+    const crypto=require("crypto");
+    process.stdout.write(
+      crypto.createHmac("sha256",process.argv[1]).update(process.argv[2]).digest("hex")
+    );
+  ' "$canonical_run_id" "$1"
+}
+
+runtime_apns_token_hash() {
+  pull_runtime_proof || return 2
+  node -e '
+    const fs=require("fs");
+    const [path,runId,start]=process.argv.slice(1);
+    let records;
+    try {
+      records=fs.readFileSync(path,"utf8").trim().split(/\n+/).filter(Boolean)
+        .map(line=>JSON.parse(line));
+    } catch { process.exit(1) }
+    const current=records.filter(r=>
+      r.schema==="iterable-ios-runtime-proof/1" &&
+      String(r.run_id||"").toLowerCase()===runId.toLowerCase() &&
+      Date.parse(r.recorded_at)>=Date.parse(start) &&
+      Date.parse(r.recorded_at)<=Date.now()+5*60*1000
+    );
+    const callbacks=current.filter(r=>
+      r.event==="apns_registration_callback" &&
+      /^[0-9a-f]{64}$/.test(String(r.token_sha256||""))
+    );
+    const correlated=callbacks.filter(callback=>current.some(r=>
+      r.event==="iterable_register_invoked" &&
+      r.process_launch_id===callback.process_launch_id &&
+      r.token_sha256===callback.token_sha256 &&
+      current.indexOf(r)>current.indexOf(callback)
+    ));
+    if (!correlated.length) process.exit(2);
+    const hashes=[...new Set(correlated.map(r=>r.token_sha256))];
+    if (hashes.length!==1) process.exit(1);
+    process.stdout.write(hashes[0]);
+  ' "$RUNTIME_FILE" "$RUN_ID" "$STARTED_AT"
+}
+
+launch_window() {
+  local phase="$1" receipt
+  receipt="$LAUNCHES/$phase.json"
+  [[ -f "$receipt" && "$(file_mode "$receipt")" == 600 ]] || return 2
+  node -e '
+    const fs=require("fs");
+    const v=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+    const [phase,bundle,device,deviceKind,runId,start]=process.argv.slice(2);
+    const launched=Date.parse(v.launched_at), expires=Date.parse(v.expires_at);
+    const valid=v.launched===true &&
+      v.phase===phase &&
+      v.bundle_id===bundle &&
+      v.device===device &&
+      v.device_kind===deviceKind &&
+      v.run_id===runId &&
+      !Number.isNaN(launched) &&
+      !Number.isNaN(expires) &&
+      launched>=Date.parse(start) &&
+      expires>launched &&
+      expires-launched<=2*60*60*1000+60*1000 &&
+      launched<=Date.now()+5*60*1000;
+    if (!valid) process.exit(1);
+    process.stdout.write(`${v.launched_at}\t${v.expires_at}`);
+  ' "$receipt" "$phase" "$BUNDLE_ID" "$DEVICE_ID" "$DEVICE_KIND" \
+    "$RUN_ID" "$STARTED_AT"
+}
+
+g11() {
+  local initial_window initial_launched initial_expires
+  initial_window="$(launch_window initial)" || {
+    echo "no valid initial launch receipt exists for this exact run"
+    return 2
+  }
+  IFS=$'\t' read -r initial_launched initial_expires <<< "$initial_window"
+  if [[ "$PROOF_MODE" == behavioral ]]; then
+    echo "the existing app was launched for standard proof; live Iterable state decides whether any user action is still needed"
+    return 0
+  fi
+  pull_runtime_proof || {
+    echo "the instrumented app produced no current-run runtime journal; do not relaunch repeatedly—confirm the evaluation build contains the harness and was installed from $APP_PATH"
+    return 2
+  }
+  local identity_hash
+  identity_hash="$(identity_hmac "$IDENTITY")"
+  node -e '
+    const fs=require("fs");
+    const [path,runId,bundle,environment,region,jwt,identityKind,identityHash,start,
+      pushRequired,launchedAt,expiresAt,identityDisplay]=
+      process.argv.slice(1);
+    let records;
+    try {
+      records=fs.readFileSync(path,"utf8").trim().split(/\n+/).filter(Boolean)
+        .map(line=>JSON.parse(line));
+    } catch {
+      console.error("runtime proof is not valid JSONL");
+      process.exit(1);
+    }
+    const current=records.filter(r=>
+      r.schema==="iterable-ios-runtime-proof/1" &&
+      String(r.run_id||"").toLowerCase()===runId.toLowerCase() &&
+      !Number.isNaN(Date.parse(r.recorded_at)) &&
+      Date.parse(r.recorded_at)>=Date.parse(start) &&
+      Date.parse(r.recorded_at)>=Date.parse(launchedAt) &&
+      Date.parse(r.recorded_at)<=Date.parse(expiresAt) &&
+      Date.parse(r.recorded_at)<=Date.now()+5*60*1000
+    );
+    const launch=current.find(r=>
+      r.event==="application_did_finish_launching" &&
+      r.proof_phase==="initial" &&
+      r.bundle_id===bundle &&
+      r.environment===environment
+    );
+    const initialized=current.find(r=>
+      r.event==="sdk_initialize_returned" &&
+      r.process_launch_id===launch?.process_launch_id &&
+      r.region===region &&
+      String(r.jwt_required)===jwt
+    );
+    const identity=current.find(r=>
+      r.event==="iterable_identity_set_invoked" &&
+      r.process_launch_id===launch?.process_launch_id &&
+      r.identity_kind===identityKind &&
+      r.identity_hmac===identityHash &&
+      r.source==="login"
+    );
+    const indexOf=record=>current.indexOf(record);
+    if (!launch) {
+      const observed=current
+        .filter(r=>r.event==="application_did_finish_launching")
+        .map(r=>`${String(r.bundle_id||"<empty>")} / ${String(r.environment||"<empty>")}`);
+      console.error(
+        `no initial lifecycle record for ${bundle} / ${environment}` +
+        (observed.length ? `; observed: ${[...new Set(observed)].join(", ")}` : "")
+      );
+      process.exit(2);
+    }
+    if (!initialized) {
+      console.error("the initial lifecycle did not record the matching Iterable initialize call");
+      process.exit(2);
+    }
+    if (!identity) {
+      console.error(`the initial lifecycle did not identify exact User A ${identityDisplay}`);
+      process.exit(2);
+    }
+    if (!(indexOf(launch)<indexOf(initialized) && indexOf(initialized)<indexOf(identity))) {
+      console.error("initial runtime facts are not ordered lifecycle, initialize, then User A");
+      process.exit(1);
+    }
+    if (pushRequired==="true") {
+      const settings=current.filter(r=>
+        r.event==="notification_settings_observed" &&
+        r.process_launch_id===launch.process_launch_id &&
+        [2,3,4].includes(Number(r.authorization_status))
+      ).at(-1);
+      const token=current.find(r=>
+        r.event==="apns_registration_callback" &&
+        r.process_launch_id===launch.process_launch_id &&
+        /^[0-9a-f]{64}$/.test(String(r.token_sha256||""))
+      );
+      const registered=current.find(r=>
+        r.event==="iterable_register_invoked" &&
+        r.process_launch_id===launch.process_launch_id &&
+        r.token_sha256===token?.token_sha256
+      );
+      if (!settings) {
+        console.error("notification authorization is not independently recorded as enabled");
+        process.exit(2);
+      }
+      if (!token || !registered) {
+        console.error("the current app run did not correlate an APNs token callback with Iterable registration");
+        process.exit(2);
+      }
+      if (!(indexOf(identity)<indexOf(registered) &&
+          indexOf(token)<indexOf(registered))) {
+        console.error("the APNs token callback and Iterable registration are not correlated after User A identification");
+        process.exit(1);
+      }
+    }
+    console.log("the recorded app lifecycle initialized Iterable and identified fresh User A");
+  ' "$RUNTIME_FILE" "$RUN_ID" "$BUNDLE_ID" "$ENVIRONMENT" "$REGION" \
+    "$JWT_ENABLED" "$IDENTITY_TYPE" "$identity_hash" "$STARTED_AT" \
+    "$PUSH_REQUIRED" "$initial_launched" "$initial_expires" "$IDENTITY"
+}
+
+observation_gate() {
+  local kind="$1" label="$2" expectation="$3"
+  receipt_matches "$kind" "$expectation"
+  local rc=$?
+  ((rc != 2)) || {
+    echo "$label has not been independently observed yet"
+    return 2
+  }
+  ((rc == 0)) || {
+    echo "$label receipt does not match this run or its tool-generated expectation"
+    return 1
+  }
+  echo "$label independently observed with the exact run marker on the selected iOS target"
+}
+
+simulator_delivery_gate() {
+  local manifest="$SENDS/$ENVIRONMENT/user-targeted.json" facts state prepared http store log judged rc
+  [[ -f "$manifest" ]] || {
+    echo "no proof push has been sent for this run yet"
+    return 2
+  }
+  [[ "$(file_mode "$manifest")" == 600 ]] || {
+    echo "the send manifest must be mode 0600"
+    return 1
+  }
+  facts="$(node -e '
+    const fs=require("fs"), crypto=require("crypto");
+    const sha=v=>crypto.createHash("sha256").update(String(v)).digest("hex");
+    const v=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+    const [bundle,device,environment,runId,marker,identity,start]=process.argv.slice(2);
+    const valid=v.contract===4 && v.kind==="user-targeted" &&
+      v.bundle_id===bundle && v.device===device && v.device_kind==="simulator" &&
+      v.environment===environment && v.run_id===runId &&
+      v.marker_sha256===sha(marker) && v.recipient_sha256===sha(identity) &&
+      /^[0-9a-f]{64}$/.test(String(v.delivery_nonce_sha256||"")) &&
+      Number.isInteger(v.template_id) && v.template_id>0 &&
+      ["prepared","sent","failed","uncertain"].includes(v.state) &&
+      !Number.isNaN(Date.parse(v.prepared_at)) &&
+      Date.parse(v.prepared_at)>=Date.parse(start);
+    if (!valid) process.exit(1);
+    process.stdout.write([v.state,v.prepared_at,v.http_code||"",v.delivery_nonce_sha256,v.template_id].join("\x1f"));
+  ' "$manifest" "$BUNDLE_ID" "$DEVICE_ID" "$ENVIRONMENT" "$RUN_ID" \
+    "$TARGETED_MARKER" "$IDENTITY" "$STARTED_AT")" || {
+    echo "the send manifest does not match this proof run"
+    return 1
+  }
+  local nonce_hash template_id
+  IFS=$'\x1f' read -r state prepared http nonce_hash template_id <<< "$facts"
+  if [[ "$state" == failed ]]; then
+    echo "Iterable rejected this run's proof send (HTTP ${http:-unknown}); nothing was sent"
+    return 2
+  fi
+  store="$(node "$BIN/ios-notify-read.js" store "$(ios_simulator_devices_root)" \
+    "$DEVICE_ID" "$BUNDLE_ID" 2>/dev/null)" || store='{"mapped":false,"records":[]}'
+  log="$(ios_simulator_proof_log "$DEVICE_ID" "$BUNDLE_ID" "$prepared")"
+  local receipt_digest=""
+  if [[ -f "$OBSERVATIONS/$ENVIRONMENT/user-targeted.json" ]]; then
+    receipt_digest="$(node -e '
+      const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
+      const ok=v.observed===true && v.device_kind==="simulator" && v.run_id===process.argv[2] &&
+        v.bundle_id===process.argv[3] && v.device===process.argv[4] && v.nonce_sha256===process.argv[5] &&
+        /^[0-9A-F]{4}-[0-9A-F]{4}$/.test(String(v.record_digest||""));
+      process.stdout.write(ok ? v.record_digest : "");
+    ' "$OBSERVATIONS/$ENVIRONMENT/user-targeted.json" "$RUN_ID" "$BUNDLE_ID" "$DEVICE_ID" "$nonce_hash" 2>/dev/null)"
+  fi
+  judged="$(node -e '
+    const [store,log,marker,nonceHash,template,notBefore,receiptDigest]=process.argv.slice(1);
+    const l=JSON.parse(log);
+    process.stdout.write(JSON.stringify({
+      expect:{marker,nonce_sha256:nonceHash,template_id:Number(template),not_before:notBefore},
+      store:JSON.parse(store), events:l.events, log_lines:l.lines,
+      log_ok:l.ok!==false, require_record:false, receipt_digest:receiptDigest||null
+    }));
+  ' "$store" "$log" "$TARGETED_MARKER" "$nonce_hash" "$template_id" "$prepared" "$receipt_digest" |
+    node "$BIN/ios-notify-read.js" judge)" || {
+    echo "the Simulator's notification records could not be read"
+    return 3
+  }
+  node -e '
+    const j=JSON.parse(process.argv[1]), state=process.argv[2];
+    const lead=state==="uncertain" || state==="prepared"
+      ? "the send was not confirmed by Iterable, and " : "";
+    if (j.observed) { console.log(j.summary); process.exit(0); }
+    console.log(`${j.diagnosis}: ${lead}${j.summary}`);
+    if (["log_unavailable","payload_redacted","log_unattributable"].includes(j.diagnosis)) process.exit(3);
+    if (["injection_detected","duplicate_delivery","marker_without_nonce","missing_aps_environment"].includes(j.diagnosis)) process.exit(1);
+    process.exit(2);
+  ' "$judged" "$state"
+}
+
+physical_delivery_gate() {
+  local manifest="$SENDS/$ENVIRONMENT/user-targeted.json" receipt="$OBSERVATIONS/$ENVIRONMENT/user-targeted.json"
+  local readback="$WORKSPACE/observations/readback.json" facts state http salt hash
+  [[ -f "$manifest" ]] || {
+    echo "no proof push has been sent for this run yet"
+    return 2
+  }
+  [[ "$(file_mode "$manifest")" == 600 ]] || {
+    echo "the send manifest must be mode 0600"
+    return 1
+  }
+  facts="$(node -e '
+    const fs=require("fs"), crypto=require("crypto");
+    const sha=v=>crypto.createHash("sha256").update(String(v)).digest("hex");
+    const v=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+    const [bundle,device,environment,runId,marker,identity,start]=process.argv.slice(2);
+    const valid=v.contract===4 && v.kind==="user-targeted" && v.device_kind==="physical" &&
+      v.bundle_id===bundle && v.device===device && v.environment===environment &&
+      v.run_id===runId && v.marker_sha256===sha(marker) && v.recipient_sha256===sha(identity) &&
+      ["prepared","sent","failed","uncertain"].includes(v.state) &&
+      !Number.isNaN(Date.parse(v.prepared_at)) && Date.parse(v.prepared_at)>=Date.parse(start) &&
+      /^[0-9a-f]{32}$/.test(String(v.readback?.salt||"")) && /^[0-9a-f]{64}$/.test(String(v.readback?.hash||""));
+    if (!valid) process.exit(1);
+    process.stdout.write([v.state,v.http_code||"",v.readback.salt,v.readback.hash].join("\x1f"));
+  ' "$manifest" "$BUNDLE_ID" "$DEVICE_ID" "$ENVIRONMENT" "$RUN_ID" \
+    "$TARGETED_MARKER" "$IDENTITY" "$STARTED_AT")" || {
+    echo "the send manifest does not match this proof run"
+    return 1
+  }
+  IFS=$'\x1f' read -r state http salt hash <<< "$facts"
+  if [[ "$state" == failed ]]; then
+    echo "Iterable rejected this run's proof send (HTTP ${http:-unknown}); nothing was sent"
+    return 2
+  fi
+  if [[ ! -f "$receipt" ]]; then
+    if [[ -f "$readback" ]] && node -e '
+        const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
+        process.exit(v.run_id===process.argv[2] && (v.locked===true || v.not_seen===true) ? 0 : 1);
+      ' "$readback" "$RUN_ID" 2>/dev/null; then
+      node -e '
+        const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
+        const c=v.corroboration||{};
+        const log=c.status==="collected" ? ` The iPhone log shows ${c.alert_requests} alert push(es) for the app (${c.verdict}).` :
+          c.status==="skipped" ? ` The iPhone log was not read: ${c.reason}.` : "";
+        console.log(`${v.diagnosis}: this run is closed without proof.${log}`);
+      ' "$readback"
+      return 2
+    fi
+    echo "awaiting_readback: the push was sent; the developer reads the six-character code shown on the iPhone"
+    return 2
+  fi
+  [[ "$(file_mode "$receipt")" == 600 ]] || {
+    echo "the read-back receipt must be mode 0600"
+    return 1
+  }
+  local corroboration_file
+  corroboration_file="$(node -e '
+    const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
+    const [bundle,device,environment,runId]=process.argv.slice(2);
+    const ok=v.observed===true && v.device_kind==="physical" && v.bundle_id===bundle &&
+      v.device===device && v.environment===environment && v.run_id===runId &&
+      v.verification_tier==="developer-observed" && v.readback_matched===true;
+    if (!ok) process.exit(1);
+    process.stdout.write(v.corroboration?.status==="collected" ? String(v.corroboration.file||"") : "-");
+  ' "$receipt" "$BUNDLE_ID" "$DEVICE_ID" "$ENVIRONMENT" "$RUN_ID")" || {
+    echo "the read-back receipt does not match this proof run"
+    return 1
+  }
+  [[ -f "$readback" && "$(file_mode "$readback")" == 600 ]] &&
+    node -e '
+      const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
+      process.exit(v.run_id===process.argv[2] && v.matched===true && v.locked!==true &&
+        v.not_seen!==true && Number(v.attempts||0)<3 ? 0 : 1);
+    ' "$readback" "$RUN_ID" 2>/dev/null || {
+    echo "the receipt claims a read-back, but this run's read-back record is missing, closed, or shows no match"
+    return 1
+  }
+  local corroboration="device-log corroboration was skipped (the host did not provide the iPhone log without elevated permissions)"
+  if [[ "$corroboration_file" != - ]]; then
+    local log_file="$WORKSPACE/observations/runs/$RUN_ID/user-targeted/$corroboration_file" verdict prepared
+    [[ "$corroboration_file" =~ ^[A-Za-z0-9._-]+$ && -f "$log_file" ]] || {
+      echo "the receipt cites device-log corroboration that is no longer present"
+      return 1
+    }
+    prepared="$(node -e 'process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).prepared_at||""))' "$manifest")"
+    verdict="$(node "$BIN/ios-notify-read.js" log "$BUNDLE_ID" --device --since "$prepared" < "$log_file" | node -e '
+      let i=""; process.stdin.on("data",c=>i+=c).on("end",()=>{
+        const l=JSON.parse(i);
+        process.stdout.write(JSON.stringify({events:l.events,not_before:process.argv[1]}));
+      });
+    ' "$prepared" | node "$BIN/ios-notify-read.js" corroborate | node -e '
+      let i=""; process.stdin.on("data",c=>i+=c).on("end",()=>process.stdout.write(JSON.parse(i).verdict));
+    ')"
+    [[ "$verdict" == corroborated ]] || {
+      echo "the recorded iPhone log does not show exactly one alert push for the app saved and delivered ($verdict)"
+      return 1
+    }
+    corroboration="the iPhone log corroborates exactly one alert push for the app, saved and delivered"
+  fi
+  PHYSICAL_DEVELOPER_OBSERVED=true
+  echo "the developer read back the code shown on the iPhone, and ios-prove recorded the match; $corroboration; developer-observed proof, and the physical path has not been tested by the maintainers"
+}
+
+g13() {
+  if [[ "$PROOF_MODE" == behavioral && "$RECORDED_DEVICE_KIND" == simulator ]]; then
+    simulator_delivery_gate
+    return $?
+  fi
+  if [[ "$PROOF_MODE" == behavioral && "$RECORDED_DEVICE_KIND" == physical ]]; then
+    physical_delivery_gate
+    return $?
+  fi
+  observation_gate user-targeted "User A targeted push" "$TARGETED_MARKER"
+}
+
+g14() {
+  observation_gate tap-route "push tap routing" "$TAP_EXPECT" || return $?
+  if [[ "$PROOF_MODE" == behavioral ]]; then
+    echo "the developer-visible push tap destination was observed; callback ordering is outside behavioral proof"
+    return 0
+  fi
+  pull_runtime_proof || {
+    echo "the current-run runtime proof disappeared before tap verification"
+    return 2
+  }
+  local marker_hash nonce_hash template_id initial_window initial_launched initial_expires
+  marker_hash="$(printf '%s' "$TARGETED_MARKER" | shasum -a 256 | awk '{print $1}')"
+  read -r nonce_hash template_id < <(node -e '
+    const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
+    const nonce=String(v.delivery_nonce_sha256||"");
+    const template=Number(v.template_id);
+    if (!/^[0-9a-f]{64}$/.test(nonce) ||
+        !Number.isInteger(template) || template<=0) process.exit(1);
+    process.stdout.write(`${nonce} ${template}\n`);
+  ' "$SENDS/$ENVIRONMENT/user-targeted.json") || {
+    echo "the User A sender manifest has no valid delivery nonce or template ID"
+    return 1
+  }
+  initial_window="$(launch_window initial)" || {
+    echo "the initial launch receipt disappeared before tap verification"
+    return 2
+  }
+  IFS=$'\t' read -r initial_launched initial_expires <<< "$initial_window"
+  node -e '
+    const fs=require("fs");
+    const [path,runId,markerHash,nonceHash,templateId,start,bundle,environment,launchedAt,expiresAt]=
+      process.argv.slice(1);
+    let records;
+    try {
+      records=fs.readFileSync(path,"utf8").trim().split(/\n+/).filter(Boolean)
+        .map(line=>JSON.parse(line));
+    } catch { process.exit(1) }
+    const current=records.filter(r=>
+      r.schema==="iterable-ios-runtime-proof/1" &&
+      String(r.run_id||"").toLowerCase()===runId.toLowerCase() &&
+      Date.parse(r.recorded_at)>=Date.parse(start) &&
+      Date.parse(r.recorded_at)>=Date.parse(launchedAt) &&
+      Date.parse(r.recorded_at)<=Date.parse(expiresAt) &&
+      Date.parse(r.recorded_at)<=Date.now()+5*60*1000
+    ).sort((a,b)=>Date.parse(a.recorded_at)-Date.parse(b.recorded_at) ||
+      Number(a.sequence||0)-Number(b.sequence||0));
+    const names=[
+      "notification_response_callback",
+      "iterable_push_forward_invoked",
+      "notification_response_completion"
+    ];
+    const candidates=names.map(event=>current.filter(r=>
+      r.event===event && r.marker_sha256===markerHash
+    ));
+    const matched=names.map((event,index)=>candidates[index].filter(r=>
+      r.event===event &&
+      r.delivery_nonce_sha256===nonceHash &&
+      Number(r.template_id)===Number(templateId)
+    ));
+    for (let index=0; index<names.length; index++) {
+      if (matched[index].length!==1) {
+        console.error(`${names[index]} expected once, saw ${matched[index].length}`);
+        process.exit(candidates[index].length ? 1 : 2);
+      }
+    }
+    const [callback,forwarded,completed]=matched.map(matches=>matches[0]);
+    const processId=callback.process_launch_id;
+    const lifecycle=current.find(r=>
+      r.event==="application_did_finish_launching" &&
+      r.process_launch_id===processId &&
+      r.proof_phase==="initial" &&
+      r.bundle_id===bundle &&
+      r.environment===environment
+    );
+    const action=callback.action_identifier;
+    const ordered=lifecycle &&
+      forwarded.process_launch_id===processId &&
+      completed.process_launch_id===processId &&
+      forwarded.action_identifier===action &&
+      completed.action_identifier===action &&
+      current.indexOf(lifecycle)<current.indexOf(callback) &&
+      current.indexOf(callback)<current.indexOf(forwarded) &&
+      current.indexOf(forwarded)<current.indexOf(completed);
+    if (!ordered) {
+      console.error("push callback, Iterable forwarding, and completion are not ordered in one current launch");
+      process.exit(1);
+    }
+    const ids=[callback.message_id_sha256,forwarded.message_id_sha256,
+      completed.message_id_sha256].filter(Boolean);
+    if (ids.length && (ids.length!==3 || new Set(ids).size!==1)) {
+      console.error("push callbacks disagree on Iterable message identity");
+      process.exit(1);
+    }
+    console.log("the sender-only nonce crossed one current Iterable push callback, forwarding, and completion in order");
+  ' "$RUNTIME_FILE" "$RUN_ID" "$marker_hash" "$nonce_hash" "$template_id" \
+    "$STARTED_AT" "$BUNDLE_ID" "$ENVIRONMENT" "$initial_launched" \
+    "$initial_expires"
+}
+
+g15() {
+  local restore_window restore_launched restore_expires
+  restore_window="$(launch_window restore)" || {
+    echo "no valid restore launch receipt exists for this exact run"
+    return 2
+  }
+  IFS=$'\t' read -r restore_launched restore_expires <<< "$restore_window"
+  pull_runtime_proof || {
+    echo "no current-run runtime proof is readable after the restore launch"
+    return 2
+  }
+  local identity_hash
+  identity_hash="$(identity_hmac "$IDENTITY")"
+  node -e '
+    const fs=require("fs");
+    const [path,runId,bundle,environment,kind,identityHash,start,launchedAt,expiresAt]=
+      process.argv.slice(1);
+    let records;
+    try {
+      records=fs.readFileSync(path,"utf8").trim().split(/\n+/).filter(Boolean)
+        .map(line=>JSON.parse(line));
+    } catch { process.exit(1) }
+    const current=records.filter(r=>
+      String(r.run_id||"").toLowerCase()===runId.toLowerCase() &&
+      Date.parse(r.recorded_at)>=Date.parse(start) &&
+      Date.parse(r.recorded_at)>=Date.parse(launchedAt) &&
+      Date.parse(r.recorded_at)<=Date.parse(expiresAt) &&
+      Date.parse(r.recorded_at)<=Date.now()+5*60*1000
+    );
+    const launch=current.find(r=>
+      r.event==="application_did_finish_launching" &&
+      r.proof_phase==="restore" &&
+      r.bundle_id===bundle &&
+      r.environment===environment
+    );
+    const restored=current.find(r=>
+      r.event==="iterable_identity_set_invoked" &&
+      r.proof_phase==="restore" &&
+      r.process_launch_id===launch?.process_launch_id &&
+      r.identity_kind===kind &&
+      r.identity_hmac===identityHash &&
+      r.source==="restore"
+    );
+    if (!launch || !restored || current.indexOf(launch)>=current.indexOf(restored)) {
+      console.error("a separate restore launch has not re-identified exact User A");
+      process.exit(2);
+    }
+    console.log("a separate process launch restored exact User A after initialization");
+  ' "$RUNTIME_FILE" "$RUN_ID" "$BUNDLE_ID" "$ENVIRONMENT" "$IDENTITY_TYPE" \
+    "$identity_hash" "$STARTED_AT" "$restore_launched" "$restore_expires"
+}
+
+g16() {
+  observation_gate logout-switch "logout and account switching" "$LOGOUT_EXPECT" ||
+    return $?
+  if [[ "$PROOF_MODE" == behavioral ]]; then
+    local a_code a_body b_code b_body
+    fetch_named_user "$IDENTITY"
+    a_code="$HTTP_CODE"
+    a_body="$HTTP_BODY"
+    fetch_named_user "$SWITCH_IDENTITY"
+    b_code="$HTTP_CODE"
+    b_body="$HTTP_BODY"
+    if [[ "$b_code" == 400 ]] &&
+        grep -Eqi 'no user exists|not found' <<< "$b_body"; then
+      echo "visible account switching was observed, but exact User B $SWITCH_IDENTITY has not appeared in Iterable yet"
+      return 2
+    fi
+    [[ "$b_code" == 200 ]] || {
+      echo "exact User B $SWITCH_IDENTITY lookup returned HTTP $b_code"
+      return 1
+    }
+    if [[ "$PUSH_REQUIRED" != true ]]; then
+      printf '%s' "$b_body" | node -e '
+        let input="";
+        process.stdin.on("data",c=>input+=c).on("end",()=>{
+          let v; try { v=JSON.parse(input) } catch { process.exit(1) }
+          const kind=process.argv[1], expected=process.argv[2];
+          const actual=kind==="email" ? v.user?.email : v.user?.userId;
+          process.exit(String(actual||"")===expected ? 0 : 1);
+        });
+      ' "$IDENTITY_TYPE" "$SWITCH_IDENTITY" || {
+        echo "the returned User B does not match exact switch identity $SWITCH_IDENTITY"
+        return 1
+      }
+      echo "visible logout/account switching and exact remote User B $SWITCH_IDENTITY are behaviorally proven"
+      return 0
+    fi
+    [[ "$a_code" == 200 ]] || {
+      echo "exact User A $IDENTITY could not be read after logout (HTTP $a_code)"
+      return 1
+    }
+    node -e '
+      const [aRaw,bRaw,bundle,bKind,bExpected]=process.argv.slice(1);
+      let a,b;
+      try { a=JSON.parse(aRaw); b=JSON.parse(bRaw) } catch { process.exit(1) }
+      const bActual=bKind==="email" ? b.user?.email : b.user?.userId;
+      if (String(bActual||"")!==bExpected) {
+        console.error(`the returned User B does not match ${bExpected}`);
+        process.exit(1);
+      }
+      const devices=v=>{
+        const all=v.user?.dataFields?.devices || v.user?.devices || [];
+        return Array.isArray(all)
+          ? all.filter(d=>d.appPackageName===bundle || d.applicationName===bundle)
+          : [];
+      };
+      const live=v=>devices(v).filter(
+        d=>d.endpointEnabled===true && d.notificationsEnabled!==false
+      );
+      if (live(a).length) {
+        console.error(`User A still has an enabled ${bundle} device`);
+        process.exit(2);
+      }
+      if (!live(b).length) {
+        console.error(`User B has no enabled ${bundle} device yet`);
+        process.exit(2);
+      }
+      console.log(
+        `visible account switching is corroborated by remote ${bundle} ownership moving from User A to User B`
+      );
+    ' "$a_body" "$b_body" "$BUNDLE_ID" "$IDENTITY_TYPE" "$SWITCH_IDENTITY"
+    return $?
+  fi
+  pull_runtime_proof || {
+    echo "no current-run runtime proof is readable after logout/account switching"
+    return 2
+  }
+
+  local a_hash b_hash
+  a_hash="$(identity_hmac "$IDENTITY")"
+  b_hash="$(identity_hmac "$SWITCH_IDENTITY")"
+  node -e '
+    const fs=require("fs");
+    const [path,runId,kind,aHash,bHash,start]=process.argv.slice(1);
+    let records;
+    try {
+      records=fs.readFileSync(path,"utf8").trim().split(/\n+/).filter(Boolean)
+        .map(line=>JSON.parse(line));
+    } catch { process.exit(1) }
+    const current=records.filter(r=>
+      String(r.run_id||"").toLowerCase()===runId.toLowerCase() &&
+      Date.parse(r.recorded_at)>=Date.parse(start) &&
+      Date.parse(r.recorded_at)<=Date.now()+5*60*1000
+    ).sort((a,b)=>Date.parse(a.recorded_at)-Date.parse(b.recorded_at) ||
+      Number(a.sequence||0)-Number(b.sequence||0));
+    const restoreLaunchIndex=current.findIndex(r=>
+      r.event==="application_did_finish_launching" &&
+      r.proof_phase==="restore"
+    );
+    const restoreLaunch=restoreLaunchIndex>=0 ? current[restoreLaunchIndex] : null;
+    const aIndex=current.findIndex((r,i)=>i>restoreLaunchIndex &&
+      r.event==="iterable_identity_set_invoked" &&
+      r.process_launch_id===restoreLaunch?.process_launch_id &&
+      r.identity_hmac===aHash &&
+      r.source==="restore"
+    );
+    const clearIndex=current.findIndex((r,i)=>i>aIndex &&
+      r.event==="local_personalized_state_cleared" &&
+      r.process_launch_id===restoreLaunch?.process_launch_id);
+    const logoutIndex=current.findIndex((r,i)=>i>clearIndex &&
+      r.event==="iterable_logout_invoked" &&
+      r.process_launch_id===restoreLaunch?.process_launch_id);
+    const callbackIndex=current.findIndex((r,i)=>i>logoutIndex &&
+      r.event==="iterable_logout_callback" &&
+      r.process_launch_id===restoreLaunch?.process_launch_id &&
+      r.result==="success");
+    const bIndex=current.findIndex((r,i)=>i>callbackIndex &&
+      r.event==="iterable_identity_set_invoked" &&
+      r.process_launch_id===restoreLaunch?.process_launch_id &&
+      r.identity_kind===kind &&
+      r.identity_hmac===bHash &&
+      ["login","restore"].includes(r.source));
+    if (restoreLaunchIndex<0 || aIndex<0 || clearIndex<0 ||
+        logoutIndex<0 || callbackIndex<0 || bIndex<0) {
+      console.error("one restore process does not show User A, local clearing, successful logout, then exact User B in order");
+      process.exit(2);
+    }
+    console.log("runtime proof orders local clearing before Iterable logout and exact User B");
+  ' "$RUNTIME_FILE" "$RUN_ID" "$IDENTITY_TYPE" "$a_hash" "$b_hash" \
+    "$STARTED_AT" || return $?
+
+  if [[ "$PUSH_REQUIRED" != true ]]; then
+    fetch_named_user "$SWITCH_IDENTITY"
+    if [[ "$HTTP_CODE" == 400 ]] &&
+        grep -Eqi 'no user exists|not found' <<< "$HTTP_BODY"; then
+      echo "exact User B has not appeared in Iterable after account switching yet"
+      return 2
+    fi
+    [[ "$HTTP_CODE" == 200 ]] || {
+      echo "exact User B lookup returned HTTP $HTTP_CODE"
+      return 1
+    }
+    printf '%s' "$HTTP_BODY" | node -e '
+      let input="";
+      process.stdin.on("data",c=>input+=c).on("end",()=>{
+        let v; try { v=JSON.parse(input) } catch { process.exit(1) }
+        const kind=process.argv[1], expected=process.argv[2];
+        const actual=kind==="email" ? v.user?.email : v.user?.userId;
+        process.exit(String(actual||"")===expected ? 0 : 1);
+      });
+    ' "$IDENTITY_TYPE" "$SWITCH_IDENTITY" || {
+      echo "the returned User B does not match the exact switch identity"
+      return 1
+    }
+    echo "local logout ordering and exact remote User B are proven"
+    return 0
+  fi
+
+  local token_hash token_rc
+  token_hash="$(runtime_apns_token_hash)"
+  token_rc=$?
+  if ((token_rc == 2)); then
+    echo "the tested APNs token is not available for logout ownership proof"
+    return 2
+  fi
+  ((token_rc == 0)) || {
+    echo "the current run has ambiguous APNs token evidence"
+    return 1
+  }
+
+  local a_code a_body b_code b_body
+  fetch_named_user "$IDENTITY"
+  a_code="$HTTP_CODE"
+  a_body="$HTTP_BODY"
+  fetch_named_user "$SWITCH_IDENTITY"
+  b_code="$HTTP_CODE"
+  b_body="$HTTP_BODY"
+  [[ "$a_code" == 200 ]] || {
+    echo "User A could not be read after logout (HTTP $a_code)"
+    return 1
+  }
+  if [[ "$b_code" == 400 ]] &&
+      grep -Eqi 'no user exists|not found' <<< "$b_body"; then
+    echo "User B has not appeared in Iterable after account switching yet"
+    return 2
+  fi
+  [[ "$b_code" == 200 ]] || {
+    echo "User B could not be read after account switching (HTTP $b_code)"
+    return 1
+  }
+  node -e '
+    const crypto=require("crypto");
+    const [aRaw,bRaw,bundle,expectedTokenHash]=process.argv.slice(1);
+    let a,b;
+    try { a=JSON.parse(aRaw); b=JSON.parse(bRaw) } catch { process.exit(1) }
+    const tokenHash=device=>{
+      const token=String(device.token||"").replace(/\s+/g,"").toLowerCase();
+      if (!/^[0-9a-f]+$/.test(token) || token.length%2!==0) return "";
+      return crypto.createHash("sha256").update(Buffer.from(token,"hex")).digest("hex");
+    };
+    const devices=v=>{
+      const all=v.user?.dataFields?.devices || v.user?.devices || [];
+      return Array.isArray(all)
+        ? all.filter(d=>
+            (d.appPackageName===bundle || d.applicationName===bundle) &&
+            tokenHash(d)===expectedTokenHash
+          )
+        : [];
+    };
+    const aDevices=devices(a), bDevices=devices(b);
+    const aLive=aDevices.filter(d=>d.endpointEnabled===true);
+    const bLive=bDevices.filter(
+      d=>d.endpointEnabled===true && d.notificationsEnabled!==false
+    );
+    if (aLive.length) {
+      console.error("User A still owns the tested APNs token");
+      process.exit(2);
+    }
+    if (!bLive.length) {
+      console.error("User B does not own the enabled tested APNs token yet");
+      process.exit(2);
+    }
+    console.log("the tested APNs token is disabled or absent for User A and enabled for User B");
+  ' "$a_body" "$b_body" "$BUNDLE_ID" "$token_hash"
+}
+
+g17() {
+  observation_gate user-targeted-switch "User B targeted push" "$SWITCH_MARKER"
+}
+
+recent_inspection() {
+  local kind="${1:-app}" purpose="${2:-general}" receipt
+  receipt="$WORKSPACE/observations/current-${kind}-${purpose}.json"
+  [[ -f "$receipt" && "$(file_mode "$receipt")" == 600 ]] || return 1
+  node -e '
+    const fs=require("fs");
+    const value=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+    const [kind,purpose,bundle,device,runId,start]=process.argv.slice(2);
+    const observed=Date.parse(value.observed_at);
+    const valid=value.inspected===true &&
+      value.non_interactive===true &&
+      value.may_foreground_target===true &&
+      value.kind===kind &&
+      value.purpose===purpose &&
+      value.bundle_id===bundle &&
+      value.device===device &&
+      value.run_id===runId &&
+      !Number.isNaN(observed) &&
+      observed>=Date.parse(start) &&
+      observed>=Date.now()-2*60*1000 &&
+      observed<=Date.now()+5*60*1000;
+    if (!valid) process.exit(1);
+    process.stdout.write(`${value.classification||"visible_state"}: ${value.summary||"state inspected"}`);
+  ' "$receipt" "$kind" "$purpose" "$BUNDLE_ID" "$DEVICE_ID" "$RUN_ID" "$STARTED_AT"
+}
+
+delivery_attempt_count() {
+  local kind="$1" receipt
+  receipt="$WORKSPACE/observations/attempts/$kind.json"
+  [[ -f "$receipt" && "$(file_mode "$receipt")" == 600 ]] || {
+    printf 0
+    return
+  }
+  node -e '
+    const fs=require("fs");
+    const value=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+    const [kind,bundle,device,environment,runId,start]=process.argv.slice(2);
+    const attempted=Date.parse(value.attempted_at);
+    const valid=value.contract===1 &&
+      value.kind===kind &&
+      value.bundle_id===bundle &&
+      value.device===device &&
+      value.environment===environment &&
+      value.run_id===runId &&
+      value.last_result==="timeout" &&
+      Number.isInteger(value.attempts) &&
+      value.attempts>0 &&
+      !Number.isNaN(attempted) &&
+      attempted>=Date.parse(start);
+    process.stdout.write(valid ? String(value.attempts) : "0");
+  ' "$receipt" "$kind" "$BUNDLE_ID" "$DEVICE_ID" "$ENVIRONMENT" "$RUN_ID" \
+    "$STARTED_AT" 2>/dev/null || printf 0
+}
+
+send_manifest_state() {
+  local kind="$1" manifest
+  manifest="$SENDS/$ENVIRONMENT/$kind.json"
+  [[ -f "$manifest" && "$(file_mode "$manifest")" == 600 ]] || {
+    printf missing
+    return
+  }
+  node -e '
+    const value=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
+    if (value.sent===true && (value.state==="sent" || value.contract===2)) {
+      process.stdout.write("sent");
+    } else if (value.contract===3 && value.state==="prepared" && value.sent===false) {
+      process.stdout.write("prepared");
+    } else {
+      process.stdout.write("invalid");
+    }
+  ' "$manifest" 2>/dev/null || printf invalid
+}
+
+printf '\n  Native iOS verification — %s, %s\n\n' \
+  "${BUNDLE_ID:-<no bundle selected>}" "${ENVIRONMENT:-<no run selected>}" >&2
+gate I0  "Real local configuration"       -       tool  g0
+gate I3  "Server read credential"         I0      tool  g3
+gate I1  "Exact proof target"             I3      tool  g1
+gate I4  "Selected iOS device available"  I1      tool  g8
+if [[ -n "$APP_PATH" ]]; then
+  gate I5  "Exact app artifact"              I1      tool  g9
+  gate I6  "Application installed"           I4,I5   tool  g10
+else
+  gate I6  "Application installed"           I4      tool  g10
+fi
+if [[ "$PROOF_MODE" == behavioral ]]; then
+  gate I8  "Exact identity in Iterable"       I3,I6   tool  g4
+  if [[ "$PUSH_REQUIRED" == true ]]; then
+    gate I12 "Device registered in Iterable"  I8      tool  g7
+    if [[ "$APPLE_CHECKABLE" == true ]]; then
+      gate I13 "Apple accepts pushes for this app" I12 tool apple_gate
+      gate I14 "Push delivered by APNs"        I13     tool  g13
+    elif [[ "$RECORDED_DEVICE_KIND" == simulator ]]; then
+      gate I14 "Push delivered by APNs"        I12     tool  g13
+    else
+      gate I14 "Push seen on the iPhone"       I12     tool  g13
+    fi
+  fi
+else
+  gate I7  "Runtime initialization and User A" I6    tool  g11
+  gate I8  "Fresh User A in Iterable"          I3,I7   tool  g4
+  gate I9  "Selected profile behavior"         I8      tool  g5
+  gate I10 "Selected event behavior"           I8      tool  g6
+  gate I11 "Restored identity after relaunch" I7     tool  g15
+  if [[ "$PUSH_REQUIRED" == true ]]; then
+    gate I12 "Device registered in Iterable"  I8      tool  g7
+    gate I14 "User A targeted push visible"   I7,I12  tool  g13
+    gate I15 "Push tap handled exactly once"  I14     tool  g14
+    gate I16 "Logout switches remote owner"   I11,I15 tool  g16
+    gate I17 "User B targeted push visible"   I16     tool  g17
+  else
+    gate I16 "Logout and User B isolation"    I11     tool  g16
+  fi
+fi
+printf '\n' >&2
+
+NGREEN=0
+NRED=0
+NPENDING=0
+NBLOCKED=0
+NUNVERIFIABLE=0
+ROWS=()
+FIRST_RED=""
+FIRST_OUTSTANDING=""
+while IFS=$'\t' read -r id status owner name detail; do
+  [[ -n "$id" ]] || continue
+  case "$status" in
+    green) ((NGREEN++)) ;;
+    red) ((NRED++)); [[ -n "$FIRST_RED" ]] || FIRST_RED="$id" ;;
+    pending) ((NPENDING++)); [[ -n "$FIRST_OUTSTANDING" ]] || FIRST_OUTSTANDING="$id" ;;
+    blocked) ((NBLOCKED++)) ;;
+    unverifiable) ((NUNVERIFIABLE++)); [[ -n "$FIRST_OUTSTANDING" ]] || FIRST_OUTSTANDING="$id" ;;
+  esac
+  ROWS+=("$(printf '{"id":%s,"name":%s,"status":%s,"owner":%s,"detail":%s}' \
+    "$(jstr "$id")" "$(jstr "$name")" "$(jstr "$status")" \
+    "$(jstr "$owner")" "$(jstr "$detail")")")
+done < "$STATE"
+
+if ((NRED > 0)); then
+  RC=20
+  VERDICT=defect
+  NEXT_ID="$FIRST_RED"
+elif ((NPENDING > 0 || NUNVERIFIABLE > 0)); then
+  NEXT_ID="$FIRST_OUTSTANDING"
+  NEXT_OWNER="$(awk -F '\t' -v id="$NEXT_ID" '$1==id{print $3;exit}' "$STATE")"
+  if [[ "$NEXT_OWNER" == human ]]; then RC=10; VERDICT=blocked
+  else RC=40; VERDICT=pending
+  fi
+else
+  RC=0
+  VERDICT=done
+  NEXT_ID=""
+fi
+
+NEXT_OWNER="none"
+NEXT_KIND="done"
+NEXT_STEP="All verifier-covered iOS behavior is proven"
+NEXT_SUMMARY="This run has no unproved verifier gate. Selected UI messaging, deep-link, JWT-backend, and unknown-user behavior still require feature-specific app tests or supervised evidence."
+NEXT_COMMAND=""
+if [[ -n "$NEXT_ID" ]]; then
+  NEXT_OWNER="$(awk -F '\t' -v id="$NEXT_ID" '$1==id{print $3;exit}' "$STATE")"
+  NEXT_STEP="$(awk -F '\t' -v id="$NEXT_ID" '$1==id{print $4;exit}' "$STATE")"
+  NEXT_SUMMARY="$(awk -F '\t' -v id="$NEXT_ID" '$1==id{print $5;exit}' "$STATE")"
+  case "$NEXT_ID" in
+    I0)
+      if [[ ! -f "$PROOF_TARGET" && "$NEXT_SUMMARY" == *"no integration or verification context"* ]]; then
+        NEXT_KIND=prepare_proof
+        NEXT_COMMAND="$BIN/ios-prepare-proof status"
+      else
+        NEXT_KIND=inspect_integration
+        NEXT_COMMAND="$BIN/ios-verify inspect"
+      fi
+      ;;
+    I1)
+      if [[ "$NEXT_SUMMARY" == *"older payload contract"* ||
+            "$NEXT_SUMMARY" == *"more than 24 hours ago"* ]]; then
+        NEXT_KIND=restart_proof
+        NEXT_COMMAND="$BIN/ios-prepare-proof restart --confirm"
+      else
+        NEXT_KIND=prepare_proof
+        NEXT_COMMAND="$BIN/ios-prepare-proof status"
+      fi
+      ;;
+    I3)
+      if [[ -z "$SERVER_KEY" ]]; then
+        NEXT_KIND=server_key
+        NEXT_COMMAND="$BIN/ios-provision question --kind configure_server"
+        NEXT_SUMMARY="$NEXT_SUMMARY Open the guided Server-side key screen; this verification credential never enters the app."
+      else
+        NEXT_KIND=validate_server
+        NEXT_COMMAND="$BIN/ios-provision validate-server"
+      fi
+      ;;
+    I4)
+      if [[ "$RECORDED_DEVICE_KIND" == simulator &&
+            "$NEXT_SUMMARY" == *"not booted"* ]]; then
+        NEXT_KIND=boot_device
+        NEXT_COMMAND="$BIN/ios-device boot"
+      elif [[ "$NEXT_SUMMARY" == *"could not"* ||
+              "$NEXT_SUMMARY" == *"unreadable"* ]]; then
+        NEXT_KIND=repair_device_connection
+        NEXT_SUMMARY="$NEXT_SUMMARY Unlock and reconnect the selected iPhone, accept Trust if prompted, or restart the affected Simulator/CoreDevice service before continuing. The verifier will not loop on an unreadable device inventory."
+        NEXT_COMMAND=""
+      elif [[ "$NEXT_SUMMARY" == *"not eligible for real APNs"* ]]; then
+        NEXT_KIND=unsupported_host
+        NEXT_SUMMARY="$NEXT_SUMMARY Real APNs delivery to a Simulator needs macOS 13+, Xcode 14+, and an Apple silicon or T2 Mac. Use an eligible Mac or a physical iPhone; re-running will not change this."
+        NEXT_COMMAND=""
+      elif [[ "$NEXT_SUMMARY" == *"production proof requires"* ]]; then
+        NEXT_KIND=restart_proof
+        NEXT_SUMMARY="$NEXT_SUMMARY Start a fresh development run for this Simulator, or select a physical iPhone for production."
+        NEXT_COMMAND="$BIN/ios-prepare-proof restart --confirm"
+      elif [[ "$NEXT_SUMMARY" == *"runtime changed"* || "$NEXT_SUMMARY" == *"no longer exists"* ||
+              "$NEXT_SUMMARY" == *"unavailable"* || "$NEXT_SUMMARY" == *"iOS 16+ runtime"* ||
+              "$NEXT_SUMMARY" == *"records $RECORDED_DEVICE_KIND"* ]]; then
+        NEXT_KIND=choose_device
+        NEXT_SUMMARY="$NEXT_SUMMARY The recorded device cannot come back by retrying. Boot an eligible iOS 16+ Simulator, then start a fresh run on it with: $BIN/ios-prepare-proof restart --confirm --device <udid>"
+        NEXT_COMMAND="$BIN/ios-prepare-proof restart --confirm --device {{device}}"
+      else
+        NEXT_KIND=retry_device_read
+        NEXT_COMMAND="$BIN/ios-verify status"
+      fi
+      ;;
+    I5)
+      NEXT_KIND=build_app
+      NEXT_SUMMARY="$NEXT_SUMMARY Build the app first and record the resulting .app path; ios-install will not build it. Current recorded path: ${APP_PATH:-<none>}."
+      NEXT_COMMAND=""
+      ;;
+    I6)
+      if [[ -n "$APP_PATH" ]]; then
+        NEXT_KIND=install_app
+        NEXT_COMMAND="$BIN/ios-install"
+      else
+        NEXT_KIND=build_app
+        NEXT_SUMMARY="$NEXT_SUMMARY No local .app path was required while the existing installation was present. The app now needs to be built before it can be installed."
+        NEXT_COMMAND=""
+      fi
+      ;;
+    I7)
+      if [[ "$PROOF_MODE" == instrumented &&
+            -f "$LAUNCHES/initial.json" ]]; then
+        NEXT_KIND=review_instrumentation
+        NEXT_SUMMARY="$NEXT_SUMMARY The exact app was already launched for this run. Do not relaunch it repeatedly; review the evaluation harness and app logs for the missing runtime journal evidence."
+        NEXT_COMMAND=""
+      else
+        NEXT_KIND=launch_app
+        NEXT_COMMAND="$BIN/ios-launch --phase initial"
+      fi
+      ;;
+    I8)
+      if inspection="$(recent_inspection app identity 2>/dev/null)"; then
+        if [[ "$inspection" == iterable_or_apns_error_visible:* ]]; then
+          NEXT_KIND=review_app_error
+          NEXT_SUMMARY="$NEXT_SUMMARY Latest non-interactive inspection: $inspection. Resolve the visible integration error before repeating any identity action."
+          NEXT_COMMAND=""
+        elif [[ "$inspection" == authenticated_app_visible:* ]]; then
+          if log_inspection="$(recent_inspection logs identity 2>/dev/null)"; then
+            NEXT_KIND=review_identity_state
+            NEXT_SUMMARY="$NEXT_SUMMARY The app appears signed in, so do not log in again. App logs were also inspected: $log_inspection. Confirm that the app's current local identity is exactly $IDENTITY; if it is, investigate why that identity has not reached Iterable."
+            NEXT_COMMAND=""
+          else
+            NEXT_KIND=inspect_identity_logs
+            NEXT_SUMMARY="$NEXT_SUMMARY The app appears signed in, so do not log in again. Inspect its current Iterable logs before requesting any user action."
+            NEXT_COMMAND="$BIN/ios-observe inspect --kind logs --purpose identity"
+          fi
+        else
+          NEXT_KIND=run_app
+          NEXT_SUMMARY="$NEXT_SUMMARY Latest non-interactive inspection: $inspection. Identify as exact user $IDENTITY only if the current app session is not already that user."
+          NEXT_COMMAND=""
+        fi
+      else
+        NEXT_KIND=inspect_app
+        NEXT_SUMMARY="$NEXT_SUMMARY Inspect the current screen and app logs before requesting any user action. Exact identity: $IDENTITY."
+        NEXT_COMMAND="$BIN/ios-observe inspect --kind app --purpose identity"
+      fi
+      ;;
+    I9)
+      NEXT_KIND=inspect_app
+      NEXT_SUMMARY="$NEXT_SUMMARY Inspect current app state first. Only if the expected profile action is visibly incomplete, use exact User A $IDENTITY and perform it once."
+      NEXT_COMMAND="$BIN/ios-observe inspect --kind app --purpose general"
+      ;;
+    I10)
+      if [[ "$NEXT_SUMMARY" == *"proof-run event count is not isolated"* ]]; then
+        NEXT_KIND=restart_proof
+        NEXT_SUMMARY="$NEXT_SUMMARY Start a fresh run before changing app code; repeated manual actions and duplicate tracking cannot be distinguished in this run."
+        NEXT_COMMAND="$BIN/ios-prepare-proof restart --confirm"
+      else
+        NEXT_KIND=inspect_app
+        NEXT_SUMMARY="$NEXT_SUMMARY Inspect current app state and logs first. Only if the event action is incomplete, use exact User A $IDENTITY and perform it once."
+        NEXT_COMMAND="$BIN/ios-observe inspect --kind app --purpose general"
+      fi
+      ;;
+    I11)
+      if [[ -f "$LAUNCHES/restore.json" ]]; then
+        NEXT_KIND=review_instrumentation
+        NEXT_SUMMARY="$NEXT_SUMMARY The restore launch is already recorded. Do not relaunch again; review why the instrumented journal did not record restored identity."
+        NEXT_COMMAND=""
+      else
+        NEXT_KIND=restore_app
+        NEXT_COMMAND="$BIN/ios-launch --phase restore"
+      fi
+      ;;
+    I12)
+      if [[ "$NEXT_SUMMARY" == *"current APNs token"* ]]; then
+        NEXT_KIND=run_app
+        NEXT_COMMAND=""
+      elif inspection="$(recent_inspection app registration 2>/dev/null)"; then
+        if [[ "$inspection" == iterable_or_apns_error_visible:* ]]; then
+          NEXT_KIND=review_app_error
+          NEXT_SUMMARY="$NEXT_SUMMARY Latest non-interactive inspection: $inspection. Resolve the APNs or Iterable registration error before repeating consent or product actions."
+          NEXT_COMMAND=""
+        else
+          NEXT_KIND=run_app
+          NEXT_SUMMARY="$NEXT_SUMMARY Latest non-interactive inspection: $inspection. If the system notification prompt is visible, the developer owns that one consent action. Otherwise perform only the app-specific action that requests notification permission; do not repeat login."
+          NEXT_COMMAND=""
+        fi
+      else
+        NEXT_KIND=inspect_app
+        NEXT_SUMMARY="$NEXT_SUMMARY Inspect the current screen and registration logs before asking for notification consent or repeating an app action."
+        NEXT_COMMAND="$BIN/ios-observe inspect --kind app --purpose registration"
+      fi
+      ;;
+    I13)
+      case "$(apple_check_field classification)" in
+        apns_key_rejected|apns_key_unreadable)
+          NEXT_KIND=replace_apns_key
+          NEXT_COMMAND="$BIN/ios-provision question --kind replace_apns_key"
+          ;;
+        no_device_token)
+          NEXT_KIND=run_app
+          NEXT_COMMAND=""
+          ;;
+        apns_unavailable|probe_failed)
+          NEXT_KIND=retry_apple_check
+          NEXT_SUMMARY="$NEXT_SUMMARY Nothing was sent through Iterable."
+          NEXT_COMMAND="$BIN/ios-verify check-apple"
+          ;;
+        *)
+          NEXT_KIND=fix_apple_push
+          steps="$(apple_check_field steps)"
+          NEXT_SUMMARY="$NEXT_SUMMARY${steps:+ Steps: $steps} Nothing was sent through Iterable; once fixed, re-check with the command below."
+          NEXT_COMMAND="$BIN/ios-verify check-apple"
+          ;;
+      esac
+      ;;
+    I14)
+      if [[ "$PROOF_MODE" == behavioral && "$RECORDED_DEVICE_KIND" == physical &&
+            -f "$SENDS/$ENVIRONMENT/user-targeted.json" &&
+            "$NEXT_SUMMARY" == awaiting_readback:* ]]; then
+        NEXT_KIND=readback_code
+        NEXT_SUMMARY="The push was sent to $IDENTITY on the selected iPhone. Ask the developer to read the six-character code in the notification titled Iterable iOS proof and type it in. The physical path has not been tested by the maintainers."
+        NEXT_COMMAND="printf '%s' '{{answer}}' | $BIN/ios-prove readback --code -"
+      elif [[ "$PROOF_MODE" == behavioral ]]; then
+        if [[ ! -f "$SENDS/$ENVIRONMENT/user-targeted.json" ]]; then
+          NEXT_KIND=prove_push
+          if [[ "$RECORDED_DEVICE_KIND" == physical ]]; then
+            NEXT_SUMMARY="Ask the developer to leave the app (Home Screen or Lock Screen) on the selected iPhone, then send one proof push to $IDENTITY. The notification shows a six-character code the developer reads back. The physical path has not been tested by the maintainers."
+          else
+            NEXT_SUMMARY="Send one marked proof push to $IDENTITY on the selected Simulator and read the Simulator's own records for it. ios-prove moves the app out of the foreground first and never sends twice."
+          fi
+          NEXT_COMMAND="$BIN/ios-prove --confirm"
+        elif [[ "$NEXT_SUMMARY" == *"rejected this run's proof send"* ]]; then
+          NEXT_KIND=review_rejected_send
+          NEXT_SUMMARY="$NEXT_SUMMARY. The developer fixes the cause Iterable reported and decides whether to start a fresh run."
+          NEXT_COMMAND="$BIN/ios-prepare-proof restart --confirm"
+        else
+          NEXT_KIND=review_delivery
+          NEXT_SUMMARY="$NEXT_SUMMARY Nothing will be resent automatically. Once the named cause is fixed, the developer may start a fresh run."
+          NEXT_COMMAND="$BIN/ios-prepare-proof restart --confirm"
+        fi
+      else
+        manifest_state="$(send_manifest_state user-targeted)"
+        attempts="$(delivery_attempt_count user-targeted)"
+        if [[ "$manifest_state" == sent || "$manifest_state" == prepared ]]; then
+          if ((attempts == 0)); then
+            NEXT_KIND=observe_user_targeted
+            if [[ "$manifest_state" == prepared ]]; then
+              NEXT_SUMMARY="$NEXT_SUMMARY The API response was uncertain, but no resend is allowed; visible arrival of the exact marker can still prove delivery."
+            fi
+            NEXT_COMMAND="$BIN/ios-observe delivery --kind user-targeted"
+          elif ((attempts == 1)) &&
+              ! recent_inspection notifications delivery-timeout >/dev/null 2>&1; then
+            NEXT_KIND=inspect_delivery
+            NEXT_SUMMARY="$NEXT_SUMMARY The first bounded observation timed out. Inspect SpringBoard before retrying; do not send again."
+            NEXT_COMMAND="$BIN/ios-observe inspect --kind notifications --purpose delivery-timeout"
+          elif ((attempts == 1)) &&
+              ! recent_inspection logs delivery-timeout >/dev/null 2>&1; then
+            NEXT_KIND=inspect_delivery_logs
+            NEXT_SUMMARY="$NEXT_SUMMARY SpringBoard was inspected after the timeout. Inspect app/APNs logs next; do not send again."
+            NEXT_COMMAND="$BIN/ios-observe inspect --kind logs --purpose delivery-timeout"
+          elif ((attempts == 1)); then
+            NEXT_KIND=retry_delivery_observation
+            NEXT_SUMMARY="$NEXT_SUMMARY SpringBoard and logs were inspected after the first timeout. Perform one final bounded observation without resending."
+            NEXT_COMMAND="$BIN/ios-observe delivery --kind user-targeted"
+          else
+            NEXT_KIND=review_delivery
+            NEXT_SUMMARY="$NEXT_SUMMARY Two bounded observations did not find the exact marker. Do not resend automatically. Review the captured SpringBoard and log diagnostics, notification authorization, APNs environment, and Iterable device record."
+            NEXT_COMMAND=""
+          fi
+        elif [[ "$manifest_state" == invalid ]]; then
+          NEXT_KIND=review_send_manifest
+          NEXT_SUMMARY="$NEXT_SUMMARY The send manifest is invalid or incomplete. Do not send again until the run is reviewed or restarted."
+          NEXT_COMMAND=""
+        elif inspection="$(recent_inspection notifications pre-send 2>/dev/null)"; then
+          NEXT_KIND=deliver_user_a
+          NEXT_SUMMARY="$NEXT_SUMMARY SpringBoard was prepared before the send: $inspection. Announce the exact identity and marker, then arm the independent observer and send exactly once."
+          NEXT_COMMAND="$BIN/ios-deliver target --recipient initial --confirm"
+        else
+          NEXT_KIND=prepare_delivery
+          NEXT_SUMMARY="$NEXT_SUMMARY Move the app out of the foreground and inspect SpringBoard before sending, so foreground presentation policy cannot hide an otherwise successful APNs delivery."
+          NEXT_COMMAND="$BIN/ios-observe inspect --kind notifications --purpose pre-send"
+        fi
+      fi
+      ;;
+    I15)
+      if receipt_matches tap-route "$TAP_EXPECT"; then
+        NEXT_KIND=review_instrumentation
+        NEXT_SUMMARY="$NEXT_SUMMARY The tap result is already visibly recorded. Do not tap again; review the missing or misordered instrumented push-response callbacks."
+        NEXT_COMMAND=""
+      else
+        NEXT_KIND=observe_tap
+        NEXT_COMMAND="$BIN/ios-observe app --kind tap-route"
+      fi
+      ;;
+    I16)
+      if receipt_matches logout-switch "$LOGOUT_EXPECT"; then
+        NEXT_KIND=review_instrumentation
+        NEXT_SUMMARY="$NEXT_SUMMARY The logout/account-switch result is already visibly recorded. Do not repeat it; review the missing or misordered instrumented logout callback evidence."
+        NEXT_COMMAND=""
+      else
+        NEXT_KIND=observe_logout
+        NEXT_COMMAND="$BIN/ios-observe app --kind logout-switch"
+      fi
+      ;;
+    I17)
+      manifest_state="$(send_manifest_state user-targeted-switch)"
+      attempts="$(delivery_attempt_count user-targeted-switch)"
+      if [[ "$manifest_state" == sent || "$manifest_state" == prepared ]]; then
+        if ((attempts == 0)); then
+          NEXT_KIND=observe_user_b
+          NEXT_COMMAND="$BIN/ios-observe delivery --kind user-targeted-switch"
+        elif ((attempts == 1)) &&
+            ! recent_inspection notifications delivery-timeout-switch >/dev/null 2>&1; then
+          NEXT_KIND=inspect_delivery
+          NEXT_SUMMARY="$NEXT_SUMMARY The first User B observation timed out. Inspect SpringBoard before retrying; do not send again."
+          NEXT_COMMAND="$BIN/ios-observe inspect --kind notifications --purpose delivery-timeout-switch"
+        elif ((attempts == 1)) &&
+            ! recent_inspection logs delivery-timeout-switch >/dev/null 2>&1; then
+          NEXT_KIND=inspect_delivery_logs
+          NEXT_SUMMARY="$NEXT_SUMMARY Inspect app/APNs logs for the User B control; do not send again."
+          NEXT_COMMAND="$BIN/ios-observe inspect --kind logs --purpose delivery-timeout-switch"
+        elif ((attempts == 1)); then
+          NEXT_KIND=retry_delivery_observation
+          NEXT_SUMMARY="$NEXT_SUMMARY Perform one final bounded User B observation without resending."
+          NEXT_COMMAND="$BIN/ios-observe delivery --kind user-targeted-switch"
+        else
+          NEXT_KIND=review_delivery
+          NEXT_SUMMARY="$NEXT_SUMMARY Two bounded User B observations did not find the exact marker. Do not resend automatically; review the captured device and log evidence."
+          NEXT_COMMAND=""
+        fi
+      elif [[ "$manifest_state" == invalid ]]; then
+        NEXT_KIND=review_send_manifest
+        NEXT_SUMMARY="$NEXT_SUMMARY The User B send manifest is invalid or incomplete. Do not send again until the run is reviewed or restarted."
+        NEXT_COMMAND=""
+      elif inspection="$(recent_inspection notifications pre-send-switch 2>/dev/null)"; then
+        NEXT_KIND=deliver_user_b
+        NEXT_SUMMARY="$NEXT_SUMMARY SpringBoard was prepared for the User B control: $inspection. Arm the independent observer and send the generated User B marker exactly once."
+        NEXT_COMMAND="$BIN/ios-deliver target --recipient switch --confirm"
+      else
+        NEXT_KIND=prepare_delivery_b
+        NEXT_SUMMARY="$NEXT_SUMMARY Prepare SpringBoard again before the separate User B control send."
+        NEXT_COMMAND="$BIN/ios-observe inspect --kind notifications --purpose pre-send-switch"
+      fi
+      ;;
+  esac
+fi
+
+case "$NEXT_KIND" in
+  done)
+    NEXT_OWNER=none
+    ;;
+  server_key|run_app|build_app|observe_tap|observe_logout|review_instrumentation|repair_device_connection|review_app_error|review_identity_state|review_delivery|review_send_manifest|choose_device|unsupported_host|readback_code|review_rejected_send|fix_apple_push|replace_apns_key)
+    NEXT_OWNER=human
+    ;;
+  *)
+    NEXT_OWNER=tool
+    ;;
+esac
+if [[ "$RC" -eq 40 && "$NEXT_OWNER" == human ]]; then
+  RC=10
+  VERDICT=blocked
+fi
+if [[ "$NEXT_KIND" == readback_code ]]; then
+  NEXT_QUESTION="$(node -e '
+    const bin=process.argv[1];
+    process.stdout.write(JSON.stringify({
+      header:"Proof code",
+      prompt:"What six-character code does the Iterable iOS proof notification show on the iPhone?",
+      selection:"single",
+      context:["Look at the iPhone itself: the banner, the Lock Screen, or Notification Center. Case and the dash do not matter; three wrong codes end the run."],
+      requires:[],recommended:null,before_commands:[],
+      options:[
+        {label:"I do not see it",description:"Nothing titled Iterable iOS proof arrived on the iPhone.",effect:"records that the developer did not see the push; nothing is resent",relay:"",commands:[`${bin}/ios-prove readback --not-seen`]},
+        {label:"Stop here",description:"Leave the run waiting for the code.",effect:"the push remains unproved",relay:"",commands:[]}
+      ],
+      free_text:{hint:"Enter the code shown in the notification",effect:"checks the code against this run’s send",command:`printf '"'"'%s'"'"' '"'"'{{answer}}'"'"' | ${bin}/ios-prove readback --code -`}
+    }));
+  ' "$BIN")"
+fi
+if [[ "$NEXT_KIND" == prepare_proof ]]; then
+  NEXT_QUESTION="$("$BIN/ios-provision" proof-status --workspace "$WORKSPACE" 2>/dev/null |
+    node -e '
+      let i=""; process.stdin.on("data",c=>i+=c).on("end",()=>{
+        try { process.stdout.write(JSON.stringify(JSON.parse(i).next?.question ?? null)) }
+        catch { process.stdout.write("null") }
+      });
+    ')" || NEXT_QUESTION=null
+  [[ -n "$NEXT_QUESTION" ]] || NEXT_QUESTION=null
+fi
+
+if [[ "$NEXT_KIND" == done && "$PHYSICAL_DEVELOPER_OBSERVED" == true ]]; then
+  NEXT_SUMMARY="Delivery to the physical iPhone is developer-observed: the developer read back the code the notification showed, and the physical path has not been tested by the maintainers. $NEXT_SUMMARY"
+fi
+PUSH_PROVEN=false
+if [[ "$PUSH_REQUIRED" == true &&
+    "$(gate_status I12)" == green &&
+    "$(gate_status I14)" == green ]]; then
+  PUSH_PROVEN=true
+fi
+
+VERIFIED_FEATURES="$(node -e '
+  const selected=new Set(process.argv[1].split(",").filter(Boolean));
+  const covered=["sdk-initialization"];
+  if (process.argv[2]==="instrumented") {
+    for (const feature of ["user-profiles","event-tracking","push-notifications"]) {
+      if (selected.has(feature)) covered.push(feature);
+    }
+  } else if (selected.has("push-notifications")) {
+    covered.push("push-notifications");
+  }
+  process.stdout.write(JSON.stringify(covered));
+' "$FEATURES" "$PROOF_MODE")"
+FEATURE_EVIDENCE_REQUIRED="$(node -e '
+  const selected=new Set(process.argv[1].split(",").filter(Boolean));
+  const separate=[
+    "in-app-messages",
+    "mobile-inbox",
+    "embedded-messaging",
+    "deep-linking",
+    "unknown-user-activation"
+  ].filter(feature=>selected.has(feature));
+  if (process.argv[3]==="behavioral") {
+    for (const feature of ["user-profiles","event-tracking"]) {
+      if (selected.has(feature)) separate.push(feature);
+    }
+  }
+  if (process.argv[2]==="true") separate.push("jwt-authentication");
+  process.stdout.write(JSON.stringify(separate));
+' "$FEATURES" "$JWT_ENABLED" "$PROOF_MODE")"
+VERIFICATION_LIMITATIONS="$(node -e '
+  if (process.argv[1]!=="behavioral") {
+    process.stdout.write("[]");
+    process.exit(0);
+  }
+  const limitations=[
+    ...(process.argv[3]==="true" ? [] : ["exact-apns-token-correlation"]),
+    ...(process.argv[4]==="true" ? ["developer-observed-delivery","physical-path-untested-by-maintainers"] : []),
+    "sdk-callback-ordering",
+    "identity-restoration-internals",
+    "push-open-routing",
+    "logout-account-isolation",
+    "logout-callback-ordering"
+  ];
+  if (process.argv[2]!=="true") {
+    limitations.push("current-source-build-not-linked");
+  }
+  process.stdout.write(JSON.stringify(limitations));
+' "$PROOF_MODE" "$([[ -n "$APP_PATH" ]] && printf true || printf false)" "$TOKEN_CORRELATED" \
+  "$([[ "$PROOF_MODE" == behavioral && "$RECORDED_DEVICE_KIND" == physical ]] && printf true || printf false)")"
+SOURCE_BUILD_LINKED=false
+VERIFICATION_SUBJECT=existing-installed-application
+if [[ -n "$APP_PATH" ]]; then
+  SOURCE_BUILD_LINKED=true
+  VERIFICATION_SUBJECT=exact-recorded-artifact
+fi
+INTEGRATION_COMPLETE=false
+if [[ "$RC" -eq 0 ]] &&
+    node -e 'process.exit(JSON.parse(process.argv[1]).length===0 ? 0 : 1)' \
+      "$FEATURE_EVIDENCE_REQUIRED"; then
+  INTEGRATION_COMPLETE=true
+fi
+
+printf '{'
+printf '"tool":"iterable-ios-verify","contract":1,"rc":%d,"verdict":%s,' \
+  "$RC" "$(jstr "$VERDICT")"
+printf '"workspace":%s,"proof_mode":%s,"verification_level":%s,"environment":%s,"apns_environment":%s,"device_kind":%s,"push_required":%s,"push_proven":%s,"production_follow_up_required":%s,' \
+  "$(jstr "$WORKSPACE")" "$(jstr "$PROOF_MODE")" \
+  "$(jstr "$([[ "$PROOF_MODE" == behavioral ]] && printf behavioral || printf instrumented)")" \
+  "$(jstr "$ENVIRONMENT")" \
+  "$(jstr "$APNS_ENVIRONMENT")" "$(jstr "$RECORDED_DEVICE_KIND")" \
+  "$PUSH_REQUIRED" "$PUSH_PROVEN" "$PRODUCTION_FOLLOW_UP_REQUIRED"
+printf '"verification_subject":%s,"source_build_linked":%s,' \
+  "$(jstr "$VERIFICATION_SUBJECT")" "$SOURCE_BUILD_LINKED"
+printf '"verified_features":%s,"feature_evidence_required":%s,"verification_limitations":%s,' \
+  "$VERIFIED_FEATURES" "$FEATURE_EVIDENCE_REQUIRED" "$VERIFICATION_LIMITATIONS"
+printf '"integration_complete":%s,' "$INTEGRATION_COMPLETE"
+VERIFICATION_TIER=none
+if [[ "$(gate_status I14)" == green ]]; then
+  VERIFICATION_TIER=device-records
+  [[ "$PHYSICAL_DEVELOPER_OBSERVED" != true ]] || VERIFICATION_TIER=developer-observed
+fi
+printf '"verification_tier":%s,' "$(jstr "$VERIFICATION_TIER")"
+printf '"counts":{"green":%d,"red":%d,"pending":%d,"blocked":%d,"unverifiable":%d},' \
+  "$NGREEN" "$NRED" "$NPENDING" "$NBLOCKED" "$NUNVERIFIABLE"
+printf '"gates":['
+separator=""
+for json in "${ROWS[@]}"; do
+  printf '%s%s' "$separator" "$json"
+  separator=","
+done
+printf '],'
+printf '"next":{"owner":%s,"kind":%s,"step":%s,"summary":%s,"command":%s,"question":%s},' \
+  "$(jstr "$NEXT_OWNER")" "$(jstr "$NEXT_KIND")" "$(jstr "$NEXT_STEP")" \
+  "$(jstr "$NEXT_SUMMARY")" "$(jstr "$NEXT_COMMAND")" "$NEXT_QUESTION"
+PHYSICAL_NOTICE=""
+[[ "$PROOF_MODE" != behavioral || "$RECORDED_DEVICE_KIND" != physical ]] ||
+  PHYSICAL_NOTICE=" On a physical iPhone, delivery is developer-observed: the developer read back a code shown on the device. The physical path has not been tested by the maintainers."
+printf '"notice":%s' \
+  "$(jstr "${PHYSICAL_NOTICE# }${PHYSICAL_NOTICE:+ }A green verifier run proves only the gates, verification_subject, and verified_features reported here for this recorded environment and proof mode. When source_build_linked is false, it proves the installed application, not that the current checkout produced that build. Behavioral proof does not claim internal SDK callback ordering or exact token correlation. The verifier does not review agent-authored code, prove separately listed feature_evidence_required behavior, or replace a production/TestFlight run.")"
+printf '}\n'
+exit "$RC"
