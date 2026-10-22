@@ -24,9 +24,10 @@ config-plugin traps (build-time and configuration-time). Use them only
 after Step 0 classified the project as Expo. **#12** is Xcode **27** on
 iOS (bare **and** Expo): Device Hub launch and resource-bundle compile
 floors — not an Iterable API change. **#15** is native Android and applies
-to **both** workflows, but only when the app already sends push. #3's
-*symptom* is both workflows; its **bare** native fix (manifest +
-`PermissionsAndroid`) is wrong on Expo — branch first. **#16** applies to every
+to **both** workflows, but only when the app already sends push. #3 is
+both workflows, and both request the permission at runtime with
+`PermissionsAndroid`; only its **bare** manifest edit is wrong on Expo, where
+the plugin declares it — branch first. **#16** applies to every
 app with deep links; **#17** is Expo only. **#18** is the install, both
 workflows. **#19–#20** are the iOS Release Simulator build (bare, and Expo when
 built with `xcodebuild`); **#21** is JavaScript, both workflows; **#22** is bare
@@ -194,8 +195,9 @@ iOS (on Expo, #14).
 
 ---
 
-Pitfalls 7–13 apply only when Step 0 detected Expo. Skip them on a bare
-React Native project. Do not introduce `@iterable/expo-plugin` there.
+Pitfalls 7–11, 13, 14 and 17 apply only when Step 0 detected Expo; #12 is
+Xcode 27 on both workflows. Skip the Expo ones on a bare React Native
+project. Do not introduce `@iterable/expo-plugin` there.
 
 ## 7. Expo: SDK and plugin do not work in Expo Go
 
@@ -501,8 +503,10 @@ Pitfall 15 applies to **both** workflows — any app that already sends push.
   (say, from an old `ios/build`) is whatever was built there last.
 - **Fix:** Build with the exact command in `SKILL.md` → Bare iOS
   (`-derivedDataPath build`), install
-  `ios/build/Build/Products/Release-iphonesimulator/<App>.app`, and pass that
-  path to `ios-prepare-proof start --app-path`.
+  `ios/build/Build/Products/Release-iphonesimulator/<App>.app`, and bind it
+  through the verifier's **App build** screen, or with
+  `ios-prepare-proof restart --confirm --app-path <path>` when a run already
+  exists.
 
 ## 20. iOS: code signing disabled strips `aps-environment`
 

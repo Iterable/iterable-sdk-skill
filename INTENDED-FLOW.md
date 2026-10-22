@@ -108,7 +108,10 @@ integration or Apple provisioning flow:
 3. A new integration completed in the current session may record its exact
    built artifact; a standalone verification reuses the installed application
    and reports that the current source/build is not linked to that proof.
-   `ios-install` never builds. Standard proof never relaunches the app.
+   `ios-install` never builds. Standard proof never relaunches the app on its
+   own; the identity screen's **Relaunch the app to read the identity it signs
+   in with** option (`ios-prepare-proof read-identity`) does, and only when the
+   developer picks it.
 4. The verifier checks the exact user and device registration remotely. On a
    Simulator it also checks that Iterable holds that Simulator's current APNs
    token. Before requesting one missing manual action it performs short-lived,

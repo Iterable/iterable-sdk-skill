@@ -186,7 +186,7 @@ If `iterable-provision` is installed, its `bin/agent` carries this as a `notice`
 field — relay that verbatim instead, so the tool and the conversation say the same
 thing. Either way say it once, plainly, and do not soften it into "I've double-checked
 everything". Proof is the next section, and the strongest form of it is a real push
-landing on a real device—`iterable-android-verify` does that.
+landing on a device or emulator—`iterable-android-verify` does that.
 
 ### Proving it works when you don't have the dashboard
 
@@ -813,8 +813,10 @@ before writing any code is the fastest way to compact mid-task.
   native Android app.
 - Native iOS — that is the sibling skill `iterable-ios`. The Web SDK is not
   covered by these skills.
-- Iterable platform / dashboard configuration. Direct the user to
-  [support.iterable.com](https://support.iterable.com) for dashboard help.
+- Iterable platform / dashboard configuration. Open the `reference/` doc that
+  covers the step (*Slug routing*), as Preflight says; point to
+  [support.iterable.com](https://support.iterable.com) only when no shipped doc
+  covers it.
 - JWT *server-side* implementation. The skill assumes the team has, or will
   build, a token-minting endpoint. The `identifying-the-user` doc covers
   the client side only.

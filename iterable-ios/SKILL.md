@@ -190,8 +190,10 @@ question, and run only the command carried by the option they pick. Do not
 background or delegate the whole flow, don't edit the app in parallel while it
 waits on Apple, Iterable, or the developer, and never use the Android/Firebase
 provisioner (`gcp-provisioner`) for iOS. On the Apple side the developer
-registers the Bundle ID with Push Notifications in the Apple Developer portal,
-or Xcode's automatic signing does it.
+registers the Bundle ID with Push Notifications in the Apple Developer portal.
+Xcode's automatic signing registers it when it makes a provisioning profile
+for a device build; a Simulator-only build does not make Xcode register it, so
+for a new app it is usually missing.
 
 **Never fabricate a prerequisite to make the build pass.** No fake or empty key
 presented as working, no server-side key in the app, no identity wired to a
@@ -697,6 +699,9 @@ func requestNotificationPermission() async {
 `.denied` means stop asking; offer the app's page in system Settings instead.
 `.authorized`, `.provisional`, and `.ephemeral` mean don't prompt again.
 
+That timing is for native apps. A bare React Native app asks at launch in
+`AppDelegate`, as `iterable-react-native` says; keep it there.
+
 ---
 
 ## Project setup (plain `.xcodeproj`)
@@ -1002,9 +1007,11 @@ to act again.** Its last answer was about the build you replaced.
 
 When push is in scope, add this file and call `IterableProofMarker.log()` on
 the line after `IterableAPI.initialize(...)` in `start` and after the
-`setEmail` / `setUserId` call in `identify`. At proof time the verifier
-relaunches the app with `-iterableProofIdentity YES`, reads the identity from
-the Simulator's log, and offers it once Iterable holds this Simulator's device
+`setEmail` / `setUserId` call in `identify`. At proof time the identity
+screen's **Relaunch the app to read the identity it signs in with** option
+(`ios-prepare-proof read-identity --confirm`) relaunches the app with
+`-iterableProofIdentity YES`, reads the identity from the Simulator's log, and
+offers it once Iterable holds this Simulator's device
 token on that user, so nobody has to dig out a generated user ID. A normal
 launch prints nothing; the launch argument, not `#if DEBUG`, gates it, because
 a Release build can be the one proved.
@@ -1029,7 +1036,7 @@ as the last step of the handoff; `ios-verify inspect` and the verifier's done
 summary warn `proof_identity_marker_present` until it is gone. If you already
 know the signed-in identity from device evidence (the app's log, a debugger
 read), pass it as `<root>/bin/ios-prepare-proof status --identity-candidate
-<value>`; the tool checks it against Iterable and offers it. Never type an
+<value>` (`<root>` as `iterable-ios-verify` finds it); the tool checks it against Iterable and offers it. Never type an
 identity into the proof screen on the developer's behalf.
 
 An iOS 16+ Simulator on macOS 13+ (Apple silicon or T2 Mac) receives real APNs

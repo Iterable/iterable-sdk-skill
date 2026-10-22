@@ -724,9 +724,11 @@ and `[IterableAppIntegration userNotificationCenter:didReceiveNotificationRespon
   ```
 
   The app is `ios/build/Build/Products/Release-iphonesimulator/<App>.app`.
-  Install that path with `xcrun simctl install <udid> <path>`, and record it
-  with `<root>/bin/ios-prepare-proof start --confirm --app-path <path>`, or
-  `restart --confirm --app-path <path>` when a run already exists. Never install a `.app` found with `find` or from another DerivedData
+  Install that path with `xcrun simctl install <udid> <path>`. The verifier's
+  **App build** screen then finds it under the app's own `-derivedDataPath` and
+  recommends binding it; run the option the developer picks, and never append
+  `--app-path` by hand. When a run already exists, bind the rebuilt `.app` with
+  `<root>/bin/ios-prepare-proof restart --confirm --app-path <path>`. Never install a `.app` found with `find` or from another DerivedData
   folder — it can be a stale build (pitfall #19). Never add
   `CODE_SIGNING_ALLOWED=NO`, `CODE_SIGNING_REQUIRED=NO` or `CODE_SIGN_IDENTITY=""`:
   an unsigned app carries no `aps-environment` and never gets a token
@@ -734,7 +736,8 @@ and `[IterableAppIntegration userNotificationCenter:didReceiveNotificationRespon
 - **Proof identity marker (temporary):** when push is in scope, add this to
   `AppDelegate.swift` and call it as the last line of
   `application(_:didFinishLaunchingWithOptions:)`, before `return true`. At
-  proof time the verifier relaunches the app with `-iterableProofIdentity YES`
+  proof time the identity screen's relaunch option (`ios-prepare-proof
+  read-identity --confirm`) relaunches the app with `-iterableProofIdentity YES`
   and reads the identity from the Simulator's log, as in `iterable-ios`
   (*The proof identity marker*). It reads the native SDK, not JavaScript: the
   identity is stored natively once `Iterable.initialize` and `setEmail` /
@@ -903,8 +906,10 @@ you detected), then load feature slugs **as you reach each feature**.
 - Native Android-only or iOS-only app integrations — those are
   `iterable-android` and `iterable-ios`. If this project is a native app with
   no React Native, stop and use the matching native skill.
-- Iterable platform / dashboard configuration. Direct the user to
-  [support.iterable.com](https://support.iterable.com).
+- Iterable platform / dashboard configuration. Open the `reference/` doc that
+  covers the step (*Slug routing*), as Preflight says; point to
+  [support.iterable.com](https://support.iterable.com) only when no shipped doc
+  covers it.
 - JWT *server-side* implementation. Assume the team has, or will build, a
   token-minting endpoint.
 
