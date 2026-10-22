@@ -13,7 +13,10 @@ description: >-
 
 ## Finding the scripts
 
-Start in the directory containing this `SKILL.md` and walk up to the first
+Resolve symlinks first: use the real path of this `SKILL.md` (`cd -P` /
+`pwd -P`), because a skill linked into `~/.cursor/skills` has no `bin/` above
+the link.
+Start in the directory containing it and walk up to the first
 directory containing `bin/ios-verify`; call that `<root>`. If you reach the
 filesystem root without finding it, the install is incomplete—say so and stop.
 Never reimplement a gate by hand: a check you improvise is one nobody has

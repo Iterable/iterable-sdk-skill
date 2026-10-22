@@ -304,7 +304,9 @@ it reads, what it will not do — before it runs anything else. Let it. Do not r
 deciding that provisioning is needed is not permission to begin it, and a project picker
 is not a consent screen.
 
-To check it is installed: walk up from this `SKILL.md` to the first directory
+Check it is installed. Resolve symlinks first: use the real path of this `SKILL.md` (`cd -P` /
+`pwd -P`), because a skill linked into `~/.cursor/skills` has no `bin/` above
+the link. Then walk up from it to the first directory
 containing a `bin/agent`. If there isn't one, this Preflight stops as written
 below, and the table of dashboard paths is what you give them.
 

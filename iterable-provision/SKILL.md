@@ -155,7 +155,9 @@ recollection of what you just did.
 ## Finding the scripts
 
 Hosts copy a plugin into a cache on install and set no environment variable, so no
-path here is stable. Start in the directory containing this `SKILL.md` and walk up
+path here is stable. Resolve symlinks first: use the real path of this `SKILL.md` (`cd -P` /
+`pwd -P`), because a skill linked into `~/.cursor/skills` has no `bin/` above
+the link. Start in the directory containing it and walk up
 until you reach the first directory containing a `bin/agent`. Call that `<root>`.
 
 If you reach the filesystem root without finding it, the install is

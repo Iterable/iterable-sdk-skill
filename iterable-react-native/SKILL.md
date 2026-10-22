@@ -284,9 +284,11 @@ push integration themselves.
 It produces the three inputs this Preflight cannot invent — a real
 `google-services.json`, the service-account key that Iterable's push integration
 asks you to upload, and the dashboard steps that have no API — and proves each
-one with a live call. Announce the handoff in one line and route. To check it
-is installed, walk up from this `SKILL.md` to the first directory containing a
-`bin/agent`; if there isn't one, this Preflight stops as written above.
+one with a live call. Announce the handoff in one line and route. Check it is
+installed. Resolve symlinks first: use the real path of this `SKILL.md` (`cd -P` /
+`pwd -P`), because a skill linked into `~/.cursor/skills` has no `bin/` above
+the link. Then walk up from it to the first directory containing a `bin/agent`; if there
+isn't one, this Preflight stops as written above.
 
 **Routing is not starting.** The first thing that skill does is run
 `<root>/bin/agent question opening` and put it to the developer before running anything
