@@ -26,6 +26,10 @@ The skills can work independently. A new push integration normally follows:
 
 `iterable-provision` → platform integration skill → matching platform verification skill
 
+For a React Native app with both platforms in scope, the workflow finishes
+Android first, including a proved push, and then sets up iOS. The iOS setup
+reuses the Iterable keys, region, and feature scope from the Android setup.
+
 Skills are model-invoked. Describe the outcome you want rather than running a
 skill by name. For example:
 
@@ -41,7 +45,7 @@ skill by name. For example:
 - Native iOS SDK integration.
 - React Native integration for Android and iOS, including Expo.
 - Firebase provisioning and device-side push verification for Android.
-- Apple/APNs prerequisite guidance and iOS runtime proof.
+- Apple/APNs prerequisite guidance and iOS push proof on the iOS Simulator.
 - Push notifications, in-app messages, mobile inbox, embedded messaging, deep
   links, JWT authentication, event tracking, and user profiles.
 - Unknown user activation for native Android and native iOS.
@@ -52,16 +56,20 @@ Web SDK integration is not included.
 
 ### Accounts
 
-- An Iterable project. The provisioning skill can guide you through creating
-  the required Iterable API keys and mobile configuration.
+- An Iterable project, and an Iterable role that can create API keys and
+  mobile apps. The provisioning skill can guide you through creating the
+  required Iterable API keys and mobile configuration.
 - A Google account with access to a Firebase project, or permission to create
-  one, when setting up Android push.
+  one, when setting up Android push. The account must be able to enable APIs,
+  add Firebase, and create a service account and its key.
 - Apple Developer Program access to the app's team when setting up native iOS
-  push. The workflow cannot replace Apple sign-in, 2FA, agreements, or the
-  one-time download of a newly created APNs private key.
+  push. Registering the App ID, enabling Push Notifications, and creating an
+  APNs key require the **Account Holder** or **Admin** role. The workflow
+  cannot replace Apple sign-in, 2FA, agreements, or the one-time download of a
+  newly created APNs private key.
 
-You authenticate with Google and Iterable yourself. The plugin does not ask for
-or handle your account passwords.
+You authenticate with Google, Apple, and Iterable yourself. The plugin does not
+ask for or handle your account passwords.
 
 ### Command-line tools
 
@@ -78,7 +86,7 @@ xcodebuild -version
 |---|---|---|
 | `gcloud` | Google authentication, Firebase projects, service accounts, IAM, and key creation | [Google Cloud CLI](https://cloud.google.com/sdk/docs/install) or `brew install --cask gcloud-cli` |
 | `adb` | Selecting an Android device and reading the installed app, SDK registration, and arriving notification | Android Studio's SDK Manager or `brew install --cask android-platform-tools` |
-| Xcode command-line tools | Building, signing, installing, and observing native iOS apps | Install Xcode, then select it with `xcode-select` |
+| Xcode 14 or later | Building, signing, installing, and observing native iOS apps | Install the full Xcode app, not only the Command Line Tools, then select it with `xcode-select` |
 | Node.js | Parsing command and API output | [nodejs.org](https://nodejs.org) or `brew install node` |
 
 The scripts also use Bash, `curl`, and standard Unix utilities. They do not
@@ -97,8 +105,13 @@ only one is connected, so the proof is performed on the device you intend to
 test.
 
 For native iOS, development push can be proved on an eligible booted iOS 16+
-Simulator or a signed physical iPhone. Production/TestFlight proof requires a
-physical iPhone.
+Simulator or a signed physical iPhone. A Simulator receives real APNs sandbox
+pushes only on macOS 13 or later with Xcode 14 or later, on a Mac with Apple
+silicon or a T2 chip. Production/TestFlight proof requires a physical iPhone.
+
+React Native and Expo apps are proved on iOS with a Release build, which embeds
+the JavaScript bundle and runs without Metro. Expo apps need a development
+build (`expo-dev-client`); Expo Go cannot load the SDK's native module.
 
 During native iOS push setup, the developer chooses whether to reuse an
 existing Apple configuration, follow a guided Account Holder or Admin
@@ -115,11 +128,10 @@ one APNs sandbox probe. No extra tools are needed beyond Node, curl, and Xcode.
 /plugin install iterable-sdk@iterable
 ```
 
-Start a new Claude Code session after installation. Skills are loaded when a
-session starts.
+Run `/reload-plugins`, or start a new Claude Code session, to load the skills.
 
 To receive updates automatically, open `/plugin`, select **Marketplaces**,
-select **iterable**, and enable auto-update.
+select **iterable**, and select **Enable auto-update**.
 
 ### Cursor
 
@@ -134,7 +146,8 @@ for skill in iterable-provision iterable-android iterable-android-verify iterabl
 done
 ```
 
-Run **Developer: Reload Window**, then start a new Agent chat.
+Keep the clone in place, because the skills run scripts from it. Run
+**Developer: Reload Window**, then start a new Agent chat.
 
 ### Codex
 
@@ -155,15 +168,16 @@ codex plugin add iterable-sdk@iterable
 
 ## What happens during Android push setup
 
-1. The integration skill inspects the application and adds the required SDK
-   configuration.
+1. The integration skill inspects the application and agrees the integration
+   scope with you.
 2. If Firebase or Iterable prerequisites are missing, the provisioning skill
    explains what it needs to read and asks for permission before continuing.
 3. The workflow creates or selects the Firebase resources and service account.
 4. It guides you through the Iterable dashboard actions that do not have a
-   public API: API keys, the mobile app, and the Firebase push integration.
-5. Your coding assistant builds and installs the application using the
-   project's existing toolchain.
+   public API: API keys, the mobile app, the Firebase push integration (with
+   FCM type **Data notifications**), and the test user's email address.
+5. The integration skill adds the SDK configuration, and your coding assistant
+   builds and installs the application using the project's existing toolchain.
 6. The workflow opens the selected application's launcher activity. You sign in
    as the test user and respond to any Android permission prompts.
 7. The verification skill sends a proof notification and checks Android's
@@ -173,10 +187,36 @@ The component that performs an action does not verify its own result. For
 example, the sender records which proof notification it sent, while a separate
 read-only verifier checks the device for that notification.
 
+## What happens during iOS push setup
+
+1. The integration skill inspects the application and agrees the scope and the
+   user identity with you, once. Provisioning reuses these answers.
+2. If Apple prerequisites are missing, the provisioning skill guides you through
+   Apple Developer one step at a time: the App ID, Push Notifications, and the
+   APNs key. It checks the APNs key with one sandbox probe.
+3. It guides you through the Iterable Mobile and Server-side API keys and the
+   iOS app with its APNs credential, and checks the keys with live calls.
+4. The integration skill writes the SDK code. Your coding assistant builds the
+   app and installs it on the Simulator.
+5. You sign in to the app and allow notifications.
+6. The verification skill confirms that Iterable holds the Simulator's device
+   token, sends one marked proof notification, and reads its arrival from the
+   Simulator's own notification records.
+
+If the app already sends its own push notifications, the integration skill asks
+whether to keep them alongside Iterable's or use Iterable notifications only.
+Iterable's proof completes the integration; checking the app's own
+notifications afterwards is optional.
+
 ## Security and data handling
 
 - The repository's scripts run locally and make authenticated HTTPS requests
-  to Google, Firebase, and Iterable.
+  to Google, Firebase, Apple, and Iterable.
+- Push proof creates or updates one proof template in your Iterable project and
+  sends it only to the test user. The test identity becomes a real user profile
+  in that project.
+- The plugin also adds the Context7 MCP server (no API key) for documentation
+  lookups and, in Claude Code, five helper subagents.
 - You authenticate in your own browser or `gcloud` session. The scripts do not
   collect account passwords or attempt to bypass sign-in, CAPTCHA, or
   terms-of-service screens.
@@ -201,8 +241,9 @@ organization's configuration. Install plugins only from sources you trust.
   the documented environment limits.
 - Creating Iterable API keys, mobile apps, and push integrations requires
   dashboard interaction because these actions do not have public APIs.
-- Core verification can run for a JWT-enabled integration, but the app's JWT
-  backend behavior requires separate feature-specific evidence.
+- Android push proof needs a Mobile API key with **Require JWT** turned off. On
+  iOS, core verification can run for a JWT-enabled integration, but the app's
+  JWT backend behavior requires separate feature-specific evidence.
 - Some bundled source articles cover multiple mobile platforms and may include
   snippets that are not relevant to the current application.
 - These skills focus on SDK integration. To work with campaign or user data,
@@ -211,15 +252,24 @@ organization's configuration. Install plugins only from sources you trust.
 
 ## Updating
 
-For Claude Code, update the marketplace before updating the plugin:
+For Claude Code, update the marketplace before updating the plugin. Run these
+commands in a terminal:
 
-```text
-/plugin marketplace update iterable
-/plugin update iterable-sdk@iterable
+```bash
+claude plugin marketplace update iterable
+claude plugin update iterable-sdk@iterable
 ```
 
-Start a new session after updating. With auto-update enabled, Claude Code may
-ask you to reload plugins after a newer version is downloaded.
+Then run `/reload-plugins`, or start a new session. With auto-update enabled,
+Claude Code may ask you to reload plugins after a newer version is downloaded.
+
+For Codex:
+
+```bash
+codex plugin marketplace upgrade iterable
+```
+
+Then start a new Codex session.
 
 For Cursor's clone-and-link installation:
 
@@ -228,7 +278,28 @@ cd ~/iterable-skills
 git pull
 ```
 
-Then reload the Cursor window and start a new Agent chat.
+Then run the link loop again so that new skills are linked, reload the Cursor
+window, and start a new Agent chat.
+
+## Uninstalling
+
+```bash
+# Claude Code (add --scope project or --scope local if you installed there)
+claude plugin uninstall iterable-sdk@iterable
+claude plugin marketplace remove iterable
+
+# Codex
+codex plugin remove iterable-sdk@iterable
+codex plugin marketplace remove iterable
+```
+
+For Cursor's clone-and-link installation, delete the links in
+`~/.cursor/skills/` and the `~/iterable-skills` clone.
+
+Uninstalling the plugin leaves cloud resources in place. Before you uninstall,
+run `.iterable/teardown` from your project to remove the Google service account,
+its role binding and keys, and the local artifacts that Android setup created.
+Apple resources and your APNs key are not removed.
 
 ## Contributing and architecture
 
@@ -241,4 +312,4 @@ Engineering references:
 
 - [`bin/README.md`](bin/README.md) — onboarding program architecture.
 - [`INTENDED-FLOW.md`](INTENDED-FLOW.md) — authoritative onboarding sequence.
-- [`REVIEW.md`](REVIEW.md) — generated SDK documentation review.
+- [`REVIEW.md`](REVIEW.md) — how to review refreshed SDK reference docs.
