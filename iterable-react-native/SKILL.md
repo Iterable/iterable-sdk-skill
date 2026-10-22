@@ -289,7 +289,9 @@ is installed, walk up from this `SKILL.md` to the first directory containing a
 else. Let it, and don't run `<root>/bin/agent` or `discover` yourself to save a step —
 deciding provisioning is needed is not permission to begin it.
 
-Once it reports `done`, **you own placing the file**: on bare RN copy
+Once its `next.kind` reaches `install_app` (or `run_app`) — the Google and Iterable
+halves are green and `.iterable/artifacts/google-services.json` exists — **you own
+placing the file**: on bare RN copy
 `.iterable/artifacts/google-services.json` to `android/app/google-services.json`;
 on Expo put it where `expo.android.googleServicesFile` points, never by
 hand-editing `android/`. Show it as part of your one confirmed diff.

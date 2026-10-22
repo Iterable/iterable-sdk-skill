@@ -342,7 +342,7 @@ relay the block, do not look for a flag that gets you past it, and never set
 | `project_unreachable` | Relay `next.summary` verbatim — it is a permissions answer from Google, not something to work around — and then ask `next.question`, which offers aiming somewhere else. A typo'd project id and a project they have no access to look identical from here, and both are answered at that screen. |
 | `register_app` | Their project has no Android app for this package. Ask `next.question` — this is the one change the limits promise never happens unless they ask outright, so its yes is separate from the provisioning yes and recorded with `<root>/bin/agent approve create-app`. Never `CREATE_APP=1`. |
 | `iterable_keys` | Four steps in their Iterable account that only they can do. Ask `next.question`, then walk them **one at a time** — see *The four Iterable steps* below. The two keys reach the workspace with `iterable-keys --take server\|mobile`, off their clipboard; never into this conversation. |
-| `install_app` / `run_app` | The Android device half—hand off to `iterable-android-verify`. Until a device is on record `next.question` is the device picker, worth asking even when only one is attached: a phone left plugged in to charge is "the only device", takes the proof push, and the developer watching an emulator reports that nothing arrived. The verifier may open the selected app after installation; signing in and allowing notifications still happen inside their app, by their hand. |
+| `install_app` / `run_app` | The Google and Iterable halves are green. If the app has no Iterable integration yet, continue as *Where this goes next* says first. Otherwise this is the Android device half—hand off to `iterable-android-verify`. Until a device is on record `next.question` is the device picker, worth asking even when only one is attached: a phone left plugged in to charge is "the only device", takes the proof push, and the developer watching an emulator reports that nothing arrived. The verifier may open the selected app after installation; signing in and allowing notifications still happen inside their app, by their hand. |
 | `send_proof` | The Android device half—hand off to `iterable-android-verify`. |
 | `done` | A real push reached the device. Say which device and chain onward. |
 
@@ -572,8 +572,11 @@ Both are human steps, so they are the two most worth saying out loud:
 
 ## Where this goes next
 
-When `next.kind` is `done` for the Google and Iterable halves, announce the
-transition in one line and continue into the platform skill — `iterable-android` or
+When `next.kind` reaches `install_app` — or `run_app`, if their app is already
+installed — the Google and Iterable halves are green (G0–G12) and
+`.iterable/artifacts/google-services.json` exists. Do not wait for `done`: that means a
+push reached the device, which cannot happen before the integration is written. Announce
+the transition in one line and continue into the platform skill — `iterable-android` or
 `iterable-react-native` — to write the integration. Do not ask whether to continue.
 
 The platform skill owns copying `.iterable/artifacts/google-services.json` into

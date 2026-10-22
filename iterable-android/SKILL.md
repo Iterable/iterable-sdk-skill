@@ -308,8 +308,9 @@ To check it is installed: walk up from this `SKILL.md` to the first directory
 containing a `bin/agent`. If there isn't one, this Preflight stops as written
 below, and the table of dashboard paths is what you give them.
 
-Once provisioning reports `done`, **you own copying the file into the app
-module**: `.iterable/artifacts/google-services.json` → `app/google-services.json`,
+Once provisioning's `next.kind` reaches `install_app` (or `run_app`) — the Google
+and Iterable halves are green and `.iterable/artifacts/google-services.json` exists —
+**you own copying the file into the app module**: `.iterable/artifacts/google-services.json` → `app/google-services.json`,
 shown as part of your one confirmed diff. Nothing else writes into their source
 tree.
 
