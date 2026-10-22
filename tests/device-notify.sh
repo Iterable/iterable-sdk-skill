@@ -27,7 +27,7 @@ bad() { printf '  \033[31mFAIL\033[0m %s\n' "$1"; FAILED=1; }
 case_is() {
   local label="$1" fixture="$2" marker="$3" want="$4" mention="${5:-}" out rc
   [[ "$marker" == - ]] && marker=""
-  out="$(node bin/notify-parse.js com.dogshelter "$marker" "$SENT_AT" < "tests/fixtures/$fixture")"; rc=$?
+  out="$(node bin/notify-parse.js com.sampleshop "$marker" "$SENT_AT" < "tests/fixtures/$fixture")"; rc=$?
   if ((rc != want)); then
     bad "$label: expected rc=$want, got rc=$rc ($out)"; return
   fi
@@ -52,7 +52,7 @@ case_is "says how old it is"    dumpsys-notification-arrived.txt "$MARKER" 0 " a
 # no banner, is also right — so the verdict has to reconcile them.
 case_is "arrived but silent"    dumpsys-notification-silent.txt  "$MARKER" 0 "SILENT, no banner"
 # ...and the ordinary arrival must not claim that.
-out="$(node bin/notify-parse.js com.dogshelter "$MARKER" "$SENT_AT" < tests/fixtures/dumpsys-notification-arrived.txt)"
+out="$(node bin/notify-parse.js com.sampleshop "$MARKER" "$SENT_AT" < tests/fixtures/dumpsys-notification-arrived.txt)"
 [[ "$out" != *SILENT* ]] && ok "a banner-showing arrival says nothing about SILENT" \
   || bad "non-silent arrival claimed SILENT: $out"
 # The green without one: somebody else sent it, so the channel is all we have.
@@ -60,10 +60,10 @@ case_is "no marker, channel"    dumpsys-notification-arrived.txt -         0 "it
 # A marker from an earlier run must not match a notification still on screen.
 case_is "stale marker"          dumpsys-notification-arrived.txt itbl-onboard-0000000000 2 "none carrying"
 
-case_is "nothing arrived"       dumpsys-notification-none.txt    "$MARKER" 2 "nothing from com.dogshelter"
+case_is "nothing arrived"       dumpsys-notification-none.txt    "$MARKER" 2 "nothing from com.sampleshop"
 # Stats outlive the record they came from. numPostedByApp=2 is still in this
 # fixture, and it must not be mistaken for something being on screen.
-case_is "nothing, stats remain" dumpsys-notification-none.txt    -         2 "nothing from com.dogshelter"
+case_is "nothing, stats remain" dumpsys-notification-none.txt    -         2 "nothing from com.sampleshop"
 # The one reading that explains "Iterable sent it and I never saw it".
 case_is "suppressed"            dumpsys-notification-blocked.txt -         2 "numBlocked=2"
 

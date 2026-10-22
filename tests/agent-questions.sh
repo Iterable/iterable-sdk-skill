@@ -41,14 +41,14 @@ EOF
 
 # q <kind> [arg] — one question object, from a workspace with no network in reach.
 q() {
-  WS="$W" PID=my-proj PACKAGE=com.dogshelter PATH="$TOOLS:$PATH" bash -c '
+  WS="$W" PID=my-proj PACKAGE=com.sampleshop PATH="$TOOLS:$PATH" bash -c '
     source bin/config.sh >/dev/null 2>&1; source bin/questions.sh; question_for "$@"' _ "$@"
 }
 
 # The kind next_action actually reports for that same state, so these tests ask the
 # question the ladder would ask and not one chosen here to pass.
 kind_now() {
-  WS="$W" PID=my-proj PACKAGE=com.dogshelter PATH="$TOOLS:$PATH" bash -c '
+  WS="$W" PID=my-proj PACKAGE=com.sampleshop PATH="$TOOLS:$PATH" bash -c '
     source bin/config.sh >/dev/null 2>&1
     IFS="$NEXT_SEP" read -r o k g c s <<< "$(next_action)"; printf %s "$k"'
 }
@@ -203,7 +203,7 @@ echo
 # The point of pulling these two lists into functions. Either front end can be read by
 # the developer, and the one that drifts is the one they happen to be looking at.
 ctx="$(q approve_firebase | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>JSON.parse(s).context.forEach(l=>console.log(l)))')"
-plan="$(WS="$W" PID=my-proj PACKAGE=com.dogshelter bash -c 'source bin/config.sh >/dev/null 2>&1; firebase_plan | plan_bulleted')"
+plan="$(WS="$W" PID=my-proj PACKAGE=com.sampleshop bash -c 'source bin/config.sh >/dev/null 2>&1; firebase_plan | plan_bulleted')"
 missing=0
 while IFS= read -r l; do
   [[ -n "$l" ]] || continue
@@ -217,7 +217,7 @@ while IFS= read -r l; do
 done <<< "$(bash -c 'source bin/config.sh >/dev/null 2>&1; firebase_limits')"
 ((lim)) || ok "so does every line of firebase_limits — changes and boundary together"
 
-for want in "Nothing has happened yet" "my-proj" "com.dogshelter" "teardown"; do
+for want in "Nothing has happened yet" "my-proj" "com.sampleshop" "teardown"; do
   grep -qF -- "$want" <<< "$ctx" && ok "the context says '$want'" \
     || bad "the context never mentions '$want'"
 done
@@ -342,7 +342,7 @@ step_has() { # <n> <label> <fixed string>
 step_has 1 "its URL" "https://app.iterable.com/settings/apiKeys"
 step_has 1 "the JWT-off warning" "Require JWT off"
 step_has 2 "its URL" "https://app.iterable.com/integrations/mobileApps/create"
-step_has 2 "the package, character for character" "Package name com.dogshelter ← character for character"
+step_has 2 "the package, character for character" "Package name com.sampleshop ← character for character"
 step_has 3 "the FCM type" 'Data notifications ← not "Notification messages"'
 step_has 3 "the absolute service-account key path" "Upload $W/artifacts/sa-key.json"
 step_has 4 "the setEmail join key" "passes to setEmail(). It is the join key"
@@ -478,10 +478,10 @@ node -e '
 const projects = [];
 for (let i = 12; i >= 1; i--) projects.push({ id: `proj-number-${i}`, name: `Project ${i}`, apps: [] });
 projects.find(p => p.id === "proj-number-5").apps = [{ package: "com.other.thing", appId: "1:5:android:aaa" }];
-projects.find(p => p.id === "proj-number-8").apps = [{ package: "com.dogshelter", appId: "1:8:android:bbb" }];
+projects.find(p => p.id === "proj-number-8").apps = [{ package: "com.sampleshop", appId: "1:8:android:bbb" }];
 projects.find(p => p.id === "proj-number-11").apps = [
-  { package: "com.dogshelter", appId: "1:11:android:ccc" },
-  { package: "com.dogshelter.dev", appId: "1:11:android:ddd" },
+  { package: "com.sampleshop", appId: "1:11:android:ccc" },
+  { package: "com.sampleshop.dev", appId: "1:11:android:ddd" },
 ];
 process.stdout.write(JSON.stringify({ account: "dev@example.com", projects }));
 ' > "$DISC/discovered.json"
@@ -500,7 +500,7 @@ QCALLS="$TMP/qcalls"; : > "$QCALLS"
 # qd <kind> [pid] — a question against the cached discovery, with Google out of reach.
 qd() {
   local kind="$1" pid="${2:-}"
-  QCALLS="$QCALLS" WS="$DISC" PID="$pid" PACKAGE=com.dogshelter PATH="$QSTUB:$TOOLS:$PATH" \
+  QCALLS="$QCALLS" WS="$DISC" PID="$pid" PACKAGE=com.sampleshop PATH="$QSTUB:$TOOLS:$PATH" \
     bash -c 'source bin/config.sh >/dev/null 2>&1; source bin/questions.sh; question_for "$@"' _ "$kind"
 }
 
@@ -535,7 +535,7 @@ fi
 # Empty cache: refuse rather than draw a menu with nothing in it. An agent handed an
 # empty picker fills it in itself, which is the behaviour this whole file exists to stop.
 EMPTY="$TMP/empty"; mkdir -p "$EMPTY"
-WS="$EMPTY" PID="" PACKAGE=com.dogshelter bash -c \
+WS="$EMPTY" PID="" PACKAGE=com.sampleshop bash -c \
   'source bin/config.sh >/dev/null 2>&1; source bin/questions.sh; question_for pick_project' >/dev/null 2>&1 \
   && bad "offered a project picker with nothing discovered — an empty menu invites an invented one" \
   || ok "no discovery yet, no picker: it refuses instead of drawing an empty one"
@@ -544,7 +544,7 @@ for k in pick_app register_app; do
   out="$(qd "$k" proj-number-11 | node "$TMP/shape.js")" \
     && ok "$k — $out" || bad "$k — $out"
 done
-WS="$DISC" PID="" PACKAGE=com.dogshelter bash -c \
+WS="$DISC" PID="" PACKAGE=com.sampleshop bash -c \
   'source bin/config.sh >/dev/null 2>&1; source bin/questions.sh; question_for pick_app' >/dev/null 2>&1 \
   && bad "asked which app before a project was chosen" \
   || ok "the app picker waits for a project to be chosen"
@@ -572,14 +572,14 @@ grep -qF "never makes this change unless you ask for it here" <<< "$reg" \
 # every host shows.
 pq() { node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{process.stdout.write(JSON.parse(s).prompt||"")})'; }
 # A workspace with no ladder run yet, so the plan is the whole of part 1.
-fp="$(WS="$TMP/consent-ws" PID=my-proj PACKAGE=com.dogshelter PATH="$TOOLS:$PATH" bash -c '
+fp="$(WS="$TMP/consent-ws" PID=my-proj PACKAGE=com.sampleshop PATH="$TOOLS:$PATH" bash -c '
   source bin/config.sh >/dev/null 2>&1; source bin/questions.sh; question_for approve_firebase' | pq)"
-for want in "my-proj" "com.dogshelter" "a service account, '" "roles/firebasecloudmessaging.admin" "a JSON key for it"; do
+for want in "my-proj" "com.sampleshop" "a service account, '" "roles/firebasecloudmessaging.admin" "a JSON key for it"; do
   grep -qF -- "$want" <<< "$fp" && ok "the Firebase consent prompt names $want" \
     || bad "the Firebase consent prompt never names $want"
 done
 rp="$(qd register_app proj-number-2 | pq)"
-grep -qF "one Android app in Firebase project proj-number-2: package com.dogshelter" <<< "$rp" \
+grep -qF "one Android app in Firebase project proj-number-2: package com.sampleshop" <<< "$rp" \
   && ok "the registration prompt names the project and package it creates" \
   || bad "the registration prompt asks for a yes without naming what it creates: $rp"
 grep -qF "gcloud auth login" <<< "$(q authenticate | pq)" \
@@ -613,7 +613,7 @@ printf 'android {\n    defaultConfig {\n        applicationId = "com.example.nat
 printf '{"expo":{"android":{"package":"com.example.expo"}}}\n' > "$PKG_ROOT/expo/app.json"
 printf 'android { defaultConfig {\n  applicationId "com.example.prebuilt"\n} }\n' \
   > "$PKG_ROOT/expo/android/app/build.gradle"
-printf 'android { defaultConfig {\n  applicationId "com.dogshelter.dev"\n} }\n' \
+printf 'android { defaultConfig {\n  applicationId "com.sampleshop.dev"\n} }\n' \
   > "$PKG_ROOT/dog/android/app/build.gradle"
 qpkg() {
   QCALLS="$QCALLS" WS="$DISC" PROJECT_ROOT="$1" PID="$3" PACKAGE="$4" PATH="$QSTUB:$TOOLS:$PATH" \
@@ -636,12 +636,12 @@ for case in "rn com.example.rn android/app/build.gradle" \
     bad "$dir: the package question did not offer the repository's $pkg"
   fi
 done
-picked="$(qpkg "$PKG_ROOT/dog" pick_app proj-number-11 com.dogshelter)"
+picked="$(qpkg "$PKG_ROOT/dog" pick_app proj-number-11 com.sampleshop)"
 undetected="$(qpkg "$PKG_ROOT/none" register_app proj-number-2 "")"
 if node -e '
   const [picked, none] = process.argv.slice(1).map(JSON.parse);
-  process.exit(picked.recommended === "com.dogshelter.dev" &&
-    picked.context.some(line => line.includes("This repository builds com.dogshelter.dev")) &&
+  process.exit(picked.recommended === "com.sampleshop.dev" &&
+    picked.context.some(line => line.includes("This repository builds com.sampleshop.dev")) &&
     none.recommended === null &&
     none.options.some(o => o.label === "I\u0027ll give you the package name") ? 0 : 1);
 ' "$picked" "$undetected"; then
@@ -720,7 +720,7 @@ node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.exit(
   ["App","New app"].includes(JSON.parse(s).header)?0:1))' <<< "$ct" \
   && ok "choose_target with a project on record asks which app, not which project" \
   || bad "choose_target after a project is chosen still asks about projects"
-WS="$DISC" PID=proj-number-11 PACKAGE=com.dogshelter bash -c \
+WS="$DISC" PID=proj-number-11 PACKAGE=com.sampleshop bash -c \
   'source bin/config.sh >/dev/null 2>&1; source bin/questions.sh; question_for choose_target' >/dev/null 2>&1 \
   && bad "asked to choose a target when both halves are already chosen" \
   || ok "both chosen, nothing to ask"
@@ -756,7 +756,7 @@ printf '#!/bin/sh\n[ "$*" = "-list-avds" ] && printf "Pixel_9_Pro\\nOld_Tablet\\
 chmod +x "$DSTUB/adb" "$DSTUB/emulator"
 
 qdev() { # <kind> [target-device]
-  WS="$DISC" PID=proj-number-11 PACKAGE=com.dogshelter TARGET_DEVICE="${2:-}" PATH="$DSTUB:$PATH" \
+  WS="$DISC" PID=proj-number-11 PACKAGE=com.sampleshop TARGET_DEVICE="${2:-}" PATH="$DSTUB:$PATH" \
     bash -c 'source bin/config.sh >/dev/null 2>&1; source bin/questions.sh; question_for "$1"' _ "$1"
 }
 

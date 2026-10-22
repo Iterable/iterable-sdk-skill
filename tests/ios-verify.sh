@@ -95,20 +95,20 @@ elif grep -q '/api/users/getByEmail' <<< "$config"; then
       token="$IOS_VERIFY_APNS_TOKEN"
       [[ ! -f "$IOS_VERIFY_STATE/b-wrong-tested-token" ]] ||
         token="$IOS_VERIFY_OTHER_APNS_TOKEN"
-      printf '{"user":{"email":"ios-proof-b@example.com","dataFields":{"devices":[{"appPackageName":"com.example.dogshelter","token":"%s","endpointEnabled":true,"notificationsEnabled":true}]}}}\n200\n' "$token"
+      printf '{"user":{"email":"ios-proof-b@example.com","dataFields":{"devices":[{"appPackageName":"com.example.sampleshop","token":"%s","endpointEnabled":true,"notificationsEnabled":true}]}}}\n200\n' "$token"
     else
       printf '{"msg":"No user exists"}\n400\n'
     fi
   elif [[ -f "$IOS_VERIFY_STATE/switched" ]]; then
     tested_enabled=false
     [[ ! -f "$IOS_VERIFY_STATE/a-retains-tested-token" ]] || tested_enabled=true
-    printf '{"user":{"email":"ios-proof@example.com","dataFields":{"favoriteDogIds":[1,2],"devices":[{"appPackageName":"com.example.dogshelter","token":"%s","endpointEnabled":%s,"notificationsEnabled":true}]}}}\n200\n' \
+    printf '{"user":{"email":"ios-proof@example.com","dataFields":{"favoriteDogIds":[1,2],"devices":[{"appPackageName":"com.example.sampleshop","token":"%s","endpointEnabled":%s,"notificationsEnabled":true}]}}}\n200\n' \
       "$IOS_VERIFY_APNS_TOKEN" "$tested_enabled"
   else
     token="$IOS_VERIFY_APNS_TOKEN"
     [[ ! -f "$IOS_VERIFY_STATE/wrong-registration-token" ]] ||
       token="$IOS_VERIFY_OTHER_APNS_TOKEN"
-    printf '{"user":{"email":"ios-proof@example.com","dataFields":{"favoriteDogIds":[1,2],"devices":[{"appPackageName":"com.example.dogshelter","token":"%s","endpointEnabled":true,"notificationsEnabled":true}]}}}\n200\n' "$token"
+    printf '{"user":{"email":"ios-proof@example.com","dataFields":{"favoriteDogIds":[1,2],"devices":[{"appPackageName":"com.example.sampleshop","token":"%s","endpointEnabled":true,"notificationsEnabled":true}]}}}\n200\n' "$token"
   fi
 elif grep -q '/api/events/' <<< "$config"; then
   if [[ -f "$IOS_VERIFY_STATE/duplicate-event" ]]; then
@@ -142,14 +142,14 @@ elif [[ "$*" == vtool\ -show-build* ]]; then
   else
     printf 'platform IOS\n'
   fi
-elif [[ "$*" == "simctl get_app_container SIM-DEVICE-1 com.example.dogshelter app" ]]; then
+elif [[ "$*" == "simctl get_app_container SIM-DEVICE-1 com.example.sampleshop app" ]]; then
   printf '%s\n' "$IOS_VERIFY_STATE/sim-app"
-elif [[ "$*" == "simctl get_app_container SIM-DEVICE-1 com.example.dogshelter data" ]]; then
+elif [[ "$*" == "simctl get_app_container SIM-DEVICE-1 com.example.sampleshop data" ]]; then
   printf '%s\n' "$IOS_VERIFY_STATE/sim-data"
 elif [[ "$*" == *"devicectl"*"list devices"* ]]; then
   printf '{"result":{"devices":[{"identifier":"00008101-TESTDEVICE","name":"Test iPhone","state":"available"}]}}\n'
 elif [[ "$*" == *"device info apps"* ]]; then
-  printf '{"result":{"apps":[{"bundleIdentifier":"com.example.dogshelter","version":"1.0","bundleVersion":"42"}]}}\n'
+  printf '{"result":{"apps":[{"bundleIdentifier":"com.example.sampleshop","version":"1.0","bundleVersion":"42"}]}}\n'
 elif [[ "$*" == *"device copy from"* ]]; then
   destination=""
   while (($#)); do
@@ -191,7 +191,7 @@ set -eu
 node <<'NODE'
 const identifier = require("fs").existsSync(
   process.env.IOS_VERIFY_STATE + "/simulator-wrong-application-identifier"
-) ? "TEAMID.com.example.other" : "TEAMID.com.example.dogshelter";
+) ? "TEAMID.com.example.other" : "TEAMID.com.example.sampleshop";
 const plist = `<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0"><dict>
 <key>application-identifier</key><string>${identifier}</string>
@@ -251,19 +251,19 @@ if [[ "$file" == "-" ]]; then
   exit 0
 fi
 case "$key" in
-  CFBundleIdentifier) printf 'com.example.dogshelter\n' ;;
+  CFBundleIdentifier) printf 'com.example.sampleshop\n' ;;
   CFBundleShortVersionString) printf '1.0\n' ;;
   CFBundleVersion) printf '42\n' ;;
-  CFBundleExecutable) printf 'DogShelter\n' ;;
+  CFBundleExecutable) printf 'SampleShop\n' ;;
   *) exit 1 ;;
 esac
 EOF
 chmod +x "$FAKEBIN"/*
 
-APP_PATH="$ROOT/DogShelter.app"
+APP_PATH="$ROOT/SampleShop.app"
 mkdir -p "$APP_PATH"
 printf 'fixture\n' > "$APP_PATH/Info.plist"
-printf 'same executable\n' > "$APP_PATH/DogShelter"
+printf 'same executable\n' > "$APP_PATH/SampleShop"
 mkdir -p "$APP_PATH/IterableSDKResources.bundle"
 printf 'iterable-ios-runtime-proof/1\n' > "$APP_PATH/IterableRuntimeProof.fixture"
 
@@ -301,7 +301,7 @@ cat > "$WORKSPACE/server-validation.json" <<EOF
 EOF
 cat > "$WORKSPACE/proof-target.json" <<EOF
 {
-  "bundle_id": "com.example.dogshelter",
+  "bundle_id": "com.example.sampleshop",
   "identity_type": "email",
   "identity": "ios-proof@example.com",
   "switch_identity": "ios-proof-b@example.com",
@@ -337,10 +337,10 @@ chmod 600 "$WORKSPACE"/*.json "$WORKSPACE/.env" "$WORKSPACE/IterableSecrets.xcco
 
 mkdir -p "$WORKSPACE/launches"
 cat > "$WORKSPACE/launches/initial.json" <<EOF
-{"launched":true,"phase":"initial","bundle_id":"com.example.dogshelter","device":"00008101-TESTDEVICE","device_kind":"physical","run_id":"$RUN_ID","launched_at":"$STARTED_AT","expires_at":"$EXPIRES_AT"}
+{"launched":true,"phase":"initial","bundle_id":"com.example.sampleshop","device":"00008101-TESTDEVICE","device_kind":"physical","run_id":"$RUN_ID","launched_at":"$STARTED_AT","expires_at":"$EXPIRES_AT"}
 EOF
 cat > "$WORKSPACE/launches/restore.json" <<EOF
-{"launched":true,"phase":"restore","bundle_id":"com.example.dogshelter","device":"00008101-TESTDEVICE","device_kind":"physical","run_id":"$RUN_ID","launched_at":"$RESTORE_AT","expires_at":"$EXPIRES_AT"}
+{"launched":true,"phase":"restore","bundle_id":"com.example.sampleshop","device":"00008101-TESTDEVICE","device_kind":"physical","run_id":"$RUN_ID","launched_at":"$RESTORE_AT","expires_at":"$EXPIRES_AT"}
 EOF
 chmod 700 "$WORKSPACE/launches"
 chmod 600 "$WORKSPACE/launches"/*.json
@@ -351,7 +351,7 @@ target_marker_hash="$(printf '%s' 'ITBL-IOS-USER-A-A1B2C3' | shasum -a 256 | awk
 target_nonce="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 target_nonce_hash="$(printf '%s' "$target_nonce" | shasum -a 256 | awk '{print $1}')"
 cat > "$STATE/runtime-proof.jsonl" <<EOF
-{"schema":"iterable-ios-runtime-proof/1","run_id":"$RUN_ID","recorded_at":"$INITIAL_1","process_launch_id":"launch-1","proof_phase":"initial","sequence":1,"event":"application_did_finish_launching","bundle_id":"com.example.dogshelter","version":"1.0","build":"42","environment":"development"}
+{"schema":"iterable-ios-runtime-proof/1","run_id":"$RUN_ID","recorded_at":"$INITIAL_1","process_launch_id":"launch-1","proof_phase":"initial","sequence":1,"event":"application_did_finish_launching","bundle_id":"com.example.sampleshop","version":"1.0","build":"42","environment":"development"}
 {"schema":"iterable-ios-runtime-proof/1","run_id":"$RUN_ID","recorded_at":"$INITIAL_2","process_launch_id":"launch-1","proof_phase":"initial","sequence":2,"event":"sdk_initialize_returned","region":"US","jwt_required":false,"auto_push_registration":true}
 {"schema":"iterable-ios-runtime-proof/1","run_id":"$RUN_ID","recorded_at":"$INITIAL_3","process_launch_id":"launch-1","proof_phase":"initial","sequence":3,"event":"iterable_identity_set_invoked","identity_kind":"email","identity_hmac":"$a_hmac","source":"login","session_generation":1}
 {"schema":"iterable-ios-runtime-proof/1","run_id":"$RUN_ID","recorded_at":"$INITIAL_4","process_launch_id":"launch-1","proof_phase":"initial","sequence":4,"event":"notification_settings_observed","authorization_status":2,"alert_setting":2,"badge_setting":2,"sound_setting":2,"source":"after-request"}
@@ -360,7 +360,7 @@ cat > "$STATE/runtime-proof.jsonl" <<EOF
 {"schema":"iterable-ios-runtime-proof/1","run_id":"$RUN_ID","recorded_at":"$PUSH_1","process_launch_id":"launch-1","proof_phase":"initial","sequence":7,"event":"notification_response_callback","marker_sha256":"$target_marker_hash","delivery_nonce_sha256":"$target_nonce_hash","template_id":424242,"message_id_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","action_identifier":"com.apple.UNNotificationDefaultActionIdentifier"}
 {"schema":"iterable-ios-runtime-proof/1","run_id":"$RUN_ID","recorded_at":"$PUSH_2","process_launch_id":"launch-1","proof_phase":"initial","sequence":8,"event":"iterable_push_forward_invoked","marker_sha256":"$target_marker_hash","delivery_nonce_sha256":"$target_nonce_hash","template_id":424242,"message_id_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","action_identifier":"com.apple.UNNotificationDefaultActionIdentifier"}
 {"schema":"iterable-ios-runtime-proof/1","run_id":"$RUN_ID","recorded_at":"$PUSH_3","process_launch_id":"launch-1","proof_phase":"initial","sequence":9,"event":"notification_response_completion","marker_sha256":"$target_marker_hash","delivery_nonce_sha256":"$target_nonce_hash","template_id":424242,"message_id_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","action_identifier":"com.apple.UNNotificationDefaultActionIdentifier"}
-{"schema":"iterable-ios-runtime-proof/1","run_id":"$RUN_ID","recorded_at":"$RESTORE_1","process_launch_id":"launch-2","proof_phase":"restore","sequence":1,"event":"application_did_finish_launching","bundle_id":"com.example.dogshelter","version":"1.0","build":"42","environment":"development"}
+{"schema":"iterable-ios-runtime-proof/1","run_id":"$RUN_ID","recorded_at":"$RESTORE_1","process_launch_id":"launch-2","proof_phase":"restore","sequence":1,"event":"application_did_finish_launching","bundle_id":"com.example.sampleshop","version":"1.0","build":"42","environment":"development"}
 {"schema":"iterable-ios-runtime-proof/1","run_id":"$RUN_ID","recorded_at":"$RESTORE_2","process_launch_id":"launch-2","proof_phase":"restore","sequence":2,"event":"iterable_identity_set_invoked","identity_kind":"email","identity_hmac":"$a_hmac","source":"restore","session_generation":1}
 {"schema":"iterable-ios-runtime-proof/1","run_id":"$RUN_ID","recorded_at":"$LOGOUT_1","process_launch_id":"launch-2","proof_phase":"restore","sequence":3,"event":"local_personalized_state_cleared","session_generation":2}
 {"schema":"iterable-ios-runtime-proof/1","run_id":"$RUN_ID","recorded_at":"$LOGOUT_2","process_launch_id":"launch-2","proof_phase":"restore","sequence":4,"event":"iterable_logout_invoked","session_generation":2}
@@ -378,7 +378,7 @@ for spec in \
   marker_hash="$(printf '%s' "$marker" | shasum -a 256 | awk '{print $1}')"
   identity_hash="$(printf '%s' "$identity" | shasum -a 256 | awk '{print $1}')"
   cat > "$WORKSPACE/sends/development/$send_kind.json" <<EOF
-{"contract":2,"sent":true,"kind":"$send_kind","source":"$source","bundle_id":"com.example.dogshelter","device":"00008101-TESTDEVICE","device_kind":"physical","environment":"development","run_id":"$RUN_ID","marker_sha256":"$marker_hash","recipient_sha256":"$identity_hash","template_id":424242,"delivery_nonce_sha256":"$target_nonce_hash","payload_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","sent_at":"$SENT_AT"}
+{"contract":2,"sent":true,"kind":"$send_kind","source":"$source","bundle_id":"com.example.sampleshop","device":"00008101-TESTDEVICE","device_kind":"physical","environment":"development","run_id":"$RUN_ID","marker_sha256":"$marker_hash","recipient_sha256":"$identity_hash","template_id":424242,"delivery_nonce_sha256":"$target_nonce_hash","payload_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","sent_at":"$SENT_AT"}
 EOF
   chmod 600 "$WORKSPACE/sends/development/$send_kind.json"
 done
@@ -405,11 +405,11 @@ json_value() {
 }
 
 INSPECT_PROJECT="$ROOT/inspect-app"
-mkdir -p "$INSPECT_PROJECT/DogShelter"
+mkdir -p "$INSPECT_PROJECT/SampleShop"
 cat > "$INSPECT_PROJECT/project.yml" <<'EOF'
-name: DogShelter
+name: SampleShop
 EOF
-cat > "$INSPECT_PROJECT/DogShelter/AppDelegate.swift" <<'EOF'
+cat > "$INSPECT_PROJECT/SampleShop/AppDelegate.swift" <<'EOF'
 import IterableSDK
 IterableAPI.initialize(apiKey: mobileKey, launchOptions: nil, config: config)
 IterableAPI.email = currentEmail
@@ -566,7 +566,7 @@ for spec in \
   expectation_hash="$(printf '%s' "$expectation" | shasum -a 256 | awk '{print $1}')"
   mkdir -p "$WORKSPACE/proof/development"
   cat > "$WORKSPACE/proof/development/$kind.json" <<EOF
-{"observed":true,"kind":"$kind","bundle_id":"com.example.dogshelter","device":"00008101-TESTDEVICE","device_kind":"physical","environment":"development","run_id":"$RUN_ID","expectation_sha256":"$expectation_hash","observed_at":"$OBSERVED_AT"}
+{"observed":true,"kind":"$kind","bundle_id":"com.example.sampleshop","device":"00008101-TESTDEVICE","device_kind":"physical","environment":"development","run_id":"$RUN_ID","expectation_sha256":"$expectation_hash","observed_at":"$OBSERVED_AT"}
 EOF
   chmod 600 "$WORKSPACE/proof/development/$kind.json"
 done
@@ -795,7 +795,7 @@ fi
 
 mkdir -p "$STATE/sim-app"
 printf 'fixture\n' > "$STATE/sim-app/Info.plist"
-printf 'same executable\n' > "$STATE/sim-app/DogShelter"
+printf 'same executable\n' > "$STATE/sim-app/SampleShop"
 mkdir -p "$STATE/sim-app/IterableSDKResources.bundle"
 mkdir -p "$STATE/sim-data/Library/Application Support/IterableProof/runs"
 cp "$STATE/runtime-proof.jsonl" \
@@ -849,7 +849,7 @@ if [[ "$simulator_observe_rc" -eq 0 &&
         !["I12","I13","I14","I15","I17"].some(id=>ids.has(id)) ? 0 : 1
       );
     ' "$simulator_complete" &&
-    grep -q 'open com.example.dogshelter .*--udid SIM-DEVICE-1' \
+    grep -q 'open com.example.sampleshop .*--udid SIM-DEVICE-1' \
       "$STATE/agent-device-calls"; then
   ok "a non-push scope can complete honestly through the Simulator observation actor"
 else
@@ -957,14 +957,14 @@ fi
   bad "the verifier reported the wrong framework for a native app"
 
 printf '{"dependencies":{"react-native":"0.88.0","@iterable/react-native-sdk":"3.1.0"}}\n' > "$ROOT/app/package.json"
-mkdir -p "$ROOT/app/ios/DogShelter.xcworkspace"
+mkdir -p "$ROOT/app/ios/SampleShop.xcworkspace"
 rn_debug="$(run_verify 2>/dev/null)"
 rn_debug_rc=$?
 if [[ "$rn_debug_rc" -eq 20 && "$(json_value "$rn_debug" framework)" == react-native ]] &&
     node -e '
       const gate=JSON.parse(process.argv[1]).gates.find(g=>g.id==="I5");
       process.exit(gate?.status==="red" && gate.detail.includes("no embedded main.jsbundle") &&
-        gate.detail.includes("-workspace DogShelter.xcworkspace -scheme DogShelter -configuration Release -sdk iphonesimulator") ? 0 : 1);
+        gate.detail.includes("-workspace SampleShop.xcworkspace -scheme SampleShop -configuration Release -sdk iphonesimulator") ? 0 : 1);
     ' "$rn_debug"; then
   ok "a React Native Debug build without main.jsbundle is refused with the Release Simulator build command"
 else
@@ -1037,32 +1037,32 @@ rm "$STATE/simulator-missing-entitlements"
 [[ "$no_aps" == "red: "installed_app_missing_aps_environment:*'no aps-environment entitlement'*'CODE_SIGNING_ALLOWED=NO'* ]] &&
   ok "an installed app missing aps-environment is red" ||
   bad "an installed app without aps-environment was accepted" "$no_aps"
-printf 'name: DogShelter\n' > "$ROOT/app/project.yml"
-mkdir -p "$ROOT/app/DogShelter"
-touch -t 202601011200 "$STATE/sim-app/DogShelter"
-printf 'IterableAPI.initialize(apiKey: key)\n' > "$ROOT/app/DogShelter/AppDelegate.swift"
+printf 'name: SampleShop\n' > "$ROOT/app/project.yml"
+mkdir -p "$ROOT/app/SampleShop"
+touch -t 202601011200 "$STATE/sim-app/SampleShop"
+printf 'IterableAPI.initialize(apiKey: key)\n' > "$ROOT/app/SampleShop/AppDelegate.swift"
 stale_native="$(installed_gate "$(run_verify 2>/dev/null)")"
-rm -rf "$ROOT/app/project.yml" "$ROOT/app/DogShelter"
-touch "$STATE/sim-app/DogShelter"
-[[ "$stale_native" == "red: "installed_app_older_than_source:*'DogShelter was built at 2026-01-01'*"$ROOT/app/DogShelter/AppDelegate.swift changed at"* ]] &&
+rm -rf "$ROOT/app/project.yml" "$ROOT/app/SampleShop"
+touch "$STATE/sim-app/SampleShop"
+[[ "$stale_native" == "red: "installed_app_older_than_source:*'SampleShop was built at 2026-01-01'*"$ROOT/app/SampleShop/AppDelegate.swift changed at"* ]] &&
   ok "an installed app older than a source edit is red, naming the file and both times" ||
   bad "an installed app older than its source was accepted" "$stale_native"
 cp "$ROOT/proof-target.with-app-path" "$WORKSPACE/proof-target.json"
 chmod 600 "$WORKSPACE/proof-target.json"
-printf 'an older executable\n' > "$STATE/sim-app/DogShelter"
+printf 'an older executable\n' > "$STATE/sim-app/SampleShop"
 differs="$(run_verify 2>/dev/null)"
-printf 'same executable\n' > "$STATE/sim-app/DogShelter"
+printf 'same executable\n' > "$STATE/sim-app/SampleShop"
 [[ "$(installed_gate "$differs")" == "red: "installed_app_differs_from_recorded_build:*'not byte-identical'* &&
     "$(json_value "$differs" next.kind)" == install_app ]] &&
   ok "an installed app that differs from the recorded build is red and reinstalls the recorded one" ||
   bad "an installed app that differs from the recorded build was accepted" "$(installed_gate "$differs")"
-printf 'name: DogShelter\n' > "$ROOT/app/project.yml"
-mkdir -p "$ROOT/app/DogShelter"
-touch -t 202601011200 "$STATE/sim-app/DogShelter" "$APP_PATH/DogShelter"
-printf 'IterableAPI.initialize(apiKey: key)\n' > "$ROOT/app/DogShelter/AppDelegate.swift"
+printf 'name: SampleShop\n' > "$ROOT/app/project.yml"
+mkdir -p "$ROOT/app/SampleShop"
+touch -t 202601011200 "$STATE/sim-app/SampleShop" "$APP_PATH/SampleShop"
+printf 'IterableAPI.initialize(apiKey: key)\n' > "$ROOT/app/SampleShop/AppDelegate.swift"
 recorded_stale="$(run_verify 2>/dev/null)"
-rm -rf "$ROOT/app/project.yml" "$ROOT/app/DogShelter"
-touch "$STATE/sim-app/DogShelter" "$APP_PATH/DogShelter"
+rm -rf "$ROOT/app/project.yml" "$ROOT/app/SampleShop"
+touch "$STATE/sim-app/SampleShop" "$APP_PATH/SampleShop"
 [[ "$(installed_gate "$recorded_stale")" == "red: "installed_app_older_than_source:* &&
     "$(json_value "$recorded_stale" next.kind)" == build_app ]] &&
   ok "a stale recorded build asks for a rebuild, not a reinstall of the same build" ||

@@ -24,7 +24,7 @@ case "$ROOT" in
 esac
 trap 'rm -rf "$ROOT"' EXIT
 
-BUNDLE=com.example.dogshelter
+BUNDLE=com.example.sampleshop
 ROOT26="/Library/Developer/CoreSimulator/Volumes/iOS_23C54/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.2.simruntime/Contents/Resources/RuntimeRoot"
 MARKER=ITBL-IOS-PROOF-0A1B2C3D4E5F
 NONCE="$(node -e 'process.stdout.write(require("crypto").randomBytes(32).toString("hex"))')"
@@ -54,7 +54,7 @@ judge() {
       fs.appendFileSync(file,JSON.stringify({timestamp:stamp,processImagePath:req.processImagePath,
         senderImagePath:"/System/Library/PrivateFrameworks/UserNotificationsServer.framework/UserNotificationsServer",
         subsystem:"com.apple.UserNotifications",category:"DataProvider",messageType:"Default",
-        eventMessage:`[com.example.dogshelter] Withdrawing notification ${digest}`})+"\n");
+        eventMessage:`[com.example.sampleshop] Withdrawing notification ${digest}`})+"\n");
     ' "$dir/log.ndjson"
   fi
   store="$(node "$READER" store "$dir/devices" SIM "$BUNDLE")"
@@ -112,7 +112,7 @@ expect_fail "the real recorded simctl injection (Simulator Target Bundle) is rej
 expect_fail "a record with this run's marker and nonce that SpringBoard added locally is rejected" \
   "$(judge copied)" injection_detected
 expect_fail "a redacted apsd payload is unverifiable, never bound by time" "$(judge redacted)" payload_redacted
-expect_fail "lines for a sibling bundle (com.example.dogshelter.widget) do not count" "$(judge sibling)" unjoined_record
+expect_fail "lines for a sibling bundle (com.example.sampleshop.widget) do not count" "$(judge sibling)" unjoined_record
 expect_fail "lines from a non-system process image are unattributable, not a lost push" "$(judge forged)" log_unattributable
 expect_fail "Saving NO for the digest overrides the stored record" "$(judge savingno)" notifications_not_authorized
 expect_fail "a suppressed foreground delivery is named" "$(judge suppressed)" suppressed_by_app

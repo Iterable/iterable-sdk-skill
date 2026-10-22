@@ -17,7 +17,7 @@ trap 'rm -rf "$ROOT"' EXIT
 FAKEBIN="$ROOT/bin"
 STATE="$ROOT/state"
 WORKSPACE="$ROOT/app/.iterable/ios"
-APP="$ROOT/DogShelter.app"
+APP="$ROOT/SampleShop.app"
 mkdir -p "$FAKEBIN" "$STATE" "$WORKSPACE" "$APP"
 
 cat > "$FAKEBIN/xcrun" <<'EOF'
@@ -40,7 +40,7 @@ chmod +x "$FAKEBIN/xcrun"
 
 write_target() {
   cat > "$WORKSPACE/proof-target.json" <<EOF
-{"bundle_id":"com.example.dogshelter","device":"$1","device_kind":"$2","app_path":"$APP"}
+{"bundle_id":"com.example.sampleshop","device":"$1","device_kind":"$2","app_path":"$APP"}
 EOF
 }
 

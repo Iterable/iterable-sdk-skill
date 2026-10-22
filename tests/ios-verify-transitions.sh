@@ -18,29 +18,29 @@ case "$ROOT" in
 esac
 trap 'rm -rf "$ROOT"' EXIT
 
-APP="$ROOT/DogShelter"
+APP="$ROOT/SampleShop"
 WORKSPACE="$APP/.iterable/ios"
 FAKEBIN="$ROOT/bin"
 STATE="$ROOT/state"
-SIM_APP="$STATE/DogShelter.app"
-mkdir -p "$APP/DogShelter" "$FAKEBIN" "$STATE" "$SIM_APP"
+SIM_APP="$STATE/SampleShop.app"
+mkdir -p "$APP/SampleShop" "$FAKEBIN" "$STATE" "$SIM_APP"
 
 cat > "$APP/project.yml" <<'EOF'
-name: DogShelter
+name: SampleShop
 settings:
   base:
-    PRODUCT_BUNDLE_IDENTIFIER: com.example.dogshelter
+    PRODUCT_BUNDLE_IDENTIFIER: com.example.sampleshop
 EOF
-cat > "$APP/DogShelter/AppDelegate.swift" <<'EOF'
+cat > "$APP/SampleShop/AppDelegate.swift" <<'EOF'
 import IterableSDK
 IterableAPI.initialize(apiKey: mobileKey, launchOptions: nil, config: config)
 IterableAPI.email = currentEmail
 UIApplication.shared.registerForRemoteNotifications()
 EOF
 printf 'fixture\n' > "$SIM_APP/Info.plist"
-printf 'linked executable\n' > "$SIM_APP/DogShelter"
+printf 'linked executable\n' > "$SIM_APP/SampleShop"
 mkdir -p "$SIM_APP/IterableSDKResources.bundle"
-touch -t 202601011200 "$APP/DogShelter/AppDelegate.swift"
+touch -t 202601011200 "$APP/SampleShop/AppDelegate.swift"
 printf 'Iterable initialized\n' > "$STATE/app.log"
 
 cat > "$FAKEBIN/xcodebuild" <<'EOF'
@@ -62,8 +62,8 @@ while (($#)); do
   if [[ "$1" == -extract ]]; then key="$2"; shift 2; else shift; fi
 done
 case "$key" in
-  CFBundleIdentifier) printf 'com.example.dogshelter\n' ;;
-  CFBundleExecutable) printf 'DogShelter\n' ;;
+  CFBundleIdentifier) printf 'com.example.sampleshop\n' ;;
+  CFBundleExecutable) printf 'SampleShop\n' ;;
   aps-environment) grep -q '<string>development</string>' && printf 'development\n' ;;
 esac
 EOF
@@ -91,11 +91,11 @@ elif [[ "$*" == "simctl list devices --json" ]]; then
   printf '{"devices":{"com.apple.CoreSimulator.SimRuntime.iOS-18-0":[{"udid":"SIM-VERIFY-1","name":"iPhone 16","state":"Booted","isAvailable":true}]}}\n'
 elif [[ "$*" == *"devicectl"*"list devices"* ]]; then
   printf '{"result":{"devices":[]}}\n'
-elif [[ "$*" == "simctl get_app_container SIM-VERIFY-1 com.example.dogshelter app" ]]; then
-  printf '%s\n' "$IOS_TRANSITION_STATE/DogShelter.app"
-elif [[ "$*" == "simctl launch --terminate-running-process SIM-VERIFY-1 com.example.dogshelter" ]]; then
-  printf 'com.example.dogshelter: 123\n'
-elif [[ "$*" == "simctl terminate SIM-VERIFY-1 com.example.dogshelter" ]]; then
+elif [[ "$*" == "simctl get_app_container SIM-VERIFY-1 com.example.sampleshop app" ]]; then
+  printf '%s\n' "$IOS_TRANSITION_STATE/SampleShop.app"
+elif [[ "$*" == "simctl launch --terminate-running-process SIM-VERIFY-1 com.example.sampleshop" ]]; then
+  printf 'com.example.sampleshop: 123\n'
+elif [[ "$*" == "simctl terminate SIM-VERIFY-1 com.example.sampleshop" ]]; then
   printf 'terminate\n' >> "$IOS_TRANSITION_STATE/terminations"
 elif [[ "$*" == *'--predicate process == "apsd" OR process == "SpringBoard"'* ]]; then
   printf '{"timestamp":"%s","processImagePath":"/usr/libexec/apsd","subsystem":"com.apple.apsd","eventMessage":"keep alive"}\n' "$(date -u '+%Y-%m-%d %H:%M:%S.000000+0000')"
@@ -123,7 +123,7 @@ elif grep -q '/api/users/getByEmail' <<< "$request"; then
   else
     token=""
     [[ ! -f "$IOS_TRANSITION_STATE/token-hex" ]] || token=",\"token\":\"$(cat "$IOS_TRANSITION_STATE/token-hex")\""
-    printf '{"user":{"email":"dogs@example.com","dataFields":{"devices":[{"appPackageName":"com.example.dogshelter","endpointEnabled":true,"notificationsEnabled":true%s}]}}}\n200\n' "$token"
+    printf '{"user":{"email":"dogs@example.com","dataFields":{"devices":[{"appPackageName":"com.example.sampleshop","endpointEnabled":true,"notificationsEnabled":true%s}]}}}\n200\n' "$token"
   fi
 elif grep -q '/api/templates/push/upsert' <<< "$request"; then
   sed -n 's/^data = "\(.*\)"$/\1/p' <<< "$config" | sed -e 's/\\"/"/g' -e 's/\\\\/\\/g' \
@@ -136,7 +136,7 @@ elif grep -q '/api/templates/push/proof' <<< "$request"; then
     process.stdout.write(`${v.payload.iterableProofMarker} ${v.payload.iterableProofNonce}\n`);
   ' "$IOS_TRANSITION_STATE/upsert.json")
   "$IOS_TRANSITION_SIMULATE" deliver "$(cat "$IOS_TRANSITION_STATE/scenario" 2>/dev/null || printf apns)" \
-    "$IOS_TRANSITION_STATE/devices" SIM-VERIFY-1 com.example.dogshelter "$marker" "$nonce" 424242 \
+    "$IOS_TRANSITION_STATE/devices" SIM-VERIFY-1 com.example.sampleshop "$marker" "$nonce" 424242 \
     "$IOS_TRANSITION_STATE/log.ndjson"
   printf '{"msg":"Push proof sent"}\n200\n'
 else
@@ -177,7 +177,7 @@ EOF
 chmod +x "$FAKEBIN"/*
 printf 'server-transition-key-1234567890\n' > "$STATE/clipboard"
 SIMULATE="$PWD/tests/fixtures/ios-prove/simulate"
-"$SIMULATE" register "$STATE/devices" SIM-VERIFY-1 com.example.dogshelter
+"$SIMULATE" register "$STATE/devices" SIM-VERIFY-1 com.example.sampleshop
 CALLS=0
 
 run_prepare() {
@@ -224,7 +224,7 @@ value() {
 
 first="$(run_prepare status)"
 if [[ "$(value "$first" verification_only)" == true &&
-      "$(value "$first" proposed.bundle_id)" == com.example.dogshelter &&
+      "$(value "$first" proposed.bundle_id)" == com.example.sampleshop &&
       "$(value "$first" proposed.identity_type)" == email &&
       "$(value "$first" next.kind)" == proof_region ]]; then
   ok "verification-only preparation discovers the existing iOS integration"
@@ -392,15 +392,15 @@ mkdir -p "$GOLD_SPACE" "$GOLD_STATE"
 cp "$APP/project.yml" "$GOLD/project.yml"
 touch "$GOLD_STATE/user-exists" "$GOLD_STATE/device-exists"
 node -e 'process.stdout.write(Buffer.alloc(80,0x11).toString("hex"))' > "$GOLD_STATE/token-hex"
-cp -R "$STATE/DogShelter.app" "$GOLD_STATE/DogShelter.app"
-"$SIMULATE" register "$GOLD_STATE/devices" SIM-VERIFY-1 com.example.dogshelter
+cp -R "$STATE/SampleShop.app" "$GOLD_STATE/SampleShop.app"
+"$SIMULATE" register "$GOLD_STATE/devices" SIM-VERIFY-1 com.example.sampleshop
 gold_key="server-golden-key-1234567890"
 printf 'ITERABLE_SERVER_KEY=%s\nITERABLE_DATA_REGION=US\n' "$gold_key" > "$GOLD_SPACE/.env"
 node -e '
   const fs=require("fs"), crypto=require("crypto");
   const [dir,key]=process.argv.slice(1);
   fs.writeFileSync(`${dir}/scope.json`,JSON.stringify({features:["sdk-initialization","push-notifications"],identity_mode:"email",data_region:"US",jwt_enabled:false,verification_only:false},null,2)+"\n");
-  fs.writeFileSync(`${dir}/target.json`,JSON.stringify({bundle_id:"com.example.dogshelter",name:"Dog Shelter"},null,2)+"\n");
+  fs.writeFileSync(`${dir}/target.json`,JSON.stringify({bundle_id:"com.example.sampleshop",name:"Sample Shop"},null,2)+"\n");
   fs.writeFileSync(`${dir}/server-validation.json`,JSON.stringify({valid:true,key_sha256:crypto.createHash("sha256").update(key).digest("hex"),data_region:"US",classification:"authenticated-server-key"},null,2)+"\n");
 ' "$GOLD_SPACE" "$gold_key"
 chmod 700 "$GOLD_SPACE"
@@ -471,9 +471,9 @@ rm -rf "$MISS/.iterable/ios/proof-target.json" "$MISS/.iterable/ios/sends" "$MIS
 MISS_STATE="$ROOT/miss-state"
 mkdir -p "$MISS_STATE"
 touch "$MISS_STATE/user-exists" "$MISS_STATE/device-exists"
-cp -R "$STATE/DogShelter.app" "$MISS_STATE/DogShelter.app"
+cp -R "$STATE/SampleShop.app" "$MISS_STATE/SampleShop.app"
 printf never > "$MISS_STATE/scenario"
-"$SIMULATE" register "$MISS_STATE/devices" SIM-VERIFY-1 com.example.dogshelter
+"$SIMULATE" register "$MISS_STATE/devices" SIM-VERIFY-1 com.example.sampleshop
 miss() {
   (
     cd "$MISS" || exit
@@ -518,9 +518,9 @@ rm -rf "$APPLE/.iterable/ios/proof-target.json" "$APPLE/.iterable/ios/sends" "$A
 APPLE_STATE="$ROOT/apple-state"
 mkdir -p "$APPLE_STATE"
 touch "$APPLE_STATE/user-exists" "$APPLE_STATE/device-exists"
-cp -R "$STATE/DogShelter.app" "$APPLE_STATE/DogShelter.app"
+cp -R "$STATE/SampleShop.app" "$APPLE_STATE/SampleShop.app"
 node -e 'process.stdout.write(Buffer.alloc(80,0x11).toString("hex"))' > "$APPLE_STATE/token-hex"
-"$SIMULATE" register "$APPLE_STATE/devices" SIM-VERIFY-1 com.example.dogshelter
+"$SIMULATE" register "$APPLE_STATE/devices" SIM-VERIFY-1 com.example.sampleshop
 node -e '
   const crypto=require("crypto"), fs=require("fs"), dir=process.argv[1];
   const {privateKey}=crypto.generateKeyPairSync("ec",{namedCurve:"P-256"});

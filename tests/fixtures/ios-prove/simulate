@@ -87,7 +87,7 @@ case "${1:-}" in
         ;;
       nobundle)
         render_record "$APNS_RECORD" "$marker" "$nonce" "$template_id" "$identifier" "$created_ns" |
-          sed -e 's#<string>com.example.dogshelter</string>#<string></string>#' > "$store"
+          sed -e 's#<string>com.example.sampleshop</string>#<string></string>#' > "$store"
         apns_log >> "$log"
         ;;
       injected)
@@ -115,11 +115,11 @@ case "${1:-}" in
         ;;
       sibling)
         render_record "$APNS_RECORD" "$marker" "$nonce" "$template_id" "$identifier" "$created_ns" > "$store"
-        apns_log | sed -e 's/com\.example\.dogshelter/com.example.dogshelter.widget/g' >> "$log"
+        apns_log | sed -e 's/com\.example\.sampleshop/com.example.sampleshop.widget/g' >> "$log"
         ;;
       forged)
         render_record "$APNS_RECORD" "$marker" "$nonce" "$template_id" "$identifier" "$created_ns" > "$store"
-        apns_log | sed -E 's#"(processImagePath|senderImagePath)": "[^"]*"#"\1": "/Users/dev/Library/Developer/CoreSimulator/Devices/SIM/data/Containers/Bundle/Application/APP/DogShelter.app/DogShelter"#g' >> "$log"
+        apns_log | sed -E 's#"(processImagePath|senderImagePath)": "[^"]*"#"\1": "/Users/dev/Library/Developer/CoreSimulator/Devices/SIM/data/Containers/Bundle/Application/APP/SampleShop.app/SampleShop"#g' >> "$log"
         ;;
       savingno)
         render_record "$APNS_RECORD" "$marker" "$nonce" "$template_id" "$identifier" "$created_ns" > "$store"
@@ -163,7 +163,7 @@ case "${1:-}" in
         ;;
       siblingsb)
         render_record "$APNS_RECORD" "$marker" "$nonce" "$template_id" "$identifier" "$created_ns" > "$store"
-        apns_log | sed -e '/"com.apple.apsd"/!s/\[com\.example\.dogshelter\] /[com.example.dogshelter.widget] /g' >> "$log"
+        apns_log | sed -e '/"com.apple.apsd"/!s/\[com\.example\.sampleshop\] /[com.example.sampleshop.widget] /g' >> "$log"
         ;;
       unjoined)
         render_record "$APNS_RECORD" "$marker" "$nonce" "$template_id" "$identifier" "$created_ns" > "$store"
@@ -172,13 +172,13 @@ case "${1:-}" in
           "$(node "$READER" digest "$other")" "$base_ms" >> "$log"
         ;;
       notauth)
-        synthetic_line "$base_ms" 5 "Received incoming message for push disabled app com.example.dogshelter" >> "$log"
+        synthetic_line "$base_ms" 5 "Received incoming message for push disabled app com.example.sampleshop" >> "$log"
         ;;
       noentitlement)
-        synthetic_line "$base_ms" 5 "No valid 'aps-environment' entitlement string found for application 'com.example.dogshelter': (null). Notifications will not be delivered." >> "$log"
+        synthetic_line "$base_ms" 5 "No valid 'aps-environment' entitlement string found for application 'com.example.sampleshop': (null). Notifications will not be delivered." >> "$log"
         ;;
       unregistered)
-        synthetic_line "$base_ms" 5 "Received incoming message for unregistered app com.example.dogshelter" >> "$log"
+        synthetic_line "$base_ms" 5 "Received incoming message for unregistered app com.example.sampleshop" >> "$log"
         ;;
       never) ;;
       *) echo "unknown scenario: $scenario" >&2; exit 2 ;;

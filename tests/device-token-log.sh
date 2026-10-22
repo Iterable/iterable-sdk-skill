@@ -9,7 +9,7 @@
 # reported as broken, which is the failure mode this tool exists to avoid.
 #
 # Every fixture is real output from a live emulator (Pixel 9 Pro, API 36,
-# com.dogshelter, SDK 3.10.1), trimmed to the registration window. The device's
+# com.sampleshop, SDK 3.10.1), trimmed to the registration window. The device's
 # FCM token is redacted in place. Three are derived by hand from the same recording:
 #   logcat-register-rejected     — "code": "Success" swapped for a rejection
 #   logcat-no-registration       — every registerDeviceToken line removed
@@ -25,7 +25,7 @@ bad() { printf '  \033[31mFAIL\033[0m %s\n' "$1"; FAILED=1; }
 # case_is <fixture> <expected-rc> <must-mention>
 case_is() {
   local fixture="$1" want="$2" mention="${3:-}" out rc
-  out="$(node bin/token-log.js com.dogshelter < "tests/fixtures/$fixture")"; rc=$?
+  out="$(node bin/token-log.js com.sampleshop < "tests/fixtures/$fixture")"; rc=$?
   if ((rc != want)); then
     bad "$fixture: expected rc=$want, got rc=$rc ($out)"; return
   fi
@@ -56,7 +56,7 @@ case_is logcat-no-registration.txt    3 "never called registerDeviceToken"
 # A multi-line exception is logged under one tag, so the last Firebase error line is a
 # frame from inside the library. Naming that as the cause points a developer at a Google
 # source file; the line above it says what actually went wrong.
-out="$(node bin/token-log.js com.dogshelter < tests/fixtures/logcat-fcm-token-failed.txt)"
+out="$(node bin/token-log.js com.sampleshop < tests/fixtures/logcat-fcm-token-failed.txt)"
 if grep -q 'FirebaseInstallations.java' <<< "$out"; then
   bad "rc 4 blamed a stack frame instead of the error: $out"
 else
@@ -66,7 +66,7 @@ fi
 # A token is a credential. The gate prints its verdict into terminals, reports and
 # CI logs, so the fixture's own redaction has to hold for the parser's output too.
 for f in tests/fixtures/logcat-*.txt; do
-  out="$(node bin/token-log.js com.dogshelter < "$f" || true)"
+  out="$(node bin/token-log.js com.sampleshop < "$f" || true)"
   grep -q 'APA91\|redacted-by-fixture' <<< "$out" \
     && { bad "$(basename "$f"): the verdict echoed the device token"; continue; }
   ok "$(basename "$f") -> verdict carries no token"
@@ -85,7 +85,7 @@ cat > "$STUB/adb" <<'ADB'
 [[ "$1" == -s ]] && shift 2
 case "$*" in
   "emu avd name") echo Pixel_9_Pro; exit 0 ;;
-  "shell pm list packages -U com.dogshelter") echo "package:com.dogshelter uid:10218"; exit 0 ;;
+  "shell pm list packages -U com.sampleshop") echo "package:com.sampleshop uid:10218"; exit 0 ;;
 esac
 [[ "$1 $2 $3" == "logcat -d --uid=10218" ]] && { cat "$STUB_FIX"; exit 0; }
 exit 0
@@ -96,7 +96,7 @@ chmod +x "$STUB/adb"
 gate_is() {
   local label="$1" want="$4" mention="$5" out rc
   out="$(PATH="$STUB:$PATH" WS="$STUB/ws" STUB_FIX="tests/fixtures/$2" ITBL_MOBILE_KEY="$3" \
-    PACKAGE=com.dogshelter DEVICE_WAIT=0 \
+    PACKAGE=com.sampleshop DEVICE_WAIT=0 \
     bash -c 'source bin/config.sh >/dev/null 2>&1; source bin/gates-device.sh; g14' 2>&1)"; rc=$?
   if ((rc != want)); then bad "$label — expected rc $want, got $rc ($out)"; return; fi
   grep -qi -- "$mention" <<< "$out" || { bad "$label — rc $rc is right but never says '$mention': $out"; return; }

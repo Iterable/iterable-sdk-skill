@@ -72,15 +72,15 @@ esac
 EOF
 chmod +x "$FAKEBIN/xcrun" "$FAKEBIN/agent-device"
 cat > "$STATE/app.log" <<'EOF'
-Dog Shelter: Iterable initialized
-Dog Shelter: remote notification registration failed: fixture failure
-Dog Shelter: Api-Key=server-secret-that-must-not-print
+Sample Shop: Iterable initialized
+Sample Shop: remote notification registration failed: fixture failure
+Sample Shop: Api-Key=server-secret-that-must-not-print
 unrelated line
 EOF
 
 cat > "$WORKSPACE/proof-target.json" <<'EOF'
 {
-  "bundle_id":"com.example.dogshelter",
+  "bundle_id":"com.example.sampleshop",
   "device":"PHYSICAL-DEVICE",
   "device_kind":"physical",
   "environment":"development",
@@ -113,7 +113,7 @@ if [[ "$rc" -eq 0 ]] &&
         !v.relevant_log_tail.includes("server-secret-that-must-not-print") ? 0 : 1
       );
     ' "$out" &&
-    grep -q 'open com.example.dogshelter' "$STATE/calls" &&
+    grep -q 'open com.example.sampleshop' "$STATE/calls" &&
     grep -q 'snapshot --force-full --json' "$STATE/calls" &&
     grep -q 'logs path' "$STATE/calls" &&
     [[ -f "$WORKSPACE/observations/current-app-identity.json" &&
@@ -136,7 +136,7 @@ fi
 marker_hash="$(printf '%s' 'ITBL-IOS-USER-A-OBSERVE' | shasum -a 256 | awk '{print $1}')"
 mkdir -p "$WORKSPACE/sends/development"
 cat > "$WORKSPACE/sends/development/user-targeted.json" <<EOF
-{"contract":3,"state":"sent","sent":true,"kind":"user-targeted","source":"iterable-api-template-proof","bundle_id":"com.example.dogshelter","device":"PHYSICAL-DEVICE","device_kind":"physical","environment":"development","run_id":"observe-run","marker_sha256":"$marker_hash","sent_at":"2026-10-16T08:01:00Z"}
+{"contract":3,"state":"sent","sent":true,"kind":"user-targeted","source":"iterable-api-template-proof","bundle_id":"com.example.sampleshop","device":"PHYSICAL-DEVICE","device_kind":"physical","environment":"development","run_id":"observe-run","marker_sha256":"$marker_hash","sent_at":"2026-10-16T08:01:00Z"}
 EOF
 chmod 600 "$WORKSPACE/sends/development/user-targeted.json"
 touch "$STATE/fail-wait"
@@ -178,7 +178,7 @@ rm -rf "$WORKSPACE/proof" "$WORKSPACE/observations"
 touch "$STATE/simulator-mode" "$STATE/fail-wait"
 cat > "$WORKSPACE/proof-target.json" <<'EOF'
 {
-  "bundle_id":"com.example.dogshelter",
+  "bundle_id":"com.example.sampleshop",
   "device":"SIM-OBSERVE-1",
   "device_kind":"simulator",
   "environment":"development",
@@ -193,14 +193,14 @@ durable_nonce="$(node -e 'process.stdout.write(require("crypto").randomBytes(32)
 durable_nonce_hash="$(printf '%s' "$durable_nonce" | shasum -a 256 | awk '{print $1}')"
 marker_hash="$(printf '%s' 'ITBL-IOS-USER-A-DURABLE' | shasum -a 256 | awk '{print $1}')"
 cat > "$WORKSPACE/sends/development/user-targeted.json" <<EOF
-{"contract":3,"state":"sent","sent":true,"kind":"user-targeted","source":"iterable-api-template-proof","bundle_id":"com.example.dogshelter","device":"SIM-OBSERVE-1","device_kind":"simulator","environment":"development","run_id":"simulator-observe-run","marker_sha256":"$marker_hash","delivery_nonce_sha256":"$durable_nonce_hash","sent_at":"$(date -u +%Y-%m-%dT%H:%M:%SZ)"}
+{"contract":3,"state":"sent","sent":true,"kind":"user-targeted","source":"iterable-api-template-proof","bundle_id":"com.example.sampleshop","device":"SIM-OBSERVE-1","device_kind":"simulator","environment":"development","run_id":"simulator-observe-run","marker_sha256":"$marker_hash","delivery_nonce_sha256":"$durable_nonce_hash","sent_at":"$(date -u +%Y-%m-%dT%H:%M:%SZ)"}
 EOF
 chmod 600 "$WORKSPACE/sends/development/user-targeted.json"
 SIM_ROOT="$ROOT/CoreSimulator/Devices"
 SIMULATE="$PWD/tests/fixtures/ios-prove/simulate"
-"$SIMULATE" register "$SIM_ROOT" SIM-OBSERVE-1 com.example.dogshelter
+"$SIMULATE" register "$SIM_ROOT" SIM-OBSERVE-1 com.example.sampleshop
 STORE_FILE="$SIM_ROOT/SIM-OBSERVE-1/data/Library/UserNotifications/0B5E8D2A-3C1F-4E7A-9B6D-2F8C4A1E7D90/DeliveredNotifications.plist"
-printf 'com.example.dogshelter\0dogs@example.com\0ITBL-IOS-USER-A-DURABLE\0' > "$STORE_FILE"
+printf 'com.example.sampleshop\0dogs@example.com\0ITBL-IOS-USER-A-DURABLE\0' > "$STORE_FILE"
 env PATH="$FAKEBIN:$PATH" IOS_AGENT_DEVICE="$FAKEBIN/agent-device" IOS_OBSERVE_STATE="$STATE" \
   ITERABLE_IOS_TEST_MODE=1 IOS_CORE_SIMULATOR_DEVICES_ROOT="$SIM_ROOT" IOS_WORKSPACE="$WORKSPACE" \
   bin/ios-observe delivery --kind user-targeted --timeout 1000 >/dev/null 2>&1
@@ -210,7 +210,7 @@ else
   bad "the durable fallback accepted bytes that are not a notification record"
   rm -f "$WORKSPACE/proof/development/user-targeted.json"
 fi
-"$SIMULATE" deliver apns "$SIM_ROOT" SIM-OBSERVE-1 com.example.dogshelter \
+"$SIMULATE" deliver apns "$SIM_ROOT" SIM-OBSERVE-1 com.example.sampleshop \
   ITBL-IOS-USER-A-DURABLE "$durable_nonce" 424242 "$ROOT/unused-log.ndjson"
 
 env \

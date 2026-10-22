@@ -109,14 +109,14 @@ actor() {
   env \
     RUBYLIB="$fake_lib" \
     APNS_TEST_STATE="$state" \
-    APNS_TEST_NAME="Iterable Dog Shelter" \
+    APNS_TEST_NAME="Iterable Sample Shop" \
     "$ruby_bin" tools/ios-apns-private.rb "$@"
 }
 
 plan="$(actor plan \
   --apple-id developer@example.com \
   --team-id TEAMID0001 \
-  --name 'Iterable Dog Shelter')"
+  --name 'Iterable Sample Shop')"
 if node -e '
   const plan = JSON.parse(process.argv[1]);
   process.exit(
@@ -139,7 +139,7 @@ fi
 actor create \
   --apple-id developer@example.com \
   --team-id TEAMID0001 \
-  --name 'Iterable Dog Shelter' \
+  --name 'Iterable Sample Shop' \
   --output-dir "$output_dir" \
   >"$fixture_root/unconfirmed.out" 2>"$fixture_root/unconfirmed.err"
 unconfirmed_rc=$?
@@ -152,7 +152,7 @@ fi
 created="$(actor create \
   --apple-id developer@example.com \
   --team-id TEAMID0001 \
-  --name 'Iterable Dog Shelter' \
+  --name 'Iterable Sample Shop' \
   --output-dir "$output_dir" \
   --confirm)"
 key_path="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).key_path)' "$created")"
@@ -170,7 +170,7 @@ fi
 actor create \
   --apple-id developer@example.com \
   --team-id TEAMID0001 \
-  --name 'Iterable Dog Shelter' \
+  --name 'Iterable Sample Shop' \
   --output-dir "$output_dir" \
   --confirm >"$fixture_root/retry.out" 2>"$fixture_root/retry.err"
 retry_rc=$?
@@ -188,7 +188,7 @@ bin/ios-provision experimental-apns-plan \
   --workspace "$workspace" \
   --apple-id developer@example.com \
   --team-id TEAMID0001 \
-  --name 'Iterable Dog Shelter' \
+  --name 'Iterable Sample Shop' \
   --confirm-read >"$fixture_root/no-opt-in.out" 2>"$fixture_root/no-opt-in.err"
 opt_in_rc=$?
 if [[ "$opt_in_rc" -ne 0 && ! -e "$workspace" ]]; then

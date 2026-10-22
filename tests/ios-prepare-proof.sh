@@ -17,7 +17,7 @@ trap 'rm -rf "$ROOT"' EXIT
 FAKEBIN="$ROOT/bin"
 STATE="$ROOT/state"
 WORKSPACE="$ROOT/app/.iterable/ios"
-APP_PATH="$STATE/DogShelter.app"
+APP_PATH="$STATE/SampleShop.app"
 mkdir -p "$FAKEBIN" "$STATE" "$WORKSPACE" "$APP_PATH"
 
 cat > "$FAKEBIN/xcrun" <<'EOF'
@@ -55,8 +55,8 @@ cat > "$WORKSPACE/scope.json" <<'EOF'
 EOF
 cat > "$WORKSPACE/target.json" <<'EOF'
 {
-  "bundle_id": "com.example.dogshelter",
-  "name": "Dog Shelter"
+  "bundle_id": "com.example.sampleshop",
+  "name": "Sample Shop"
 }
 EOF
 cat > "$WORKSPACE/.env" <<EOF
@@ -325,7 +325,7 @@ for file in scope.json target.json .env server-validation.json; do
   cp "$WORKSPACE/$file" "$MINSPACE/$file"
 done
 chmod 600 "$MINSPACE"/scope.json "$MINSPACE"/target.json "$MINSPACE"/.env "$MINSPACE"/server-validation.json
-printf 'name: PushCheck\noptions:\n  deploymentTarget:\n    iOS: "27.0"\ntargets:\n  PushCheck:\n    platform: iOS\n' > "$MINAPP/project.yml"
+printf 'name: SampleApp\noptions:\n  deploymentTarget:\n    iOS: "27.0"\ntargets:\n  SampleApp:\n    platform: iOS\n' > "$MINAPP/project.yml"
 min_status="$(env PATH="$MINBIN:$FAKEBIN:$PATH" IOS_WORKSPACE="$MINSPACE" bin/ios-prepare-proof status)"
 if [[ "$(json_value "$min_status" proposed.device)" == SIM-IOS27 ]]; then
   ok "a deployment target of iOS 27 leaves only the iOS 27 Simulator, which is prefilled"
@@ -333,7 +333,7 @@ else
   bad "a Simulator below the app's deployment target was offered" "device=$(json_value "$min_status" proposed.device) kind=$(json_value "$min_status" next.kind)"
 fi
 rm "$MINAPP/project.yml"
-printf 'name: PushCheck\ntargets:\n  PushCheck:\n    platform: iOS\n' > "$MINAPP/project.yml"
+printf 'name: SampleApp\ntargets:\n  SampleApp:\n    platform: iOS\n' > "$MINAPP/project.yml"
 open_status="$(env PATH="$MINBIN:$FAKEBIN:$PATH" IOS_WORKSPACE="$MINSPACE" bin/ios-prepare-proof status)"
 if [[ "$(json_value "$open_status" next.kind)" == proof_device &&
       "$(json_value "$open_status" proposed.device)" == "" ]]; then
@@ -347,26 +347,26 @@ fi
 ARTBIN="$ROOT/artbin"
 ARTAPP="$ROOT/artapp"
 ARTSPACE="$ARTAPP/.iterable/ios"
-INSTALLED="$ROOT/installed/DogShelter.app"
-BUILT="$ARTAPP/build/Build/Products/Debug-iphonesimulator/DogShelter.app"
-RELEASE="$ARTAPP/build/Build/Products/Release-iphonesimulator/DogShelter.app"
+INSTALLED="$ROOT/installed/SampleShop.app"
+BUILT="$ARTAPP/build/Build/Products/Debug-iphonesimulator/SampleShop.app"
+RELEASE="$ARTAPP/build/Build/Products/Release-iphonesimulator/SampleShop.app"
 mkdir -p "$ARTBIN" "$ARTSPACE" "$INSTALLED" "$BUILT/IterableSDK_IterableSDK.bundle"
-printf 'name: DogShelter\ntargets:\n  DogShelter:\n    platform: iOS\n' > "$ARTAPP/project.yml"
+printf 'name: SampleShop\ntargets:\n  SampleShop:\n    platform: iOS\n' > "$ARTAPP/project.yml"
 app_bundle() { # <.app> <bundle id> <executable bytes> <touch -t stamp>
-  printf '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict><key>CFBundleIdentifier</key><string>%s</string><key>CFBundleExecutable</key><string>DogShelter</string><key>DTPlatformName</key><string>iphonesimulator</string></dict></plist>\n' \
+  printf '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict><key>CFBundleIdentifier</key><string>%s</string><key>CFBundleExecutable</key><string>SampleShop</string><key>DTPlatformName</key><string>iphonesimulator</string></dict></plist>\n' \
     "$2" > "$1/Info.plist"
-  printf '%s' "$3" > "$1/DogShelter"
-  chmod +x "$1/DogShelter"
-  touch -t "$4" "$1/DogShelter"
+  printf '%s' "$3" > "$1/SampleShop"
+  chmod +x "$1/SampleShop"
+  touch -t "$4" "$1/SampleShop"
 }
-app_bundle "$BUILT" com.example.dogshelter integrated 202610221000
-app_bundle "$INSTALLED" com.example.dogshelter baseline 202610220900
+app_bundle "$BUILT" com.example.sampleshop integrated 202610221000
+app_bundle "$INSTALLED" com.example.sampleshop baseline 202610220900
 BUILT="$(cd "$BUILT" && pwd -P)"
 cat > "$ARTBIN/xcrun" <<XEOF
 #!/usr/bin/env bash
 if [[ "\$*" == "simctl list devices --json" ]]; then
   printf '{"devices":{"com.apple.CoreSimulator.SimRuntime.iOS-26-2":[{"udid":"SIM-ART-1","name":"iPhone 17","state":"Booted","isAvailable":true}]}}\n'
-elif [[ "\$*" == "simctl get_app_container SIM-ART-1 com.example.dogshelter app" ]]; then
+elif [[ "\$*" == "simctl get_app_container SIM-ART-1 com.example.sampleshop app" ]]; then
   printf '%s\n' "$INSTALLED"
 elif [[ "\$*" == *"devicectl"*"list devices"* ]]; then
   printf '{"result":{"devices":[]}}\n'
@@ -393,7 +393,7 @@ option_command() { # <status json> <label>
 prompt_has() { node -e 'process.exit(JSON.parse(process.argv[1]).next.question.prompt.includes(process.argv[2]) ? 0 : 1)' "$1" "$2"; }
 
 art="$(run_art status)"
-bind_label="Use the build at Debug-iphonesimulator/DogShelter.app"
+bind_label="Use the build at Debug-iphonesimulator/SampleShop.app"
 bind="$(option_command "$art" "$bind_label")"
 if [[ "$(json_value "$art" next.kind)" == proof_artifact &&
       "$(json_value "$art" next.question.recommended)" == "$bind_label" &&
@@ -412,7 +412,7 @@ identity_start="$(json_value "$bound" next.question.free_text.command)"
 if [[ "$(json_value "$bound" next.kind)" == confirm_proof &&
       "$(json_value "$bound" proposed.app_path)" == "$BUILT" ]] &&
     prompt_has "$bound" "App: $BUILT" &&
-    prompt_has "$bound" "pgrep -f 'Devices/SIM-ART-1/.*/DogShelter\.app/DogShelter( |\$)'"; then
+    prompt_has "$bound" "pgrep -f 'Devices/SIM-ART-1/.*/SampleShop\.app/SampleShop( |\$)'"; then
   ok "after binding, the identity screen names the bound build and reads the executable from it"
 else
   bad "the identity screen lost the bound build or the device-specific identity steps" "$(json_value "$bound" next.question.prompt)"
@@ -424,10 +424,10 @@ run_art_line "${identity_start//\{\{answer\}\}/dogs@example.com}" >/dev/null 2>&
 
 kept="$(run_art status)"
 mkdir -p "$RELEASE/IterableSDK_IterableSDK.bundle"
-app_bundle "$RELEASE" com.example.dogshelter rebuilt 202610221100
+app_bundle "$RELEASE" com.example.sampleshop rebuilt 202610221100
 RELEASE="$(cd "$RELEASE" && pwd -P)"
 rebuilt="$(run_art status)"
-rebind_label="Start a fresh run with the build at Release-iphonesimulator/DogShelter.app"
+rebind_label="Start a fresh run with the build at Release-iphonesimulator/SampleShop.app"
 rebind="$(option_command "$rebuilt" "$rebind_label")"
 if [[ "$(json_value "$kept" next.kind)" == existing_proof &&
       "$(json_value "$kept" next.question.recommended)" == "Keep this run" &&
@@ -448,7 +448,7 @@ run_art_line "$rebind" >/dev/null 2>&1
 fresh_run
 rm -rf "$RELEASE"
 mkdir -p "$INSTALLED/IterableSDK_IterableSDK.bundle"
-touch -t 202610221200 "$INSTALLED/DogShelter"
+touch -t 202610221200 "$INSTALLED/SampleShop"
 later="$(run_art status)"
 installed_only="$(run_art answer --field app-source --value installed)"
 if [[ "$(json_value "$later" next.question.recommended)" == "Use the app already installed" &&
@@ -482,21 +482,21 @@ IDAPP="$ROOT/idapp"
 IDSPACE="$IDAPP/.iterable/ios"
 IDSTATE="$ROOT/idstate"
 IDDEVICES="$ROOT/iddevices"
-IDINSTALLED="$ROOT/idinstalled/DogShelter.app"
+IDINSTALLED="$ROOT/idinstalled/SampleShop.app"
 mkdir -p "$IDBIN" "$IDSPACE" "$IDSTATE" "$IDDEVICES" "$IDINSTALLED/IterableSDK_IterableSDK.bundle"
-printf 'name: DogShelter\ntargets:\n  DogShelter:\n    platform: iOS\n' > "$IDAPP/project.yml"
-app_bundle "$IDINSTALLED" com.example.dogshelter integrated 202610221000
-bash tests/fixtures/ios-prove/simulate register "$IDDEVICES" SIM-ID-1 com.example.dogshelter development >/dev/null
+printf 'name: SampleShop\ntargets:\n  SampleShop:\n    platform: iOS\n' > "$IDAPP/project.yml"
+app_bundle "$IDINSTALLED" com.example.sampleshop integrated 202610221000
+bash tests/fixtures/ios-prove/simulate register "$IDDEVICES" SIM-ID-1 com.example.sampleshop development >/dev/null
 cat > "$IDBIN/xcrun" <<XEOF
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$IDSTATE/xcrun-calls"
 case "\$*" in
   "simctl list devices --json")
     printf '{"devices":{"com.apple.CoreSimulator.SimRuntime.iOS-26-2":[{"udid":"SIM-ID-1","name":"iPhone 17","state":"Booted","isAvailable":true}]}}\n' ;;
-  "simctl get_app_container SIM-ID-1 com.example.dogshelter app") printf '%s\n' "$IDINSTALLED" ;;
+  "simctl get_app_container SIM-ID-1 com.example.sampleshop app") printf '%s\n' "$IDINSTALLED" ;;
   "simctl spawn SIM-ID-1 log show "*) cat "$IDSTATE/log.ndjson" 2>/dev/null; printf '{"count":0,"finished":1}\n' ;;
-  "simctl launch --terminate-running-process SIM-ID-1 com.example.dogshelter -iterableProofIdentity YES")
-    cat "$IDSTATE/marker.ndjson" >> "$IDSTATE/log.ndjson" 2>/dev/null; printf 'com.example.dogshelter: 4242\n' ;;
+  "simctl launch --terminate-running-process SIM-ID-1 com.example.sampleshop -iterableProofIdentity YES")
+    cat "$IDSTATE/marker.ndjson" >> "$IDSTATE/log.ndjson" 2>/dev/null; printf 'com.example.sampleshop: 4242\n' ;;
   *devicectl*) printf '{"result":{"devices":[]}}\n' ;;
   *) exit 2 ;;
 esac
@@ -506,7 +506,7 @@ cat > "$IDBIN/curl" <<XEOF
 cat >/dev/null
 url="\${@: -1}"
 printf '%s\n' "\$url" >> "$IDSTATE/curl-calls"
-device() { printf '{"user":{"userId":"%s","dataFields":{"devices":[{"appPackageName":"com.example.dogshelter","endpointEnabled":true,"token":"%s"}]}}}\n200' "\$1" "\$(node -e 'process.stdout.write(Buffer.alloc(80,Number(process.argv[1])).toString("hex"))' "\$2")"; }
+device() { printf '{"user":{"userId":"%s","dataFields":{"devices":[{"appPackageName":"com.example.sampleshop","endpointEnabled":true,"token":"%s"}]}}}\n200' "\$1" "\$(node -e 'process.stdout.write(Buffer.alloc(80,Number(process.argv[1])).toString("hex"))' "\$2")"; }
 case "\$url" in
   */api/users/byUserId/SIGNED-IN-1) device SIGNED-IN-1 17 ;;
   */api/users/byUserId/OTHER-PHONE-2) device OTHER-PHONE-2 34 ;;
@@ -602,10 +602,10 @@ printf '{"eventMessage":"ITBL_PROOF identity=SIGNED-IN-1"}\n' > "$IDSTATE/marker
 : > "$IDSTATE/xcrun-calls"
 relaunch="$(option_command "$quiet" "Relaunch the app to read the identity it signs in with")"
 marked="$(run_id_line "$relaunch")"
-if grep -qx 'simctl launch --terminate-running-process SIM-ID-1 com.example.dogshelter -iterableProofIdentity YES' "$IDSTATE/xcrun-calls" &&
+if grep -qx 'simctl launch --terminate-running-process SIM-ID-1 com.example.sampleshop -iterableProofIdentity YES' "$IDSTATE/xcrun-calls" &&
     [[ "$relaunch" == *"/ios-prepare-proof read-identity --confirm" &&
       "$(json_value "$marked" next.question.recommended)" == "$(use_label SIGNED-IN-1)" ]] &&
-    prompt_has "$marked" "Relaunched com.example.dogshelter with -iterableProofIdentity YES; its proof marker logged the identity below." &&
+    prompt_has "$marked" "Relaunched com.example.sampleshop with -iterableProofIdentity YES; its proof marker logged the identity below." &&
     prompt_has "$marked" "The app's proof marker logged SIGNED-IN-1, and Iterable has this Simulator's current device token on that user."; then
   ok "the relaunch passes -iterableProofIdentity YES, and the marker's identity is offered once Iterable has the token"
 else

@@ -36,7 +36,7 @@ case "$*" in
     printf '{"result":{"devices":[{"identifier":"00008101-TESTDEVICE","name":"Test iPhone","connectionProperties":{"pairingState":"paired"},"hardwareProperties":{"platform":"iOS","productType":"iPhone16,1"}}]}}\n'
     ;;
   *"device info apps"*)
-    printf '{"result":{"apps":[{"bundleIdentifier":"com.example.dogshelter","version":"1.0","bundleVersion":"42"}]}}\n'
+    printf '{"result":{"apps":[{"bundleIdentifier":"com.example.sampleshop","version":"1.0","bundleVersion":"42"}]}}\n'
     ;;
   *) exit 2 ;;
 esac
@@ -72,7 +72,7 @@ fi
 case "$url" in
   */api/channels) printf '{"channels":[{"messageMedium":"Push"}]}\n200\n' ;;
   */api/users/getByEmail*)
-    printf '{"user":{"email":"dogs@example.com","dataFields":{"devices":[{"appPackageName":"com.example.dogshelter","endpointEnabled":true,"notificationsEnabled":true,"platform":"APNS","token":"abcd"}]}}}\n200\n'
+    printf '{"user":{"email":"dogs@example.com","dataFields":{"devices":[{"appPackageName":"com.example.sampleshop","endpointEnabled":true,"notificationsEnabled":true,"platform":"APNS","token":"abcd"}]}}}\n200\n'
     ;;
   */api/templates/push/upsert)
     printf '%s' "$data" > "$PHYS_STATE/upsert.json"
@@ -106,14 +106,14 @@ fresh() {
   STATE="$ROOT/state-$1"
   rm -rf "$APP" "$STATE"
   mkdir -p "$WORKSPACE" "$STATE"
-  printf 'name: DogShelter\nsettings:\n  base:\n    PRODUCT_BUNDLE_IDENTIFIER: com.example.dogshelter\n' > "$APP/project.yml"
+  printf 'name: SampleShop\nsettings:\n  base:\n    PRODUCT_BUNDLE_IDENTIFIER: com.example.sampleshop\n' > "$APP/project.yml"
   key="server-physical-key-1234567890"
   printf 'ITERABLE_SERVER_KEY=%s\nITERABLE_DATA_REGION=US\n' "$key" > "$WORKSPACE/.env"
   node -e '
     const fs=require("fs"), crypto=require("crypto");
     const [dir,key]=process.argv.slice(1);
     fs.writeFileSync(`${dir}/scope.json`,JSON.stringify({features:["sdk-initialization","push-notifications"],identity_mode:"email",data_region:"US",jwt_enabled:false,verification_only:false},null,2)+"\n");
-    fs.writeFileSync(`${dir}/target.json`,JSON.stringify({bundle_id:"com.example.dogshelter",name:"Dog Shelter"},null,2)+"\n");
+    fs.writeFileSync(`${dir}/target.json`,JSON.stringify({bundle_id:"com.example.sampleshop",name:"Sample Shop"},null,2)+"\n");
     fs.writeFileSync(`${dir}/server-validation.json`,JSON.stringify({valid:true,key_sha256:crypto.createHash("sha256").update(key).digest("hex"),data_region:"US",classification:"authenticated-server-key"},null,2)+"\n");
   ' "$WORKSPACE" "$key"
   chmod 700 "$WORKSPACE"

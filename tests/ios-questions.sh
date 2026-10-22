@@ -36,12 +36,12 @@ question() {
       ;;
     configure_iterable_app)
       ios_q_configure_iterable_app \
-        "${bundle:-com.example.dogshelter}" "Dog Shelter" US
+        "${bundle:-com.example.sampleshop}" "Sample Shop" US
       return
       ;;
     configure_iterable_push)
       ios_q_configure_iterable_push \
-        "${bundle:-com.example.dogshelter}" US \
+        "${bundle:-com.example.sampleshop}" US \
         "/secure/AuthKey_APNSKEY001.p8" APNSKEY001 TEAMID0001
       return
       ;;
@@ -60,7 +60,7 @@ question() {
       return
       ;;
     choose_bundle_detected)
-      ios_q_choose_bundle com.example.dogshelter "Dog Shelter" xcodebuild
+      ios_q_choose_bundle com.example.sampleshop "Sample Shop" xcodebuild
       return
       ;;
     import_apns_team)
@@ -68,11 +68,11 @@ question() {
       return
       ;;
     apple_step_app_id|apple_step_apns_key)
-      "ios_q_$kind" "${bundle:-com.example.dogshelter}" "Dog Shelter"
+      "ios_q_$kind" "${bundle:-com.example.sampleshop}" "Sample Shop"
       return
       ;;
     apple_step_push)
-      ios_q_apple_step_push "${bundle:-com.example.dogshelter}"
+      ios_q_apple_step_push "${bundle:-com.example.sampleshop}"
       return
       ;;
     import_android)
@@ -254,8 +254,8 @@ shape configure_server US
 shape choose_bundle
 shape choose_bundle_detected
 shape choose_apple_setup
-shape confirm_existing_apple com.example.dogshelter
-shape confirm_manual_apple com.example.dogshelter
+shape confirm_existing_apple com.example.sampleshop
+shape confirm_manual_apple com.example.sampleshop
 shape apple_step_app_id
 shape apple_step_push
 shape apple_step_apns_key
@@ -264,8 +264,8 @@ shape import_apns_team
 shape install_tools
 shape replace_mobile_key
 shape replace_server_key
-shape configure_iterable_app com.example.dogshelter
-shape configure_iterable_push com.example.dogshelter
+shape configure_iterable_app com.example.sampleshop
+shape configure_iterable_push com.example.sampleshop
 
 apns_question="$(question import_apns)"
 if node -e '
@@ -314,8 +314,8 @@ if node -e '
   const use=q.options.find(option=>option.label==="Use the detected app target");
   process.exit(
     q.recommended==="Use the detected app target" &&
-    use?.commands[0].endsWith("record-target --bundle-id com.example.dogshelter --name Dog\\ Shelter --confirm") &&
-    [q.prompt,...q.context].join("\n").includes("Product name: Dog Shelter") &&
+    use?.commands[0].endsWith("record-target --bundle-id com.example.sampleshop --name Dog\\ Shelter --confirm") &&
+    [q.prompt,...q.context].join("\n").includes("Product name: Sample Shop") &&
     q.free_text.command.includes("--bundle-id \u0027{{answer}}\u0027 --confirm") &&
     none.recommended===null &&
     none.options.every(option=>option.relay || option.commands.length) &&
@@ -353,8 +353,8 @@ else
 fi
 
 apple_path_question="$(question choose_apple_setup)"
-existing_apple_question="$(question confirm_existing_apple com.example.dogshelter)"
-manual_apple_question="$(question confirm_manual_apple com.example.dogshelter)"
+existing_apple_question="$(question confirm_existing_apple com.example.sampleshop)"
+manual_apple_question="$(question confirm_manual_apple com.example.sampleshop)"
 if node -e '
   const choose=JSON.parse(process.argv[1]);
   const existing=JSON.parse(process.argv[2]);
@@ -421,17 +421,17 @@ else
 fi
 
 identity_verified() {
-  proof_question_identity_and_confirm "Bundle: com.example.dogshelter" user-id SIM-1 \
-    "$(proof_identity_steps user-id SIM-1 simulator DogShelter)" \
+  proof_question_identity_and_confirm "Bundle: com.example.sampleshop" user-id SIM-1 \
+    "$(proof_identity_steps user-id SIM-1 simulator SampleShop)" \
     "The app's proof marker logged U-1, and Iterable has this Simulator's current device token on that user." \
-    U-1 "It is offered because the app's proof marker logged it." "" "" com.example.dogshelter
+    U-1 "It is offered because the app's proof marker logged it." "" "" com.example.sampleshop
 }
 identity_unverified() {
-  proof_question_identity_and_confirm "Bundle: com.example.dogshelter" user-id SIM-1 \
-    "$(proof_identity_steps user-id SIM-1 simulator DogShelter)" \
+  proof_question_identity_and_confirm "Bundle: com.example.sampleshop" user-id SIM-1 \
+    "$(proof_identity_steps user-id SIM-1 simulator SampleShop)" \
     "The agent proposed U-2, but Iterable doesn't have this Simulator's token on it yet; sign in or relaunch, then check again." \
     "" "" "$BIN/ios-prepare-proof status --identity-candidate U-2" \
-    "$BIN/ios-prepare-proof read-identity --confirm --identity-candidate U-2" com.example.dogshelter
+    "$BIN/ios-prepare-proof read-identity --confirm --identity-candidate U-2" com.example.sampleshop
 }
 screen_dump() {
   local kind
@@ -454,33 +454,33 @@ screen_dump() {
   printf 'replace_mobile_key\t%s\n' "$(ios_q_replace_mobile_key US false "Rejected.")"
   printf 'replace_server_key\t%s\n' "$(ios_q_replace_server_key US "Rejected.")"
   printf 'choose_bundle\t%s\n' "$(ios_q_choose_bundle)"
-  printf 'choose_bundle\t%s\n' "$(ios_q_choose_bundle com.example.dogshelter "Dog Shelter" xcodebuild)"
+  printf 'choose_bundle\t%s\n' "$(ios_q_choose_bundle com.example.sampleshop "Sample Shop" xcodebuild)"
   printf 'choose_apple_setup\t%s\n' "$(ios_q_choose_apple_setup)"
-  printf 'confirm_existing_apple\t%s\n' "$(ios_q_confirm_existing_apple com.example.dogshelter)"
-  printf 'confirm_manual_apple\t%s\n' "$(ios_q_confirm_manual_apple com.example.dogshelter)"
-  printf 'apple_step_app_id\t%s\n' "$(ios_q_apple_step_app_id com.example.dogshelter "Dog Shelter")"
-  printf 'apple_step_push\t%s\n' "$(ios_q_apple_step_push com.example.dogshelter)"
-  printf 'apple_step_apns_key\t%s\n' "$(ios_q_apple_step_apns_key com.example.dogshelter "Dog Shelter")"
+  printf 'confirm_existing_apple\t%s\n' "$(ios_q_confirm_existing_apple com.example.sampleshop)"
+  printf 'confirm_manual_apple\t%s\n' "$(ios_q_confirm_manual_apple com.example.sampleshop)"
+  printf 'apple_step_app_id\t%s\n' "$(ios_q_apple_step_app_id com.example.sampleshop "Sample Shop")"
+  printf 'apple_step_push\t%s\n' "$(ios_q_apple_step_push com.example.sampleshop)"
+  printf 'apple_step_apns_key\t%s\n' "$(ios_q_apple_step_apns_key com.example.sampleshop "Sample Shop")"
   printf 'install_tools\t%s\n' "$(ios_q_install_tools "xcodebuild")"
   printf 'import_apns\t%s\n' "$(ios_q_import_apns)"
   printf 'import_apns\t%s\n' "$(ios_q_import_apns TEAMID0001)"
-  printf 'configure_iterable_app\t%s\n' "$(ios_q_configure_iterable_app com.example.dogshelter "Dog Shelter" US)"
-  printf 'configure_iterable_push\t%s\n' "$(ios_q_configure_iterable_push com.example.dogshelter US /secure/AuthKey_APNSKEY001.p8 APNSKEY001 TEAMID0001)"
+  printf 'configure_iterable_app\t%s\n' "$(ios_q_configure_iterable_app com.example.sampleshop "Sample Shop" US)"
+  printf 'configure_iterable_push\t%s\n' "$(ios_q_configure_iterable_push com.example.sampleshop US /secure/AuthKey_APNSKEY001.p8 APNSKEY001 TEAMID0001)"
   for kind in proof_region proof_environment proof_identity_type proof_bundle proof_identity proof_switch_identity proof_profile proof_event proof_tap proof_logout; do
     printf '%s\t%s\n' "$kind" "$(ios_question "$kind")"
   done
   printf 'proof_app\t%s\n' "$(ios_question proof_app)"
   printf 'proof_app\t%s\n' "$(ios_question proof_app instrumented)"
   printf 'proof_device\t%s\n' "$(ios_q_proof_device '[]')"
-  printf 'confirm_proof\t%s\n' "$(ios_q_confirm_proof "Bundle: com.example.dogshelter")"
+  printf 'confirm_proof\t%s\n' "$(ios_q_confirm_proof "Bundle: com.example.sampleshop")"
   eval "$(sed -n '/^proof_question_identity_and_confirm() {/,/^}/p;/^proof_identity_steps() {/,/^}/p' bin/ios-provision)"
-  printf 'proof_identity\t%s\n' "$(proof_question_identity_and_confirm "Bundle: com.example.dogshelter" email SIM-1)"
-  printf 'proof_identity\t%s\n' "$(proof_question_identity_and_confirm "Bundle: com.example.dogshelter" user-id SIM-1 \
-    "$(proof_identity_steps user-id SIM-1 simulator DogShelter)")"
+  printf 'proof_identity\t%s\n' "$(proof_question_identity_and_confirm "Bundle: com.example.sampleshop" email SIM-1)"
+  printf 'proof_identity\t%s\n' "$(proof_question_identity_and_confirm "Bundle: com.example.sampleshop" user-id SIM-1 \
+    "$(proof_identity_steps user-id SIM-1 simulator SampleShop)")"
   printf 'proof_identity\t%s\n' "$(identity_verified)"
   printf 'proof_identity\t%s\n' "$(identity_unverified)"
-  printf 'proof_artifact\t%s\n' "$(ios_q_proof_artifact com.example.dogshelter \
-    /dd/Build/Products/Debug-iphonesimulator/DogShelter.app 2026-10-22T09:00:00Z "not installed" build)"
+  printf 'proof_artifact\t%s\n' "$(ios_q_proof_artifact com.example.sampleshop \
+    /dd/Build/Products/Debug-iphonesimulator/SampleShop.app 2026-10-22T09:00:00Z "not installed" build)"
   printf 'proof_device\t%s\n' "$(ios_q_proof_device '[]' 27.0)"
   for kind in help_identity help_proof_identity_type help_region help_proof_region help_jwt \
       help_bundle help_proof_bundle help_apns_key help_proof_identity \
@@ -492,19 +492,19 @@ screen_dump() {
   printf 'help_server_key\t%s\n' "$(ios_q_help_server_key EU true)"
   printf 'help_copy_mobile_key\t%s\n' "$(ios_q_help_copy_mobile_key US false)"
   printf 'help_copy_server_key\t%s\n' "$(ios_q_help_copy_server_key EU)"
-  printf 'help_app_id\t%s\n' "$(ios_q_help_app_id com.example.dogshelter)"
-  printf 'help_push\t%s\n' "$(ios_q_help_push com.example.dogshelter)"
-  printf 'help_iterable_app\t%s\n' "$(ios_q_help_iterable_app com.example.dogshelter "Dog Shelter" US)"
-  printf 'help_iterable_push\t%s\n' "$(ios_q_help_iterable_push com.example.dogshelter /secure/AuthKey_APNSKEY001.p8 APNSKEY001 TEAMID0001)"
+  printf 'help_app_id\t%s\n' "$(ios_q_help_app_id com.example.sampleshop)"
+  printf 'help_push\t%s\n' "$(ios_q_help_push com.example.sampleshop)"
+  printf 'help_iterable_app\t%s\n' "$(ios_q_help_iterable_app com.example.sampleshop "Sample Shop" US)"
+  printf 'help_iterable_push\t%s\n' "$(ios_q_help_iterable_push com.example.sampleshop /secure/AuthKey_APNSKEY001.p8 APNSKEY001 TEAMID0001)"
   printf 'asc_key\t%s\n' "$(ios_question asc_key)"
   printf 'asc_issuer\t%s\n' "$(ios_question asc_issuer)"
-  printf 'asc_plan\t%s\n' "$(ios_question asc_plan com.example.dogshelter - create-bundle-id,enable-push "Dog Shelter")"
-  printf 'asc_rejected\t%s\n' "$(ios_question asc_rejected com.example.dogshelter "App Store Connect rejected the key (HTTP 401).")"
-  printf 'asc_conflict\t%s\n' "$(ios_question asc_conflict com.example.dogshelter "Apple refused to create com.example.dogshelter (HTTP 409).")"
+  printf 'asc_plan\t%s\n' "$(ios_question asc_plan com.example.sampleshop - create-bundle-id,enable-push "Sample Shop")"
+  printf 'asc_rejected\t%s\n' "$(ios_question asc_rejected com.example.sampleshop "App Store Connect rejected the key (HTTP 401).")"
+  printf 'asc_conflict\t%s\n' "$(ios_question asc_conflict com.example.sampleshop "Apple refused to create com.example.sampleshop (HTTP 409).")"
   printf 'help_asc_key\t%s\n' "$(ios_question help_asc_key)"
   printf 'replace_apns_key\t%s\n' "$(ios_question replace_apns_key "APNs rejected the provider token." APNSKEY001 TEAMID0001)"
   printf 'help_apns_replace\t%s\n' "$(ios_question help_apns_replace TEAMID0001)"
-  printf 'replace_apns_key\t%s\n' "$(ios_question replace_apns_key "Apple accepted this key, but it isn't allowed to send to com.example.dogshelter." APNSKEY001 TEAMID0001 apns-key-topic-not-allowed com.example.dogshelter)"
+  printf 'replace_apns_key\t%s\n' "$(ios_question replace_apns_key "Apple accepted this key, but it isn't allowed to send to com.example.sampleshop." APNSKEY001 TEAMID0001 apns-key-topic-not-allowed com.example.sampleshop)"
 }
 if screen_dump | node "$ROOT/shape-all.js" 2>"$ROOT/shape-all.err"; then
   ok "every screen offers developer-side help, relays carry their own steps, and help screens lead back"
@@ -546,7 +546,7 @@ fi
 
 asc_screens="$(printf '%s\n' \
   "$(ios_question asc_key)" \
-  "$(ios_question asc_plan com.example.dogshelter - enable-push "Dog Shelter")" \
+  "$(ios_question asc_plan com.example.sampleshop - enable-push "Sample Shop")" \
   "$(ios_question replace_apns_key "APNs rejected the provider token." APNSKEY001 TEAMID0001)")"
 if printf '%s' "$asc_screens" | node -e '
   let input="";
@@ -557,7 +557,7 @@ if printf '%s' "$asc_screens" | node -e '
       key.prompt.includes("https://appstoreconnect.apple.com/access/integrations/api") &&
       key.prompt.includes("Individual keys cannot register App IDs") &&
       key.free_text.command.endsWith("record-asc-key --file \u0027{{answer}}\u0027 --confirm") &&
-      plan.prompt.includes("1. Enable Push Notifications on com.example.dogshelter.") &&
+      plan.prompt.includes("1. Enable Push Notifications on com.example.sampleshop.") &&
       !plan.prompt.includes("Register the explicit App ID") &&
       plan.recommended==="Apply this plan" &&
       plan.options[0].commands[0].endsWith("asc-apply --confirm") &&
@@ -591,13 +591,13 @@ if node -e '
       q.options.some(option=>option.label==="Show the steps again" &&
         option.description.startsWith("Re-prints") &&
         option.commands[0].includes("question --kind apple_step_"))) &&
-    a.prompt.includes("App ID com.example.dogshelter") &&
-    p.prompt.includes("com.example.dogshelter") && p.prompt.includes("Push Notifications") &&
+    a.prompt.includes("App ID com.example.sampleshop") &&
+    p.prompt.includes("com.example.sampleshop") && p.prompt.includes("Push Notifications") &&
     k.prompt.includes("Apple Developer → Keys") && k.prompt.includes(".p8") &&
     text(a).includes("https://developer.apple.com/account/resources/identifiers/list") &&
     text(a).includes("App IDs, Continue, then App") &&
-    text(a).includes("Description: Dog Shelter") &&
-    text(a).includes("Explicit and enter com.example.dogshelter exactly") &&
+    text(a).includes("Description: Sample Shop") &&
+    text(a).includes("Explicit and enter com.example.sampleshop exactly") &&
     text(a).includes("Simulator-only build does not make Xcode register this App ID") &&
     text(p).includes("tick Push Notifications") &&
     text(p).includes("read back") &&
@@ -637,8 +637,8 @@ append_question capture_iterable
 append_question configure_server US
 append_question choose_bundle
 append_question choose_apple_setup
-append_question confirm_existing_apple com.example.dogshelter
-append_question confirm_manual_apple com.example.dogshelter
+append_question confirm_existing_apple com.example.sampleshop
+append_question confirm_manual_apple com.example.sampleshop
 append_question apple_step_app_id
 append_question apple_step_push
 append_question apple_step_apns_key
@@ -648,8 +648,8 @@ append_question choose_bundle_detected
 append_question install_tools
 append_question replace_mobile_key
 append_question replace_server_key
-append_question configure_iterable_app com.example.dogshelter
-append_question configure_iterable_push com.example.dogshelter
+append_question configure_iterable_app com.example.sampleshop
+append_question configure_iterable_push com.example.sampleshop
 if grep -q '/bin/ios-provision ' <<< "$all_questions" &&
     ! grep -qE '"commands":\\[[^]]*"[^"]*(API_KEY|AuthKey_|BEGIN PRIVATE KEY)' \
       <<< "$all_questions"; then
@@ -835,8 +835,8 @@ else
   bad "unknown region or JWT still leaves the developer trapped on the question"
 fi
 
-iterable_app_question="$(question configure_iterable_app com.example.dogshelter)"
-iterable_push_question="$(question configure_iterable_push com.example.dogshelter)"
+iterable_app_question="$(question configure_iterable_app com.example.sampleshop)"
+iterable_push_question="$(question configure_iterable_push com.example.sampleshop)"
 if node -e '
   const app=JSON.parse(process.argv[1]);
   const push=JSON.parse(process.argv[2]);
@@ -846,7 +846,7 @@ if node -e '
     appContext.includes("Step 1 of 2 — Create the iOS mobile app") &&
     appContext.includes("https://app.iterable.com/integrations/mobileApps/create") &&
     appContext.includes("Platform: iOS") &&
-    appContext.includes("Bundle ID: com.example.dogshelter") &&
+    appContext.includes("Bundle ID: com.example.sampleshop") &&
     app.options.some(option=>option.label==="I\u0027ve created the iOS app") &&
     app.options.some(option=>option.label==="It already exists") &&
     pushContext.includes("Step 2 of 2 — Add the APNs credential") &&
@@ -855,7 +855,7 @@ if node -e '
     pushContext.includes("/secure/AuthKey_APNSKEY001.p8") &&
     pushContext.includes("Key ID: APNSKEY001") &&
     pushContext.includes("Team ID: TEAMID0001") &&
-    pushContext.includes("Bundle ID: com.example.dogshelter") &&
+    pushContext.includes("Bundle ID: com.example.sampleshop") &&
     push.prompt.split("\n").filter(line => /^[1-7]\. /.test(line)).length===7
       ? 0
       : 1
@@ -868,7 +868,7 @@ fi
 
 eu_push_question="$(
   ios_q_configure_iterable_push \
-    com.example.dogshelter EU \
+    com.example.sampleshop EU \
     "/secure/AuthKey_APNSKEY001.p8" APNSKEY001 TEAMID0001
 )"
 if node -e '
@@ -921,51 +921,51 @@ carries "replace_server_key" "$(ios_q_replace_server_key EU "The Server-side key
   "The Server-side key probe answered HTTP 401."
 carries "replace_apns_key" "$(ios_question replace_apns_key "APNs answered InvalidProviderToken." APNSKEY001 TEAMID0001)" \
   "APNs answered InvalidProviderToken."
-carries "replace_apns_key (topic)" "$(ios_question replace_apns_key "APNs refused the topic." APNSKEY001 TEAMID0001 apns-key-topic-not-allowed com.example.dogshelter)" \
+carries "replace_apns_key (topic)" "$(ios_question replace_apns_key "APNs refused the topic." APNSKEY001 TEAMID0001 apns-key-topic-not-allowed com.example.sampleshop)" \
   "APNs refused the topic."
-carries "asc_rejected" "$(ios_question asc_rejected com.example.dogshelter "App Store Connect rejected the key (HTTP 401).")" \
+carries "asc_rejected" "$(ios_question asc_rejected com.example.sampleshop "App Store Connect rejected the key (HTTP 401).")" \
   "App Store Connect rejected the key (HTTP 401)."
-carries "asc_conflict" "$(ios_question asc_conflict com.example.dogshelter "Apple refused to create it (HTTP 409).")" \
+carries "asc_conflict" "$(ios_question asc_conflict com.example.sampleshop "Apple refused to create it (HTTP 409).")" \
   "Apple refused to create it (HTTP 409)."
-carries "asc_plan" "$(ios_question asc_plan com.example.dogshelter - create-bundle-id,enable-push "Dog Shelter")" \
-  "1. Register the explicit App ID com.example.dogshelter" "Nothing else is created, changed, or revoked" \
+carries "asc_plan" "$(ios_question asc_plan com.example.sampleshop - create-bundle-id,enable-push "Sample Shop")" \
+  "1. Register the explicit App ID com.example.sampleshop" "Nothing else is created, changed, or revoked" \
   "can invalidate provisioning profiles for this App ID"
-carries "choose_bundle" "$(ios_q_choose_bundle com.example.dogshelter "Dog Shelter" xcodebuild)" \
-  "Bundle ID: com.example.dogshelter" "Product name: Dog Shelter"
+carries "choose_bundle" "$(ios_q_choose_bundle com.example.sampleshop "Sample Shop" xcodebuild)" \
+  "Bundle ID: com.example.sampleshop" "Product name: Sample Shop"
 carries "choose_bundle (undetected)" "$(ios_q_choose_bundle)" "read General > Identity > Bundle Identifier"
 carries "install_tools" "$(ios_q_install_tools "xcodebuild, node")" \
   "- xcodebuild: install Xcode from the App Store" "- node: install from https://nodejs.org"
 carries "import_apns" "$(ios_q_import_apns TEAMID0001)" \
   "Team ID: TEAMID0001, read from the app target's DEVELOPMENT_TEAM" "Key ID: read from the AuthKey_<KEYID>.p8 file name."
-carries "confirm_proof" "$(ios_q_confirm_proof "$(printf 'Bundle: com.example.dogshelter\nDevice: SIM-1 (simulator, development)\nIdentity: dogs@example.com (email)')")" \
-  "Bundle: com.example.dogshelter" "Device: SIM-1 (simulator, development)" "Identity: dogs@example.com (email)"
+carries "confirm_proof" "$(ios_q_confirm_proof "$(printf 'Bundle: com.example.sampleshop\nDevice: SIM-1 (simulator, development)\nIdentity: dogs@example.com (email)')")" \
+  "Bundle: com.example.sampleshop" "Device: SIM-1 (simulator, development)" "Identity: dogs@example.com (email)"
 carries "proof identity (user ID)" "$(proof_question_identity_and_confirm \
-    "$(printf 'Bundle: com.example.dogshelter\nApp: /dd/DogShelter.app')" user-id SIM-1 \
-    "$(proof_identity_steps user-id SIM-1 simulator DogShelter)")" \
-  "Bundle: com.example.dogshelter" "App: /dd/DogShelter.app" \
+    "$(printf 'Bundle: com.example.sampleshop\nApp: /dd/SampleShop.app')" user-id SIM-1 \
+    "$(proof_identity_steps user-id SIM-1 simulator SampleShop)")" \
+  "Bundle: com.example.sampleshop" "App: /dd/SampleShop.app" \
   "1. Search the app's code for IterableAPI.userId or setUserId" \
-  "pgrep -f 'Devices/SIM-1/.*/DogShelter\.app/DogShelter( |\$)'" \
+  "pgrep -f 'Devices/SIM-1/.*/SampleShop\.app/SampleShop( |\$)'" \
   "expr -l objc -O -- [NSClassFromString(@\"IterableSDK.IterableAPI\") userId]"
-email_physical="$(proof_question_identity_and_confirm "Bundle: com.example.dogshelter" email 00008101-X \
+email_physical="$(proof_question_identity_and_confirm "Bundle: com.example.sampleshop" email 00008101-X \
   "$(proof_identity_steps email 00008101-X physical "")")"
 carries "proof identity (email, iPhone)" "$email_physical" "IterableAPI.email or setEmail" "the address you signed in with"
 grep -qF "lldb" <<< "$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).prompt)' "$email_physical")" \
   && bad "a physical iPhone's identity steps offer a Simulator-only debugger read" \
   || ok "a physical iPhone's identity steps leave out the Simulator-only debugger read"
-artifact="$(ios_q_proof_artifact com.example.dogshelter /dd/Build/Products/Debug-iphonesimulator/DogShelter.app \
+artifact="$(ios_q_proof_artifact com.example.sampleshop /dd/Build/Products/Debug-iphonesimulator/SampleShop.app \
   2026-10-22T09:00:00Z "a copy with no Iterable SDK, so a build from before the integration" build)"
-carries "proof_artifact" "$artifact" "Newest build: /dd/Build/Products/Debug-iphonesimulator/DogShelter.app (Debug, built 2026-10-22T09:00:00Z)" \
+carries "proof_artifact" "$artifact" "Newest build: /dd/Build/Products/Debug-iphonesimulator/SampleShop.app (Debug, built 2026-10-22T09:00:00Z)" \
   "On the device: a copy with no Iterable SDK"
 if node -e '
   const [built, installed] = process.argv.slice(1).map(JSON.parse);
   const by = (q, label) => q.options.find(o => o.label === label);
-  const bind = by(built, "Use the build at Debug-iphonesimulator/DogShelter.app");
+  const bind = by(built, "Use the build at Debug-iphonesimulator/SampleShop.app");
   const keep = by(built, "Use the app already installed");
   process.exit(built.recommended === bind?.label &&
-    bind.commands[0].endsWith("/ios-prepare-proof answer --field app-path --value /dd/Build/Products/Debug-iphonesimulator/DogShelter.app") &&
+    bind.commands[0].endsWith("/ios-prepare-proof answer --field app-path --value /dd/Build/Products/Debug-iphonesimulator/SampleShop.app") &&
     keep?.commands[0].endsWith("/ios-prepare-proof answer --field app-source --value installed") &&
     installed.recommended === "Use the app already installed" ? 0 : 1);
-' "$artifact" "$(ios_q_proof_artifact com.example.dogshelter /dd/X.app 2026-10-22T09:00:00Z "a copy built later" installed)"; then
+' "$artifact" "$(ios_q_proof_artifact com.example.sampleshop /dd/X.app 2026-10-22T09:00:00Z "a copy built later" installed)"; then
   ok "the artifact screen binds the build when it is fresher and keeps the installed app as the other option"
 else
   bad "the artifact screen does not bind the newest build, or lost the installed-app option"

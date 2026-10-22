@@ -374,17 +374,17 @@ rm -f "$WS8/.env"
 
 # Format, not just line breaks. The mistake a pasting developer actually makes is the
 # display name, which is why that error says so rather than just refusing.
-for bad_pid in "My Dog Shelter" "UPPER-case" "-leading" "sh"; do
+for bad_pid in "My Sample Shop" "UPPER-case" "-leading" "sh"; do
   WS="$WS8" bash bin/agent set "PID=$bad_pid" >/dev/null 2>&1 \
     && bad "accepted '$bad_pid' as a project id" \
     || ok "refuses '$bad_pid' as a project id"
 done
-WS="$WS8" bash bin/agent set PID=dog-shelter-ai-one-shot >/dev/null 2>&1 \
+WS="$WS8" bash bin/agent set PID=sample-shop-firebase-dev >/dev/null 2>&1 \
   && ok "and a real project id goes through" || bad "a valid project id was refused"
-WS="$WS8" bash bin/agent set PACKAGE=dogshelter >/dev/null 2>&1 \
-  && bad "accepted 'dogshelter' as a package name" \
+WS="$WS8" bash bin/agent set PACKAGE=sampleshop >/dev/null 2>&1 \
+  && bad "accepted 'sampleshop' as a package name" \
   || ok "refuses a package name with no dot in it"
-WS="$WS8" bash bin/agent set PACKAGE=com.dogshelter >/dev/null 2>&1 \
+WS="$WS8" bash bin/agent set PACKAGE=com.sampleshop >/dev/null 2>&1 \
   && ok "and a real package name goes through" || bad "a valid package name was refused"
 
 # Nothing grants itself the right to create an app. An outside audit found the wizard

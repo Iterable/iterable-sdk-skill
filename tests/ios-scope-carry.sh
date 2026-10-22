@@ -89,7 +89,7 @@ no_workspace_files() {
 
 TRIAL_IDS="embedded-messaging,mobile-inbox,push-notifications,sdk-initialization"
 
-# The Mastodon trial: push plus Mobile Inbox and Embedded, identity by user ID.
+# Push plus Mobile Inbox and Embedded, identity by user ID: none of it may be dropped on the way to scope.json.
 TRIAL="$(new_app trial)"
 offer="$(run_in "$TRIAL" status --features push-notifications,mobile-inbox,embedded-messaging --identity user-id)"
 offer_question="$(field "$offer" next.question)"
