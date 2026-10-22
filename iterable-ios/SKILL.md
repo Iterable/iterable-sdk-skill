@@ -78,10 +78,8 @@ that default (custom delegate, display interval, custom rendering) is scope.
 
 **Ask once, here.** When provisioning will run (Preflight routes to
 `iterable-provision`), ask the scope in this step, with what you found in the
-app. Ask the identity here too when the inspection settles which app value
-supplies it. Decide it from what a signed-in session holds, not from what
-sign-up asks for. An app that asks for an email only at sign-up has no email to
-pass later. Then pass the confirmed answers to the first
+app, and the identity ([below](#identity-project-type-first)) when it is
+settled. Then pass the confirmed answers to the first
 `ios-provision status` as `--features <ids>` and `--identity <mode>`:
 
 | Step 0 answer | `--features` ids |
@@ -108,6 +106,63 @@ own Features, More, or Identity screens a second time. They appear only for
 an answer you did not pass, or when the developer chose **Change the
 answers**.
 
+### Identity: project type first
+
+Ask which kind of Iterable project the app sends to, per
+`project-types-and-unique-identifiers`:
+
+- **Hybrid**: `email` and `userId` are both unique identifiers.
+- **UserID-based**: `userId` only.
+- **Email-based**: `email` only; limited availability (some older US-hosted
+  organizations).
+- **I don't have a project yet / I don't know — help me.**
+
+For an existing project, also ask which identifier their backend, CRM, or other
+SDKs already send to Iterable, and reuse exactly that value: another value is
+another user. Decide from what a signed-in session holds, not what sign-up asks
+for: an app that asks for an email only at sign-up has none to pass later.
+**Help me** means inspect, then recommend: what identifier exists after *every*
+sign-in path, a session restored at launch included, and what the app's other
+SDKs already identify the user with. Recommend a project type and identity mode
+from that, citing the docs in the table below. With no project yet, guide
+creating one and warn that its type can't be changed later.
+
+A `userId` is the app's own stable internal account ID when it meets
+`user-id-validation-in-iterable` → `### User ID best practices`, otherwise a
+random UUID created once per account and stored with it (kept only on the
+device, a reinstall makes a new user). Never an email, phone number, username,
+or handle (`name@instance` included), nothing built from them, and nothing
+sequential. That doc's 128-character limit supersedes `identifying-the-user`'s
+"52 characters" and its "email recommended".
+
+### Decisions: read before recommending
+
+Before recommending an option for a decision below, open the named section and
+cite it in the option ("per `user-id-validation-in-iterable`"). If no shipped
+doc covers a decision, offer no recommendation and say so. Slugs are
+`reference/<slug>.md`.
+
+| Decision | Read |
+|---|---|
+| New integration or upgrade | `ios-sdk` → `## Upgrading the SDK` |
+| Project type | `project-types-and-unique-identifiers` → `### Choosing a project type`, `#### Project type availability` |
+| Identity mode, and which app value supplies it | `project-types-and-unique-identifiers` → `### Comparing project types`; `user-id-validation-in-iterable` → `### User ID best practices`; `identifying-the-user` |
+| An existing client's identifier | `creating-users-with-apis` → `## Understanding user identification in API requests`; `updating-a-users-email-address` |
+| Unknown users | `configure-the-ios-sdk` → `## Step 3`; `handling-anonymous-users` |
+| Data region | `ios-sdk` → `#### Step 6.2`; `european-data-center` → `## Signing in to Iterable: region-specific URLs` |
+| Key type | `api-keys` → `### Selecting a key type`, `#### Mobile` |
+| JWT | `api-keys` → `#### JWT authentication`; `jwt-enabled-api-keys` |
+| Event creation | `api-keys` → `#### Event Creation` |
+| Push integration name | `ios-sdk` → `#### Step 6.4` |
+| APNs auth, environment, Bundle ID | `setting-up-ios-push-notifications` → `### Step 3`, `### Step 4` |
+| Notification permission | `ios-sdk` → `#### Step 7.6` |
+| Existing push | `ios-sdk` → `#### Step 7.5` |
+| Deep links | `ios-sdk` → `#### Step 6.3`; `deep-links-in-push-notifications`; `ios-universal-links` |
+| Profile fields | `updating-user-profiles`; `user-profile-fields-used-by-iterable` → `## Other reserved field names` |
+| Events | `tracking-events-with-iterables-mobile-sdks` → `## Custom event names` |
+| Logout | `handling-anonymous-users` → `## Best practices for handling anonymous users`; `tracking-events-with-iterables-mobile-sdks` → `### Multiple users` |
+| Test identity | `project-types-and-unique-identifiers` → `### Checking the unique identifier for a project`; `user-profile-testing-and-troubleshooting` → `## Viewing a user profile` |
+
 ## Preflight — inputs only the developer has
 
 Collect what the agreed scope needs **before editing**. You cannot invent,
@@ -117,8 +172,8 @@ fake, or infer these from the codebase.
 | --- | --- | --- |
 | **Mobile API key** (client-side, not server-side) | Always | Route to `iterable-provision`. Never hard-code it, commit it, or substitute a server-side key. |
 | **JWT?** | Always | Ask, and assume **yes** until told otherwise: JWT is selected by default when a client-side key is created and cannot be changed afterwards (`reference/api-keys.md`). JWT needs a backend endpoint that mints tokens (rule 1). |
-| **Data region** — US or EU | Always | Ask; `app.eu.iterable.com` means EU. |
-| **Identity** — `setEmail` or `setUserId`, and which app value supplies it | Always | Ask. Never wire it to a guessed field (rule 7). |
+| **Data region** — US or EU | Always | Ask; signing in at `app.eu.iterable.com` means EU (`european-data-center`). |
+| **Identity** — `setEmail` or `setUserId`, and which app value supplies it | Always | [Project type first](#identity-project-type-first). Never wire it to a guessed field (rule 7). |
 | **Apple team and exact Bundle ID** | Push | Must match in Xcode, Apple Developer, and the Iterable iOS app ([pitfall 22](PITFALLS.md#22-the-bundle-id-differs-across-xcode-apple-and-iterable)). |
 | **APNs `.p8` key + Iterable iOS app with a push credential** | Push | Route to `iterable-provision`. Creating the APNs key is an Account Holder or Admin action in Apple Developer. |
 | **Push integration name** | Push, legacy integrations only | Only when the Iterable integration is not named after the Bundle ID. |
@@ -245,8 +300,9 @@ non-trivial code.
 6. **Never commit the API key.** A Mobile key is meant to ship inside the app,
    but it belongs in an ignored file, not in source. Never put a server-side
    key in an app.
-7. **Never guess identity.** Ask which identifier and where its value comes
-   from. Use one mode (`setEmail` *or* `setUserId`) consistently.
+7. **Never guess identity.** Ask the project type, which identifier, and where
+   its value comes from ([Step 0](#identity-project-type-first)). Use one mode
+   (`setEmail` *or* `setUserId`) consistently.
 8. **There is one notification-center delegate. If something already owns it,
    forward from it — never replace it.** Inside the existing `didReceive` and
    `didReceiveRemoteNotification`, send payloads that carry an `itbl` key to
@@ -935,7 +991,7 @@ cite `source_url` when asked where guidance came from.
 | Need | Read |
 | --- | --- |
 | Installation, configuration, upgrades | `ios-sdk` (install steps; `## Upgrading the SDK` only for upgrades), `configure-the-ios-sdk`, `sdk-testing-and-troubleshooting` |
-| Identity and profiles | `identifying-the-user`, `updating-user-profiles`, `user-profile-testing-and-troubleshooting` |
+| Identity and profiles | `identifying-the-user`, `updating-user-profiles`, `user-profile-testing-and-troubleshooting`; the rules behind them are in [Decisions](#decisions-read-before-recommending) |
 | Events | `tracking-events-with-iterables-mobile-sdks`, `event-tracking-testing-and-troubleshooting` |
 | Push and APNs setup | `setting-up-ios-push-notifications`, `push-notification-overview`, `push-notification-testing-and-troubleshooting` |
 | Rich push, NSE, custom sounds | `advanced-ios-push-notifications` |
@@ -944,8 +1000,6 @@ cite `source_url` when asked where guidance came from.
 | Mobile Inbox | `setting-up-mobile-inbox-on-ios`, `customizing-mobile-inbox-on-ios` |
 | Deep links and universal links | `deep-links-in-push-notifications`, `ios-universal-links` |
 | Embedded Messaging | `embedded-messages-with-iterables-ios-sdk` |
-| Unknown User Activation | `configure-the-ios-sdk` |
-| API keys and JWT (dashboard side) | `api-keys`, `jwt-enabled-api-keys` |
 
 Each slug is `reference/<slug>.md`.
 
