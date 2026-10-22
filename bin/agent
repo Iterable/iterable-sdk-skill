@@ -9,6 +9,7 @@
 #   bin/agent approve firebase   record the developer's yes to changing their project
 #   bin/agent set DRIVER=agent   they asked you to run the setup instead of the wizard
 #   bin/agent question K [N]     one question to put to the developer, as data
+#   bin/agent preflight          local files only: what exists, and provision/integrate/verify
 #
 # `next.question` is how the wizard's screens reach a chat: the context to show, and the
 # two to four answers with the commands that enact each one. The words are the tool's
@@ -54,6 +55,88 @@ if [[ "${1:-}" == question ]]; then
   # minted. Only choose_target has one; for everything else this finds no file and does
   # nothing.
   ask_stamp "${1:-}"
+  exit 0
+fi
+
+# Before ws_init for the same reason as `question`: an integration skill runs this before
+# anybody has agreed to anything, so it reads local files only and writes none.
+if [[ "${1:-}" == preflight ]]; then
+  source "$BIN/ios-project.sh"
+  APP="$(dirname "$WS")"
+  FW="$(ios_project_framework "$APP")"; [[ "$FW" == native ]] && FW=android
+  jarr() { local s="" x; printf '['; for x in "$@"; do printf '%s%s' "$s" "$(jstr "$x")"; s=","; done; printf ']'; }
+  fake() { shopt -s nocasematch; [[ -z "$1" || "$1" =~ (your[_-]|replace[_-]?(me|with)|placeholder|dummy|changeme|example|xxxx|[<]) ]]; local r=$?; shopt -u nocasematch; return $r; }
+  declare -a MISS=() FAKES=() GS_FOUND=() DO=()
+  for f in "$GS_JSON" "$APP/android/app/google-services.json" "$APP/app/google-services.json" "$APP/google-services.json"; do
+    [[ -f "$f" ]] || continue
+    if grep -Eiq 'your[_-]|placeholder|dummy|changeme' "$f"; then FAKES+=("$f"); else GS_FOUND+=("$f"); fi
+  done
+  GS_IN_APP=false
+  for f in "${GS_FOUND[@]+"${GS_FOUND[@]}"}"; do [[ "$f" == "$GS_JSON" ]] || GS_IN_APP=true; done
+  ((${#GS_FOUND[@]})) || MISS+=("google-services.json")
+  MOBILE=false; SERVER=false
+  if fake "$ITBL_MOBILE_KEY"; then [[ -z "$ITBL_MOBILE_KEY" ]] || FAKES+=("$ITBL_ENV (ITBL_MOBILE_KEY)"); MISS+=("Iterable Mobile key"); else MOBILE=true; fi
+  if fake "$ITBL_SERVER_KEY"; then [[ -z "$ITBL_SERVER_KEY" ]] || FAKES+=("$ITBL_ENV (ITBL_SERVER_KEY)"); MISS+=("Iterable Server-side key"); else SERVER=true; fi
+  APP_KEY=null APP_KEY_PATH=""
+  case "$FW" in
+    react-native) APP_KEY_PATH="$APP/.iterable/rn/iterable.local.ts"
+      v="$(sed -nE 's/.*ITERABLE_API_KEY[^"]*"([^"]*)".*/\1/p' "$APP_KEY_PATH" 2>/dev/null | head -1)" ;;
+    expo) APP_KEY_PATH="$APP/.env.local"
+      v="$(sed -n 's/^EXPO_PUBLIC_ITERABLE_API_KEY=//p' "$APP_KEY_PATH" 2>/dev/null | head -1)" ;;
+  esac
+  if [[ -n "$APP_KEY_PATH" ]]; then
+    if fake "$v"; then APP_KEY=false; [[ -z "$v" ]] || FAKES+=("$APP_KEY_PATH"); else APP_KEY=true; fi
+  fi
+  for f in "$APP/.iterable/rn/iterable.local.ts.example" "$APP/.env.local.example" \
+           "$APP/android/app/google-services.json.example" "$APP/app/google-services.json.example"; do
+    [[ -f "$f" ]] && FAKES+=("$f")
+  done
+  OPEN_GATE=""; PROVEN=false; PUSH=false
+  if [[ -f "$WS/state.tsv" ]]; then
+    OPEN_GATE="$(awk -F'\t' '$2=="red"||$2=="pending"{print $1; exit}' "$WS/state.tsv")"
+    [[ "$OPEN_GATE" =~ ^G([0-9]|1[0-2])$ ]] || PROVEN=true
+    push_proven && PUSH=true
+  fi
+  SDK=false
+  if [[ "$FW" == android ]]; then
+    grep -qs 'com.iterable:iterableapi\|iterableapi' "$APP"/app/build.gradle* "$APP"/gradle/libs.versions.toml && SDK=true
+  else
+    grep -qs '"@iterable/react-native-sdk"' "$APP/package.json" && SDK=true
+  fi
+  PROVISION="$TOOL_ROOT/iterable-provision/SKILL.md"
+  if ((${#MISS[@]})) || [[ "$PROVEN" != true ]]; then
+    KIND=provision OPEN="$PROVISION"; DO=("$BIN/agent question opening")
+    LIST="$(IFS=,; printf '%s' "${MISS[*]+"${MISS[*]}"}")"
+    SUMMARY="Prerequisites are missing or not yet proven${LIST:+ (missing: ${LIST//,/, })}. Write no code and no placeholder. Open $PROVISION now, follow it, and run its first command: $BIN/agent question opening"
+  elif [[ "$GS_IN_APP" != true || "$APP_KEY" == false || "$SDK" != true ]]; then
+    KIND=integrate OPEN=""
+    if [[ "$GS_IN_APP" != true ]]; then
+      case "$FW" in
+        react-native) DO+=("cp '$GS_JSON' android/app/google-services.json") ;;
+        android) DO+=("cp '$GS_JSON' app/google-services.json") ;;
+      esac
+    fi
+    if [[ "$APP_KEY" == false ]]; then
+      [[ "$FW" == expo ]] && ! git -C "$APP" check-ignore -q .env.local 2>/dev/null && DO+=("printf '.env*.local\\n' >> .gitignore")
+      DO+=("$BIN/ios-provision import-from-android --confirm")
+    fi
+    SUMMARY="Prerequisites are proven. Run these commands from the app root, then write the Android integration from the skill you came from."
+    [[ "$FW" == expo ]] && SUMMARY="$SUMMARY Point expo.android.googleServicesFile at a copy of $GS_JSON."
+  elif [[ "$PUSH" != true ]]; then
+    KIND=verify OPEN="$TOOL_ROOT/iterable-android-verify/SKILL.md"; DO=("$BIN/agent")
+    SUMMARY="Integration files are in place. Build and install the app, then open $OPEN and follow it."
+  else
+    KIND=done OPEN=""
+    SUMMARY="A push reached the Android device."
+    [[ "$FW" == android ]] || { DO=("$BIN/ios-provision status"); SUMMARY="$SUMMARY Android is finished. If iOS is in scope, start it with the command below and the --features from Step 0."; }
+  fi
+  printf '{"tool":"iterable-onboard","command":"preflight","local_only":true,"app_root":%s,"framework":%s,' "$(jstr "$APP")" "$(jstr "$FW")"
+  printf '"present":{"google_services_json":%s,"google_services_json_in_app":%s,"mobile_key":%s,"server_key":%s,"app_key_file":%s,"provisioning_proven":%s,"sdk_dependency":%s,"push_proven":%s},' \
+    "$( ((${#GS_FOUND[@]})) && echo true || echo false)" "$GS_IN_APP" "$MOBILE" "$SERVER" "$APP_KEY" "$PROVEN" "$SDK" "$PUSH"
+  printf '"app_key_file":%s,"missing":%s,"placeholders":%s,' "$(jstr "$APP_KEY_PATH")" \
+    "$(jarr "${MISS[@]+"${MISS[@]}"}")" "$(jarr "${FAKES[@]+"${FAKES[@]}"}")"
+  printf '"next":{"kind":%s,"open":%s,"commands":%s,"summary":%s}}\n' "$(jstr "$KIND")" \
+    "$([[ -n "$OPEN" ]] && jstr "$OPEN" || echo null)" "$(jarr "${DO[@]+"${DO[@]}"}")" "$(jstr "$SUMMARY")"
   exit 0
 fi
 
