@@ -5,14 +5,15 @@ set -uo pipefail
 BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TOOL_ROOT="$(cd "$BIN/.." && pwd)"
 source "$BIN/ios-simulator.sh"
+source "$BIN/ios-project.sh"
 FASTLANE_VERSION="2.240.1"
 PRIVATE_APNS_ACTOR="$TOOL_ROOT/tools/ios-apns-private.rb"
 
 usage() {
   cat <<'EOF'
 Usage:
-  ios-provision status [--offline] [--bundle-id ID] [--workspace PATH]
-  ios-provision question --kind KIND [--workspace PATH]
+  ios-provision status [--offline] [--bundle-id ID] [--features ID,...] [--workspace PATH]
+  ios-provision question --kind KIND [--features ID,...] [--workspace PATH]
   ios-provision answer [--field FIELD --value VALUE [--add] | --clear] [--workspace PATH]
   ios-provision record-scope [--from-answers | --features LIST --identity-mode MODE --region US|EU --jwt-enabled true|false] --confirm [--workspace PATH]
   ios-provision record-iterable-setup --driver guided|developer --confirm [--workspace PATH]
@@ -30,6 +31,9 @@ Usage:
   ios-provision validate-apns [--workspace PATH]
   ios-provision capture-mobile --region US|EU --jwt-enabled true|false [--replace] --confirm [--workspace PATH]
   ios-provision validate-mobile [--workspace PATH]
+  ios-provision import-from-android --confirm [--features ID,...] [--framework native|react-native|expo] [--workspace PATH]
+  ios-provision deliver-mobile-key [--framework native|react-native|expo] [--workspace PATH]
+  ios-provision ignore-expo-env --confirm [--workspace PATH]
   ios-provision capture-server [--replace] --confirm [--workspace PATH]
   ios-provision validate-server [--workspace PATH]
   ios-provision proof-status [--workspace PATH]
@@ -74,8 +78,11 @@ create, or revoke Apple credentials. validate-apns signs a provider token with
 it and sends one probe to a random device token in the APNs sandbox:
 BadDeviceToken proves the key, Key ID, and Team ID, not the App ID.
 capture-mobile moves a copied Iterable Mobile API key from the clipboard into
-the ignored iOS workspace without printing it. It also writes an ignored
-IterableSecrets.xcconfig that the app can include directly.
+the ignored iOS workspace without printing it, and writes the copy the app
+reads: IterableSecrets.xcconfig for a native app, .iterable/rn/iterable.local.ts
+for bare React Native, or EXPO_PUBLIC_ITERABLE_API_KEY in a gitignored
+.env.local for Expo. import-from-android reuses the keys and region an Android
+setup in the same project recorded.
 validate-mobile proves the captured value authenticates as a Mobile key in the
 recorded region, using an empty request and a deliberately invalid control.
 capture-server and validate-server prepare a separate Iterable verification
@@ -142,26 +149,25 @@ file_mode() {
 }
 
 looks_like_ios_project() {
-  local candidate="$1"
-  [[ -f "$candidate/project.yml" ]] ||
-    compgen -G "$candidate/*.xcodeproj/project.pbxproj" >/dev/null ||
-    compgen -G "$candidate/*.xcworkspace" >/dev/null
+  ios_project_looks_like_ios "$1"
+}
+
+# An app root is an iOS project, or a React Native/Expo root whose project
+# lives in ios/ (or, for Expo, has not been generated yet).
+looks_like_app_root() {
+  ios_project_looks_like_ios "$1" || [[ -n "$(ios_project_js_kind "$1")" ]]
 }
 
 verification_project_root() {
   local root workspace_root=""
   if [[ -n "${IOS_WORKSPACE:-}" ]]; then
     workspace_root="$(cd "$IOS_WORKSPACE/../.." 2>/dev/null && pwd || true)"
-    if [[ -n "$workspace_root" ]] && looks_like_ios_project "$workspace_root"; then
+    if [[ -n "$workspace_root" ]] && looks_like_app_root "$workspace_root"; then
       printf '%s' "$workspace_root"
       return
     fi
   fi
-  root="$(git rev-parse --show-toplevel 2>/dev/null)" || root="$PWD"
-  if [[ "$root" == "$TOOL_ROOT" && "$PWD" != "$TOOL_ROOT" ]] &&
-      looks_like_ios_project "$PWD"; then
-    root="$PWD"
-  fi
+  root="$(ios_project_app_root "$PWD")" || root="$PWD"
   printf '%s' "$root"
 }
 
@@ -170,6 +176,7 @@ verification_source_files() {
   find "$root" \
     \( -path '*/.git' -o -path '*/.iterable' -o -path '*/.derived-data' \
        -o -path '*/DerivedData' -o -path '*/Pods' -o -path '*/.build' \
+       -o -path '*/node_modules' -o -path '*/build' \
        -o -path '*/*Tests' -o -path '*/*Tests/*' \
        -o -path '*/*UITests' -o -path '*/*UITests/*' \) \
     -prune -o \
@@ -179,7 +186,12 @@ verification_source_files() {
 }
 
 verification_detect_bundle() {
-  local root="$1" values="" project value=""
+  local app_root="$1" root values="" project value=""
+  root="$(ios_project_ios_dir "$app_root")"
+  if [[ -z "$root" ]]; then
+    ios_project_expo_bundle_id "$app_root"
+    return
+  fi
   if [[ -f "$root/project.yml" ]]; then
     values="$(
       sed -nE 's/^[[:space:]]*PRODUCT_BUNDLE_IDENTIFIER:[[:space:]]*"?([^"#[:space:]]+)"?.*/\1/p' \
@@ -187,7 +199,7 @@ verification_detect_bundle() {
     )"
   fi
   if [[ -z "$values" ]]; then
-    project="$(find "$root" -path '*/.git' -prune -o \
+    project="$(find "$root" -maxdepth 2 \( -path '*/.git' -o -path '*/Pods' -o -path '*/node_modules' \) -prune -o \
       -name project.pbxproj -type f -print 2>/dev/null | head -1)"
     if [[ -n "$project" ]]; then
       values="$(
@@ -201,26 +213,28 @@ verification_detect_bundle() {
     grep -Eiv '([.]tests?|[.]uitests?)$' |
     sort -u |
     awk 'NR==1{value=$0} NR>1{multiple=1} END{if(!multiple) print value}')"
-  valid_bundle_id "$value" && printf '%s' "$value"
+  if valid_bundle_id "$value"; then
+    printf '%s' "$value"
+  elif [[ "$(ios_project_framework "$app_root")" == expo ]]; then
+    ios_project_expo_bundle_id "$app_root"
+  fi
 }
 
+# The directory holding the app's Xcode project (the app root, or ios/ in a
+# React Native or prebuilt Expo app).
 app_project_root() {
-  local candidate workspace_root=""
+  local root="" workspace_root="" ios_dir
   if [[ -n "${WORKSPACE:-}" ]]; then
     workspace_root="$(cd "$WORKSPACE/../.." 2>/dev/null && pwd || true)"
-    if [[ -n "$workspace_root" ]] && looks_like_ios_project "$workspace_root"; then
-      printf '%s' "$workspace_root"
-      return
-    fi
+    [[ -n "$workspace_root" ]] && looks_like_app_root "$workspace_root" && root="$workspace_root"
   fi
-  if [[ "$PWD" != "$TOOL_ROOT" ]] && looks_like_ios_project "$PWD"; then
-    printf '%s' "$PWD"
-    return
+  if [[ -z "$root" ]]; then
+    root="$(ios_project_app_root "$PWD")" || return 1
   fi
-  candidate="$(git rev-parse --show-toplevel 2>/dev/null)" || return 1
-  [[ "$candidate" != "$TOOL_ROOT" ]] && looks_like_ios_project "$candidate" ||
-    return 1
-  printf '%s' "$candidate"
+  [[ "$root" != "$TOOL_ROOT" ]] || return 1
+  ios_dir="$(ios_project_ios_dir "$root")"
+  [[ -n "$ios_dir" ]] || return 1
+  printf '%s' "$ios_dir"
 }
 
 DETECTED_TARGET=""
@@ -252,6 +266,8 @@ load_detected_target() {
         "${projects[0]}/project.pbxproj" 2>/dev/null | sort -u)"
     fi
     [[ -n "${teams:-}" && "$teams" != *$'\n'* ]] && static_team="$teams"
+  else
+    static_bundle="$(verification_detect_bundle "$(verification_project_root)")"
   fi
   DETECTED_TARGET="$(node -e '
     const [raw, staticBundle, staticName, staticTeam] = process.argv.slice(1);
@@ -373,9 +389,9 @@ resolve_workspace() {
     return
   fi
   local project_root
-  project_root="$(git rev-parse --show-toplevel 2>/dev/null)" || project_root="$PWD"
+  project_root="$(ios_project_app_root "$PWD")" || project_root="$PWD"
   if [[ "$project_root" == "$TOOL_ROOT" && -z "${IOS_ALLOW_TOOL_ROOT:-}" ]]; then
-    if [[ "$PWD" != "$TOOL_ROOT" ]] && looks_like_ios_project "$PWD"; then
+    if [[ "$PWD" != "$TOOL_ROOT" ]] && looks_like_app_root "$PWD"; then
       project_root="$PWD"
     else
       cat >&2 <<EOF
@@ -573,6 +589,15 @@ read_args() {
         ;;
       --step=*)
         APPLE_STEP="${1#*=}"
+        shift
+        ;;
+      --framework)
+        (($# >= 2)) || die "--framework needs a value"
+        set_framework "$2"
+        shift 2
+        ;;
+      --framework=*)
+        set_framework "${1#*=}"
         shift
         ;;
       --strategy)
@@ -867,6 +892,19 @@ normalize_features() {
   ' "$1"
 }
 
+# Strict: only the ids the choose_features and choose_more_features screens record.
+carried_features() {
+  node -e '
+    const allowed = new Set([
+      "sdk-initialization", "push-notifications", "event-tracking", "user-profiles",
+      "deep-linking", "in-app-messages", "mobile-inbox", "embedded-messaging"
+    ]);
+    const values = process.argv[1].split(",").map(value => value.trim());
+    if (values.some(value => !allowed.has(value))) process.exit(2);
+    process.stdout.write([...new Set(["sdk-initialization", ...values])].sort().join(","));
+  ' "$1"
+}
+
 answer_scope() {
   command -v node >/dev/null 2>&1 || die "node is not installed"
   if [[ "$ANSWER_CLEAR" == true && -z "$ANSWER_FIELD" ]]; then
@@ -910,6 +948,10 @@ answer_scope() {
          "$ANSWER_VALUE" == false ]] ||
         die "$ANSWER_FIELD must be true or false"
       ;;
+    android-import)
+      [[ "$ANSWER_CLEAR" == true || "$ANSWER_VALUE" == skip ]] ||
+        die "android-import can only be answered with skip; run import-from-android to reuse the Android setup"
+      ;;
     *)
       die "unknown answer field: $ANSWER_FIELD"
       ;;
@@ -931,9 +973,11 @@ answer_scope() {
       "identity-mode": "identity_mode",
       "region": "data_region",
       "jwt-enabled": "jwt_enabled",
-      "jwt-check": "jwt_check"
+      "jwt-check": "jwt_check",
+      "android-import": "android_import"
     }[field];
     const featureKey=field.startsWith("feature-") ? field.slice(8) : "";
+    if (field === "features" || featureKey) delete current.scope_source;
     if (clear) {
       if (featureKey) {
         if (current.feature_choices) delete current.feature_choices[featureKey];
@@ -1154,7 +1198,7 @@ proof_min_os() {
     root="$(verification_project_root 2>/dev/null)" || root=""
     if [[ -n "$root" && -d "$root" ]]; then
       value="$(find "$root" -maxdepth 3 \( -name project.pbxproj -o -name project.yml -o -name '*.xcconfig' \) \
-          -not -path '*/DerivedData/*' -not -path '*/Pods/*' -type f -print0 2>/dev/null |
+          -not -path '*/DerivedData/*' -not -path '*/Pods/*' -not -path '*/node_modules/*' -type f -print0 2>/dev/null |
         xargs -0 grep -h -E -o '(IPHONEOS_DEPLOYMENT_TARGET[ =:"]+|iOS:[ "]+)[0-9]+(\.[0-9]+)?' 2>/dev/null |
         grep -E -o '[0-9]+(\.[0-9]+)?$' | sort -t. -k1,1n -k2,2n | tail -1)"
     fi
@@ -1428,6 +1472,19 @@ proof_status_json() {
         summary="$summary Only Simulators on iOS $min_os or later are listed: that is the app's deployment target."
       ;;
     confirm_proof)
+      local framework js_build=""
+      framework="$(ios_project_framework "$project_root")"
+      if [[ "$framework" != native ]]; then
+        local sdk=iphoneos
+        ! is_booted_simulator "$device" || sdk=iphonesimulator
+        if [[ -z "$app_path" ]]; then
+          js_build="
+Build: the installed app must be a Release build, which embeds its JavaScript and runs without Metro: $(ios_project_release_build_hint "$project_root" "$sdk")"
+        elif [[ ! -f "$app_path/main.jsbundle" ]]; then
+          js_build="
+Build: this app has no embedded main.jsbundle, so it is a Debug build that needs Metro and the verifier will refuse it; build Release instead: $(ios_project_release_build_hint "$project_root" "$sdk")"
+        fi
+      fi
       if [[ "$proof_mode" == behavioral ]]; then
         summary_text="Verification: standard integration proof
 Bundle: $bundle
@@ -1436,7 +1493,7 @@ Environment: $environment
 Identity type: $identity_type
 Identity: ${identity:-the exact $identity_type the app is signed in with (type it to start)}
 Device: $device
-App artifact: ${app_path:-use the app already installed for this bundle}
+App artifact: ${app_path:-use the app already installed for this bundle}$js_build
 Checks: installed app, Iterable identity, device registration, then one marked push sent through Iterable and read back from the device's own records"
       else
         summary_text="Verification: instrumented evaluation
@@ -1447,7 +1504,7 @@ Identity type: $identity_type
 User A: $identity
 User B: $switch_identity
 Device: $device
-App: $app_path
+App: $app_path$js_build
 Profile expectation: ${profile_field:-none selected}
 Event expectation: ${event:-none selected}
 Tap expectation: ${tap_expect:-not applicable}
@@ -1464,6 +1521,8 @@ Logout expectation: $logout_expect"
     proof_app)
       question="$(ios_question proof_app "$proof_mode")"
       summary="Select the exact app artifact for the chosen proof mode."
+      [[ "$(ios_project_framework "$project_root")" == native ]] ||
+        summary="$summary Select a Release build, which embeds its JavaScript and runs without Metro: $(ios_project_release_build_hint "$project_root")."
       ;;
     *)
       question="$(ios_question "$next_kind")"
@@ -1483,6 +1542,7 @@ Logout expectation: $logout_expect"
 }
 
 record_scope() {
+  local scope_source=""
   [[ "$CONFIRM" == true ]] ||
     die "record-scope requires --confirm after the developer answers the integration questions"
   if [[ "$FROM_ANSWERS" == true ]]; then
@@ -1519,6 +1579,10 @@ record_scope() {
         typeof value.jwt_enabled === "boolean" ? String(value.jwt_enabled) : ""
       );
     ' "$DISCOVERY_META")"
+    scope_source="$(node -e '
+      const value = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+      process.stdout.write(String(value.scope_source || ""));
+    ' "$DISCOVERY_META")"
   fi
   [[ -n "$FEATURES" ]] || die "record-scope requires --features or --from-answers"
   [[ "$IDENTITY_MODE" == email || "$IDENTITY_MODE" == user-id ||
@@ -1547,9 +1611,10 @@ record_scope() {
       features: JSON.parse(process.argv[1]),
       identity_mode: process.argv[2],
       data_region: process.argv[3],
-      jwt_enabled: process.argv[4] === "true"
+      jwt_enabled: process.argv[4] === "true",
+      ...(process.argv[5] ? { scope_source: process.argv[5] } : {})
     }, null, 2) + "\n");
-  ' "$normalized" "$IDENTITY_MODE" "$DATA_REGION" "$JWT_ENABLED")"
+  ' "$normalized" "$IDENTITY_MODE" "$DATA_REGION" "$JWT_ENABLED" "${scope_source:-}")"
 
   if [[ -f "$SCOPE_META" ]]; then
     if node -e '
@@ -1659,7 +1724,7 @@ status_json() {
   local discovery_jwt="" discovery_jwt_present=false discovery_jwt_check=false
   local discovery_push="" discovery_events="" discovery_profiles=""
   local discovery_more="" discovery_in_app="" discovery_inbox="" discovery_embedded=""
-  local discovery_deep_links=""
+  local discovery_deep_links="" discovery_scope_source="" scope_source_recorded=""
   local iterable_setup_present=false iterable_setup_secure=false
   local iterable_setup_valid=false iterable_setup_driver=""
   local apple_setup_present=false apple_setup_secure=false
@@ -1721,6 +1786,10 @@ status_json() {
       scope_verification_only="$(node -e '
         const scope = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
         process.stdout.write(String(scope.verification_only===true));
+      ' "$SCOPE_META")"
+      scope_source_recorded="$(node -e '
+        const scope = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+        process.stdout.write(String(scope.scope_source || ""));
       ' "$SCOPE_META")"
       if [[ ",$scope_features," == *,push-notifications,* ]]; then
         push_required=true
@@ -1800,6 +1869,10 @@ status_json() {
       discovery_jwt_check="$(node -e '
         const value = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
         process.stdout.write(String(value.jwt_check === true));
+      ' "$DISCOVERY_META")"
+      discovery_scope_source="$(node -e '
+        const value = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+        process.stdout.write(String(value.scope_source || ""));
       ' "$DISCOVERY_META")"
     fi
   fi
@@ -1977,6 +2050,16 @@ status_json() {
     mobile_xcconfig_present=true
     [[ "$(file_mode "$MOBILE_XCCONFIG")" == 600 ]] &&
       mobile_xcconfig_secure=true
+  fi
+  local key_framework key_delivery key_delivery_ok=false key_delivery_ready=true
+  key_framework="$(ios_framework)"
+  key_delivery="$(key_delivery_for "$key_framework")"
+  [[ "$key_delivery" != expo-env ]] || expo_env_ignored "$(app_root)" || key_delivery_ready=false
+  if [[ "$mobile_key_present" == true ]] &&
+      [[ "$(env_value ITERABLE_KEY_DELIVERY)" == "$key_delivery" ||
+         ( -z "$(env_value ITERABLE_KEY_DELIVERY)" && "$key_delivery" == xcconfig ) ]] &&
+      key_delivery_ok "$key_delivery" "$mobile_key_value"; then
+    key_delivery_ok=true
   fi
   if [[ -f "$MOBILE_VALIDATION" ]]; then
     mobile_validation_present=true
@@ -2166,9 +2249,17 @@ status_json() {
     fi
   fi
 
+  local android_import_answered=false
+  [[ -f "$DISCOVERY_META" ]] &&
+    node -e 'process.exit(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).android_import ? 0 : 1)' \
+      "$DISCOVERY_META" 2>/dev/null && android_import_answered=true
   if [[ "$scope_valid" != true || "$scope_secure" != true ]]; then
     next_owner="human"
-    if [[ "$discovery_valid" != true ||
+    if [[ "$android_import_answered" != true && "$mobile_key_present" != true ]] &&
+        android_setup_present; then
+      next_kind="import_android"
+      next_summary="The Android setup in $(dirname "$WORKSPACE") already recorded the Iterable keys and region. Offer to reuse them for iOS instead of asking again."
+    elif [[ "$discovery_valid" != true ||
           "$discovery_push" == unset || "$discovery_events" == unset ||
           "$discovery_profiles" == unset || "$discovery_deep_links" == unset ||
           "$discovery_more" == unset ]]; then
@@ -2305,8 +2396,16 @@ status_json() {
     next_kind="validate_apns"
     next_owner="tool"
     next_summary="Sign an APNs provider token with the imported key and send one probe to a random device token in the APNs sandbox. BadDeviceToken proves the key, Key ID, and Team ID; it does not check the App ID or Push capability."
-  elif [[ "$mobile_key_present" != true || "$mobile_env_secure" != true ||
-          "$mobile_xcconfig_present" != true || "$mobile_xcconfig_secure" != true ]]; then
+  elif [[ "$key_delivery_ready" != true && "$key_delivery_ok" != true ]]; then
+    next_kind="fix_expo_gitignore"
+    next_owner="human"
+    next_summary="This Expo app reads the Mobile key from .env.local, but its .gitignore does not ignore that file. Add .env*.local before any key is written."
+  elif [[ "$mobile_key_present" == true && "$mobile_env_secure" == true &&
+          "$key_delivery_ok" != true ]]; then
+    next_kind="deliver_mobile_key"
+    next_owner="tool"
+    next_summary="Write the captured Mobile key where this $key_framework app reads it ($(key_delivery_path "$key_delivery")), at mode 0600, without printing it."
+  elif [[ "$mobile_key_present" != true || "$mobile_env_secure" != true ]]; then
     if [[ "$iterable_setup_valid" == true ]]; then
       next_kind="capture_iterable"
       next_owner="human"
@@ -2370,7 +2469,7 @@ status_json() {
       ;;
     confirm_scope)
       next_question="$(ios_question confirm_scope "$discovery_features" \
-        "$discovery_identity" "$discovery_region" "$discovery_jwt")"
+        "$discovery_identity" "$discovery_region" "$discovery_jwt" "$discovery_scope_source")"
       next_command="$BIN/ios-provision question --kind confirm_scope"
       ;;
     configure_iterable)
@@ -2405,6 +2504,19 @@ status_json() {
       ;;
     asc_read)
       next_command="$BIN/ios-provision asc-read"
+      ;;
+    import_android)
+      local carried=""
+      [[ -z "$FEATURES" ]] || carried="$(carried_features "$FEATURES")" || carried=""
+      next_question="$(ios_question import_android "$(android_import_summary)" "$carried")"
+      next_command="$BIN/ios-provision question --kind import_android${carried:+ --features $carried}"
+      ;;
+    fix_expo_gitignore)
+      next_question="$(ios_question fix_expo_gitignore "$(app_root)")"
+      next_command="$BIN/ios-provision question --kind fix_expo_gitignore"
+      ;;
+    deliver_mobile_key)
+      next_command="$BIN/ios-provision deliver-mobile-key"
       ;;
     asc_key|asc_issuer|asc_rejected|asc_conflict|asc_plan)
       next_question="$(ios_question "$next_kind" "$BUNDLE_ID" "$asc_reason" "$asc_actions" "$(asc_app_name)")"
@@ -2452,16 +2564,16 @@ status_json() {
   printf '"target":{"bundle_id":%s,"name":%s,"recorded":%s,"detected_bundle_id":%s,"detected_name":%s,"detected_source":%s},' \
     "$(jstr "$BUNDLE_ID")" "$(jstr "$APP_NAME")" "$target_recorded" \
     "$(jstr "$detected_bundle")" "$(jstr "$detected_name")" "$(jstr "$detected_source")"
-  printf '"scope":{"path":%s,"present":%s,"mode_0600":%s,"valid":%s,"features":%s,"identity_mode":%s,"data_region":%s,"jwt_enabled":%s,"push_required":%s,"verification_only":%s},' \
+  printf '"scope":{"path":%s,"present":%s,"mode_0600":%s,"valid":%s,"features":%s,"identity_mode":%s,"data_region":%s,"jwt_enabled":%s,"push_required":%s,"verification_only":%s,"source":%s},' \
     "$(jstr "$SCOPE_META")" "$scope_present" "$scope_secure" "$scope_valid" \
     "$(jstr "$scope_features")" "$(jstr "$scope_identity")" \
     "$(jstr "$scope_region")" "$(jstr "$scope_jwt")" "$push_required" \
-    "$scope_verification_only"
-  printf '"discovery":{"path":%s,"present":%s,"mode_0600":%s,"valid":%s,"features":%s,"identity_mode":%s,"data_region":%s,"jwt_enabled":%s},' \
+    "$scope_verification_only" "$(jstr "$scope_source_recorded")"
+  printf '"discovery":{"path":%s,"present":%s,"mode_0600":%s,"valid":%s,"features":%s,"identity_mode":%s,"data_region":%s,"jwt_enabled":%s,"scope_source":%s},' \
     "$(jstr "$DISCOVERY_META")" "$discovery_present" "$discovery_secure" \
     "$discovery_valid" "$(jstr "$discovery_features")" \
     "$(jstr "$discovery_identity")" "$(jstr "$discovery_region")" \
-    "$(jstr "$discovery_jwt")"
+    "$(jstr "$discovery_jwt")" "$(jstr "$discovery_scope_source")"
   printf '"tools":{"xcodebuild":%s,"node":%s,"npx":%s,"curl":%s},' \
     "$has_xcode" "$has_node" "$has_npx" "$has_curl"
   printf '"apple_setup":{"path":%s,"present":%s,"mode_0600":%s,"valid":%s,"strategy":%s,"readiness_path":%s,"readiness_present":%s,"readiness_mode_0600":%s,"readiness_valid":%s,"evidence_level":%s,"guide_steps":%s,"guide_next":%s,"asc_key_present":%s,"asc_issuer_present":%s,"asc_state":%s,"asc_actions":%s},' \
@@ -2479,7 +2591,7 @@ status_json() {
     "$apns_rejected" "$(jstr "$apns_rejection_reason")" \
     "$(jstr "$([[ "$apns_classification" == - ]] || printf '%s' "$apns_classification")")" \
     "$apns_credentials_valid"
-  printf '"iterable":{"setup_path":%s,"setup_present":%s,"setup_mode_0600":%s,"setup_valid":%s,"setup_driver":%s,"mobile_env_path":%s,"mobile_xcconfig_path":%s,"mobile_validation_path":%s,"mobile_key_present":%s,"mobile_key_validated":%s,"mode_0600":%s,"xcconfig_present":%s,"xcconfig_mode_0600":%s,"validation_present":%s,"validation_mode_0600":%s,"validation_classification":%s,"server_validation_path":%s,"server_key_present":%s,"server_key_validated":%s,"server_validation_present":%s,"server_validation_mode_0600":%s,"server_validation_classification":%s,"mobile_key_rejected":%s,"mobile_rejection_reason":%s,"server_key_rejected":%s,"server_rejection_reason":%s,"keys_identical":%s,"data_region":%s,"jwt_enabled":%s},' \
+  printf '"iterable":{"setup_path":%s,"setup_present":%s,"setup_mode_0600":%s,"setup_valid":%s,"setup_driver":%s,"mobile_env_path":%s,"mobile_xcconfig_path":%s,"mobile_validation_path":%s,"mobile_key_present":%s,"mobile_key_validated":%s,"mode_0600":%s,"xcconfig_present":%s,"xcconfig_mode_0600":%s,"validation_present":%s,"validation_mode_0600":%s,"validation_classification":%s,"server_validation_path":%s,"server_key_present":%s,"server_key_validated":%s,"server_validation_present":%s,"server_validation_mode_0600":%s,"server_validation_classification":%s,"mobile_key_rejected":%s,"mobile_rejection_reason":%s,"server_key_rejected":%s,"server_rejection_reason":%s,"keys_identical":%s,"framework":%s,"key_delivery":%s,"key_delivery_path":%s,"key_delivery_ok":%s,"imported_from":%s,"data_region":%s,"jwt_enabled":%s},' \
     "$(jstr "$ITERABLE_SETUP_META")" "$iterable_setup_present" \
     "$iterable_setup_secure" "$iterable_setup_valid" \
     "$(jstr "$iterable_setup_driver")" \
@@ -2494,6 +2606,9 @@ status_json() {
     "$mobile_validation_rejected" "$(jstr "$mobile_rejection_reason")" \
     "$server_validation_rejected" "$(jstr "$server_rejection_reason")" \
     "$keys_identical" \
+    "$(jstr "$key_framework")" "$(jstr "$key_delivery")" \
+    "$(jstr "$(key_delivery_path "$key_delivery")")" "$key_delivery_ok" \
+    "$(jstr "$(env_value ITERABLE_IMPORTED_FROM)")" \
     "$(jstr "$mobile_region")" "$(jstr "$mobile_jwt")"
   printf '"proof":{"target_path":%s,"present":%s,"mode_0600":%s,"valid":%s,"proof_mode":%s,"identity_type":%s,"identity":%s,"switch_identity":%s,"device":%s,"device_kind":%s,"simulator_runtime":%s,"app_path":%s,"environment":%s,"apns_environment":%s,"production_follow_up_required":%s,"profile_fields":%s,"events":%s,"started_at":%s,"run_id":%s,"tap_expect":%s,"logout_expect":%s,"direct_marker":%s,"targeted_marker":%s,"switch_marker":%s},' \
     "$(jstr "$PROOF_TARGET")" "$proof_target_present" "$proof_target_secure" \
@@ -2953,6 +3068,279 @@ write_key_receipt() {
   chmod 600 "$path"
 }
 
+app_root() {
+  (cd "$(dirname "$(dirname "$WORKSPACE")")" 2>/dev/null && pwd -P)
+}
+
+set_framework() {
+  case "$1" in
+    native|react-native|expo) IOS_FRAMEWORK="$1" ;;
+    *) die "--framework must be native, react-native, or expo" ;;
+  esac
+}
+
+ios_framework() {
+  case "${IOS_FRAMEWORK:-}" in
+    native|react-native|expo) printf '%s' "$IOS_FRAMEWORK"; return ;;
+  esac
+  local root
+  root="$(app_root)" && [[ -n "$root" ]] || { printf native; return; }
+  ios_project_framework "$root"
+}
+
+key_delivery_for() {
+  case "$1" in
+    react-native) printf 'rn-module' ;;
+    expo) printf 'expo-env' ;;
+    *) printf 'xcconfig' ;;
+  esac
+}
+
+key_delivery_path() {
+  case "$1" in
+    rn-module) printf '%s/.iterable/rn/iterable.local.ts' "$(app_root)" ;;
+    expo-env) printf '%s/.env.local' "$(app_root)" ;;
+    *) printf '%s' "$MOBILE_XCCONFIG" ;;
+  esac
+}
+
+# Expo reads .env.local into the bundle; refuse to write a key into a file git
+# would commit.
+expo_env_ignored() {
+  local root="$1"
+  if git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    git -C "$root" check-ignore -q .env.local
+    return
+  fi
+  [[ -f "$root/.gitignore" ]] &&
+    grep -Eq '^[[:space:]]*/?(\.env\*\.local|\.env\.local|\.env\*|\*\.local)[[:space:]]*$' "$root/.gitignore"
+}
+
+require_key_delivery_ready() {
+  local delivery="$1"
+  [[ "$delivery" != expo-env ]] || expo_env_ignored "$(app_root)" ||
+    die "$(app_root)/.gitignore does not ignore .env.local, so the Mobile key would be committed. Add .env*.local to .gitignore, then run this again."
+}
+
+deliver_mobile_key() {
+  local value="$1" region="$2" jwt="$3" delivery="$4" path
+  path="$(key_delivery_path "$delivery")"
+  case "$delivery" in
+    rn-module)
+      mkdir -p "$(dirname "$path")"
+      [[ -f "$(dirname "$path")/.gitignore" ]] || printf '*\n' > "$(dirname "$path")/.gitignore"
+      (
+        umask 077
+        {
+          printf '// Written by ios-provision. Local and ignored; load it with an optional require.\n'
+          printf 'export const ITERABLE_API_KEY = "%s";\n' "$value"
+        } > "$path"
+      )
+      ;;
+    expo-env)
+      local kept=""
+      [[ ! -f "$path" ]] || kept="$(grep -v '^EXPO_PUBLIC_ITERABLE_API_KEY=' "$path" || true)"
+      (
+        umask 077
+        {
+          [[ -z "$kept" ]] || printf '%s\n' "$kept"
+          printf 'EXPO_PUBLIC_ITERABLE_API_KEY=%s\n' "$value"
+        } > "$path"
+      )
+      ;;
+    *)
+      (
+        umask 077
+        {
+          printf '// Written by ios-provision. Local and ignored.\n'
+          printf 'ITERABLE_API_KEY = %s\n' "$value"
+          printf 'ITERABLE_DATA_REGION = %s\n' "$region"
+          printf 'ITERABLE_JWT_ENABLED = %s\n' "$jwt"
+        } > "$path"
+      )
+      ;;
+  esac
+  chmod 600 "$path"
+  DELIVERY_PATH="$path"
+}
+
+write_mobile_env() {
+  local value="$1" region="$2" jwt="$3" delivery="$4" server_lines="$5" origin="$6"
+  local deliver="${7:-deliver}"
+  init_workspace
+  (
+    umask 077
+    {
+      printf '# Written by ios-provision %s. This file is local and ignored.\n' "$origin"
+      printf 'ITERABLE_API_KEY=%s\n' "$value"
+      printf 'ITERABLE_DATA_REGION=%s\n' "$region"
+      printf 'ITERABLE_JWT_ENABLED=%s\n' "$jwt"
+      printf 'ITERABLE_KEY_DELIVERY=%s\n' "$delivery"
+      [[ -z "$server_lines" ]] || printf '\n%s\n' "$server_lines"
+    } > "$MOBILE_ENV"
+  )
+  chmod 600 "$MOBILE_ENV"
+  [[ "$deliver" != deliver ]] || deliver_mobile_key "$value" "$region" "$jwt" "$delivery"
+}
+
+key_delivery_ok() {
+  local delivery="$1" value="$2" path
+  path="$(key_delivery_path "$delivery")"
+  [[ -f "$path" && "$(file_mode "$path")" == 600 ]] || return 1
+  local line
+  case "$delivery" in
+    rn-module) line="export const ITERABLE_API_KEY = \"$value\";" ;;
+    expo-env) line="EXPO_PUBLIC_ITERABLE_API_KEY=$value" ;;
+    *) line="ITERABLE_API_KEY = $value" ;;
+  esac
+  printf '%s\n' "$line" | grep -qxF -f - "$path"
+}
+
+# Nearest .iterable/.env from the app root up to the git toplevel: a monorepo keeps it at the root.
+android_env_path() {
+  local root dir stop
+  root="$(app_root)"
+  dir="$root"
+  stop="$(git -C "$root" rev-parse --show-toplevel 2>/dev/null)" &&
+    stop="$(cd "$stop" 2>/dev/null && pwd -P)" || stop="$root"
+  while [[ -n "$dir" ]]; do
+    if [[ -f "$dir/.iterable/.env" ]]; then
+      printf '%s/.iterable/.env' "$dir"
+      return
+    fi
+    [[ "$dir" != "$stop" && "$dir" != / ]] || break
+    dir="$(dirname "$dir")"
+  done
+  printf '%s/.iterable/.env' "$root"
+}
+
+android_env_value() {
+  local path
+  path="$(android_env_path)"
+  [[ -f "$path" ]] || return 0
+  sed -n "s/^$1=//p" "$path" | tail -1 | sed -e "s/^[\"']//" -e "s/[\"']\$//"
+}
+
+android_setup_present() {
+  [[ -n "$(android_env_value ITBL_MOBILE_KEY)" ]]
+}
+
+import_from_android() {
+  [[ "$CONFIRM" == true ]] || die "import-from-android requires --confirm"
+  command -v node >/dev/null 2>&1 || die "node is not installed"
+  local carried=""
+  if [[ -n "$FEATURES" ]]; then
+    carried="$(carried_features "$FEATURES")" || die "--features takes the ids choose_features records: push-notifications, event-tracking, user-profiles, deep-linking, in-app-messages, mobile-inbox, embedded-messaging, or sdk-initialization"
+  fi
+  android_setup_present ||
+    die "no Android setup with a Mobile key was found at $(android_env_path)"
+  require_ios_next "import-from-android" import_android
+  local mobile server base email region delivery existing server_lines="" android_env
+  android_env="$(android_env_path)"
+  mobile="$(android_env_value ITBL_MOBILE_KEY)"
+  server="$(android_env_value ITBL_SERVER_KEY)"
+  base="$(android_env_value ITBL_BASE)"
+  email="$(android_env_value ITBL_EMAIL)"
+  region=US
+  [[ "$base" != https://api.eu.iterable.com ]] || region=EU
+  [[ "$mobile" =~ ^[A-Za-z0-9._~+/=-]{20,}$ ]] ||
+    die "the Android Mobile key in $(android_env_path) does not look like an Iterable API key"
+  if [[ -n "$server" && ! "$server" =~ ^[A-Za-z0-9._~+/=-]{20,}$ ]]; then
+    die "the Android Server-side key in $(android_env_path) does not look like an Iterable API key"
+  fi
+  existing="$(env_value ITERABLE_API_KEY)"
+  if [[ -n "$existing" && "$existing" != "$mobile" ]]; then
+    unset mobile server existing
+    die "the iOS workspace already holds a different Mobile key; it was not overwritten"
+  fi
+  unset existing
+  delivery="$(key_delivery_for "$(ios_framework)")"
+  local deliver=deliver
+  [[ "$delivery" != expo-env ]] || expo_env_ignored "$(app_root)" || deliver=later
+  [[ -z "$server" ]] ||
+    server_lines="$(printf '# Read-only verification credential; never linked into the app.\nITERABLE_SERVER_KEY=%s' "$server")"
+  write_mobile_env "$mobile" "$region" false "$delivery" "$server_lines" import-from-android "$deliver"
+  printf 'ITERABLE_IMPORTED_FROM=%s\n' "$android_env" >> "$MOBILE_ENV"
+  rm -f "$MOBILE_VALIDATION" "$SERVER_VALIDATION"
+  unset mobile server server_lines
+  init_workspace
+  local current='{}'
+  [[ ! -f "$DISCOVERY_META" ]] || current="$(cat "$DISCOVERY_META")"
+  (
+    umask 077
+    node -e '
+      const [path, current, region, email, source, carried] = process.argv.slice(1);
+      const value = JSON.parse(current);
+      value.android_import = "imported";
+      value.android_import_path = source;
+      if (carried) {
+        delete value.feature_choices;
+        value.features = carried.split(",");
+        value.scope_source = "react-native-step0";
+      }
+      value.data_region = region;
+      value.jwt_enabled = false;
+      if (email && !value.identity_mode) value.identity_mode = "email";
+      require("fs").writeFileSync(path, JSON.stringify(value, null, 2) + "\n", { mode: 0o600 });
+    ' "$DISCOVERY_META" "$current" "$region" "$email" "$android_env" "$carried"
+  )
+  chmod 600 "$DISCOVERY_META"
+  printf 'Reused the Android setup from %s: the Mobile%s key, region %s, and No JWT. Both keys are validated again for iOS later; nothing was printed.\n' \
+    "$android_env" "$([[ -n "$(env_value ITERABLE_SERVER_KEY)" ]] && printf ' and Server-side')" "$region" >&2
+  [[ -z "$carried" ]] ||
+    printf 'Proposed the feature scope confirmed in the React Native skill: %s. It is recorded only after the confirmation screen.\n' "$carried" >&2
+  status_json
+}
+
+android_import_summary() {
+  local region=US server=no email
+  [[ "$(android_env_value ITBL_BASE)" != https://api.eu.iterable.com ]] || region=EU
+  [[ -z "$(android_env_value ITBL_SERVER_KEY)" ]] || server=yes
+  email="$(android_env_value ITBL_EMAIL)"
+  printf 'Android workspace: %s\nRegion: %s\nMobile key: recorded\nServer-side key: %s\nTest identity: %s' \
+    "$(dirname "$(android_env_path)")" "$region" \
+    "$([[ "$server" == yes ]] && printf recorded || printf 'not recorded; iOS asks for it later')" \
+    "${email:-not recorded}"
+}
+
+deliver_mobile_key_cmd() {
+  require_ios_next "deliver-mobile-key" deliver_mobile_key
+  local value region jwt delivery
+  value="$(env_value ITERABLE_API_KEY)"
+  region="$(env_value ITERABLE_DATA_REGION)"
+  jwt="$(env_value ITERABLE_JWT_ENABLED)"
+  [[ -n "$value" ]] || die "no Mobile key has been captured"
+  delivery="$(key_delivery_for "$(ios_framework)")"
+  require_key_delivery_ready "$delivery"
+  local kept
+  kept="$(grep -v '^ITERABLE_KEY_DELIVERY=' "$MOBILE_ENV")"
+  (
+    umask 077
+    printf '%s\nITERABLE_KEY_DELIVERY=%s\n' "$kept" "$delivery" > "$MOBILE_ENV"
+  )
+  chmod 600 "$MOBILE_ENV"
+  deliver_mobile_key "$value" "$region" "$jwt" "$delivery"
+  unset value kept
+  printf 'Wrote the Mobile key to %s at mode 0600; the key was not printed.\n' "$DELIVERY_PATH" >&2
+  status_json
+}
+
+ignore_expo_env_cmd() {
+  [[ "$CONFIRM" == true ]] || die "ignore-expo-env requires --confirm"
+  require_ios_next "ignore-expo-env" fix_expo_gitignore
+  local root
+  root="$(app_root)"
+  [[ -n "$root" ]] || die "the app root could not be resolved from the workspace"
+  if [[ -s "$root/.gitignore" && -n "$(tail -c1 "$root/.gitignore")" ]]; then
+    printf '\n' >> "$root/.gitignore"
+  fi
+  printf '\n# local env files\n.env*.local\n' >> "$root/.gitignore"
+  expo_env_ignored "$root" ||
+    die "$root/.gitignore now lists .env*.local, but git still does not ignore .env.local; it is already tracked or a later rule re-includes it."
+  printf 'Added .env*.local to %s/.gitignore.\n' "$root" >&2
+  status_json
+}
+
 capture_mobile() {
   [[ "$CONFIRM" == true ]] || die "capture-mobile requires --confirm"
   [[ "$DATA_REGION" == US || "$DATA_REGION" == EU ]] ||
@@ -2983,6 +3371,9 @@ capture_mobile() {
       die "the ignored iOS workspace already contains Mobile-key configuration; it was not overwritten. Use --replace only when status offers it"
     require_ios_next "capture-mobile" configure_iterable capture_iterable
   fi
+  local delivery
+  delivery="$(key_delivery_for "$(ios_framework)")"
+  require_key_delivery_ready "$delivery"
 
   read_clipboard_key
   local value="$CLIPBOARD_KEY"
@@ -3001,30 +3392,13 @@ capture_mobile() {
   [[ ! -f "$MOBILE_ENV" ]] ||
     server_lines="$(grep -E '^(# Read-only verification credential|ITERABLE_SERVER_KEY=)' "$MOBILE_ENV" || true)"
 
-  init_workspace
-  (
-    umask 077
-    {
-      printf '# Written by ios-provision capture-mobile. This file is local and ignored.\n'
-      printf 'ITERABLE_API_KEY=%s\n' "$value"
-      printf 'ITERABLE_DATA_REGION=%s\n' "$DATA_REGION"
-      printf 'ITERABLE_JWT_ENABLED=%s\n' "$JWT_ENABLED"
-      [[ -z "$server_lines" ]] || printf '\n%s\n' "$server_lines"
-    } > "$MOBILE_ENV"
-    {
-      printf '// Written by ios-provision capture-mobile. Local and ignored.\n'
-      printf 'ITERABLE_API_KEY = %s\n' "$value"
-      printf 'ITERABLE_DATA_REGION = %s\n' "$DATA_REGION"
-      printf 'ITERABLE_JWT_ENABLED = %s\n' "$JWT_ENABLED"
-    } > "$MOBILE_XCCONFIG"
-  )
-  chmod 600 "$MOBILE_ENV" "$MOBILE_XCCONFIG"
+  write_mobile_env "$value" "$DATA_REGION" "$JWT_ENABLED" "$delivery" "$server_lines" capture-mobile
   rm -f "$MOBILE_VALIDATION"
   unset value server_lines
   clip_clear
 
   printf 'Stored the Iterable Mobile API key in %s and %s at mode 0600; the key was not printed.\n' \
-    "$MOBILE_ENV" "$MOBILE_XCCONFIG" >&2
+    "$MOBILE_ENV" "$DELIVERY_PATH" >&2
   printf 'The clipboard was cleared.\n' >&2
   status_json
 }
@@ -4214,7 +4588,9 @@ restart_proof() {
   local requested_device="$PROOF_DEVICE"
   PROOF_DEVICE="$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.device||""))' "$PROOF_TARGET")"
   [[ -z "$requested_device" ]] || PROOF_DEVICE="$requested_device"
+  local requested_app_path="$PROOF_APP_PATH"
   PROOF_APP_PATH="$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.app_path||""))' "$PROOF_TARGET")"
+  [[ -z "$requested_app_path" ]] || PROOF_APP_PATH="$requested_app_path"
   PROOF_ENVIRONMENT="$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.environment||""))' "$PROOF_TARGET")"
   if [[ -n "$requested_device" ]] && is_booted_simulator "$requested_device"; then
     PROOF_ENVIRONMENT=development
@@ -4438,6 +4814,7 @@ read_args "$@"
 
 case "$COMMAND" in
   status)
+    [[ -z "$FEATURES" ]] || carried_features "$FEATURES" >/dev/null || die "--features takes the ids choose_features records: push-notifications, event-tracking, user-profiles, deep-linking, in-app-messages, mobile-inbox, embedded-messaging, or sdk-initialization"
     status_json
     ;;
   question)
@@ -4468,7 +4845,8 @@ case "$COMMAND" in
           ' "$DISCOVERY_META")" \
           "$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.identity_mode||""))' "$DISCOVERY_META")" \
           "$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.data_region||""))' "$DISCOVERY_META")" \
-          "$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(typeof v.jwt_enabled==="boolean"?String(v.jwt_enabled):"")' "$DISCOVERY_META")"
+          "$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(typeof v.jwt_enabled==="boolean"?String(v.jwt_enabled):"")' "$DISCOVERY_META")" \
+          "$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.scope_source||""))' "$DISCOVERY_META")"
         printf '\n'
         ;;
       choose_features|choose_more_features|choose_identity|choose_region|choose_jwt|choose_apple_setup)
@@ -4510,6 +4888,19 @@ case "$COMMAND" in
       help_apns_replace)
         load_detected_target
         ios_question help_apns_replace "$(detected_field team_id "$BUNDLE_ID")"
+        printf '\n'
+        ;;
+      import_android)
+        require_ios_next "question import_android" import_android
+        question_carried=""
+        if [[ -n "$FEATURES" ]]; then
+          question_carried="$(carried_features "$FEATURES")" || die "--features takes the ids choose_features records: push-notifications, event-tracking, user-profiles, deep-linking, in-app-messages, mobile-inbox, embedded-messaging, or sdk-initialization"
+        fi
+        ios_question import_android "$(android_import_summary)" "$question_carried"
+        printf '\n'
+        ;;
+      fix_expo_gitignore)
+        ios_question fix_expo_gitignore "$(app_root)"
         printf '\n'
         ;;
       asc_key|asc_issuer|asc_rejected|asc_conflict|asc_plan|help_asc_key)
@@ -4694,6 +5085,15 @@ case "$COMMAND" in
     ;;
   validate-apns)
     validate_apns
+    ;;
+  import-from-android)
+    import_from_android
+    ;;
+  ignore-expo-env)
+    ignore_expo_env_cmd
+    ;;
+  deliver-mobile-key)
+    deliver_mobile_key_cmd
     ;;
   proof-status)
     proof_status_json

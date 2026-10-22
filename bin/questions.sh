@@ -92,7 +92,7 @@ q_opening() {
   here="$(screen_copy_option_scalar opening agent Label)"
   printf '{"header":%s,"prompt":%s,' \
     "$(jstr "$(screen_copy_scalar opening Header)")" \
-    "$(jstr "$(screen_copy_scalar opening Prompt)")"
+    "$(jstr "$(screen_copy_section opening Prompt)")"
   printf '"context":%s,' "$(q_opening_context | q_arr)"
   printf '"requires":%s,' "$(screen_copy_section opening Requirements | q_arr)"
   printf '"recommended":%s,' "$(jstr "$here")"
@@ -151,7 +151,9 @@ q_choose_target() {
   local look="Yes — list my Firebase projects" tok
   tok="$(ask_for choose_target)" || tok=""
   printf '{"header":"Discover","prompt":%s,' \
-    "$(jstr "List your Firebase projects?")"
+    "$(jstr "The skill lists the Firebase projects your gcloud account can see and the Android apps in each. This is a read: nothing is created or changed.
+
+List your Firebase projects?")"
   printf '"context":%s,' "$(q_look_context | q_arr)"
   printf '"requires":%s,' "$(q_approve_requires | q_arr)"
   printf '"recommended":%s,' "$(jstr "$look")"
@@ -186,7 +188,11 @@ q_sign_in() {
   # wizard runs it in the terminal it already has. What varies goes in the option's
   # description, which the chat shows and the terminal menu does not.
   local go="Sign in with gcloud"
-  printf '{"header":"Sign in","prompt":%s,' "$(jstr "Ready to sign in to Google?")"
+  printf '{"header":"Sign in","prompt":%s,' "$(jstr "Sign in with this command in your own terminal. It opens your browser, and the password stays between you and Google:
+
+gcloud auth login
+
+Ready to sign in to Google?")"
   printf '"context":%s,' "$(q_arr <<'EOF'
 Nothing here reads your Google projects until gcloud has a session with your sign-in: this action opens your browser, and neither the tool nor the skill ever see the password.
 
@@ -219,14 +225,16 @@ EOF
 # project is how the wrong account gets provisioned.
 q_keep_target() {
   local keep="Yes — use $PID / $PACKAGE" again="No — let me pick again"
-  printf '{"header":"Target","prompt":%s,' "$(jstr "Still the same project and app?")"
+  printf '{"header":"Target","prompt":%s,' "$(jstr "On record from an earlier run: project $PID, package $PACKAGE. From here on, the skill reads and changes this project only.
+
+Still the same project and app?")"
   printf '"context":%s,' "$(q_arr <<EOF
 Already on record from an earlier run:
 
 project   $PID
 package   $PACKAGE
 
-From here on, the skill reads and changes this project only. Confirm the project and app above before you continue. You can switch projects now. Nothing has been set up in this one yet.
+From here on, the skill reads and changes this project only. Confirm the project and app before you continue. You can switch projects now. Nothing has been set up in this one yet.
 EOF
 )"
   printf '"requires":[],'
@@ -405,14 +413,23 @@ q_pick_app_context() { # <rows>
 }
 
 q_pick_app() {
-  local rows sep="" i=0 pkg appid
+  local rows sep="" i=0 pkg appid detected source rec=null
   rows="$(apps_of_chosen)" || return 1
   [[ -n "$rows" ]] || return 1
+  IFS=$'\t' read -r detected source <<< "$(project_package)"
+  if [[ -n "$detected" ]] && cut -f1 <<< "$rows" | head -"$Q_PICK_MAX" | grep -qxF "$detected"; then
+    rec="$(jstr "$detected")"
+  fi
 
-  printf '{"header":"App","prompt":%s,' "$(jstr "Which Android app is in this repository?")"
-  printf '"context":%s,' "$(q_pick_app_context "$rows" | q_arr)"
+  local ask="Which Android app is in this repository?"
+  [[ -z "$detected" ]] || ask="This repository builds $detected (read from $source). Pick the app with that exact package.
+
+$ask"
+  printf '{"header":"App","prompt":%s,' "$(jstr "$ask")"
+  printf '"context":%s,' "$( { q_pick_app_context "$rows"
+    [[ -z "$detected" ]] || { echo ""; echo "This repository builds $detected (read from $source)."; }; } | q_arr)"
   printf '"requires":[],'
-  printf '"recommended":null,'
+  printf '"recommended":%s,' "$rec"
   printf '"options":['
   while IFS=$'\t' read -r pkg appid; do
     ((i < Q_PICK_MAX)) || break
@@ -469,15 +486,21 @@ q_register_app_context() {
 
 q_register_app() {
   local yes="Yes — register $PACKAGE in $PID" prompt="Register this Android app in $PID?"
+  local detected source rec=null
+  [[ -n "$PACKAGE" ]] || IFS=$'\t' read -r detected source <<< "$(project_package)"
+  [[ -z "$detected" ]] || rec="$(jstr "Use $detected from $source")"
   # The listing is also what makes "pick a different project" a working answer: with no
   # cache behind it the picker has nothing to draw, so that option has to fetch first.
   local -a back=("$BIN/agent question pick_project")
   listed_project || back=("$BIN/agent discover" "$BIN/agent question pick_project")
   listed_project || [[ -z "$PACKAGE" ]] || prompt="Look before creating anything in $PID?"
+  [[ -n "$PACKAGE" ]] && listed_project && prompt="This creates one Android app in Firebase project $PID: package $PACKAGE, display name $APP_DISPLAY_NAME. Nothing else is created or changed.
+
+$prompt"
   printf '{"header":"New app","prompt":%s,' "$(jstr "$prompt")"
   printf '"context":%s,' "$(q_register_app_context | q_arr)"
   printf '"requires":[],'
-  printf '"recommended":null,'
+  printf '"recommended":%s,' "$rec"
   printf '"options":['
   if [[ -n "$PACKAGE" ]] && ! listed_project; then
     q_opt "Check whether it already exists first" \
@@ -489,6 +512,11 @@ q_register_app() {
       "Records your approval for $PID and nothing more. The provisioning step creates the app, and that step asks for its own approval first." \
       "app registration approved for $PID; ladder re-read" "" \
       "$BIN/agent approve create-app" "$BIN/agent"
+  elif [[ -n "$detected" ]]; then
+    q_opt "Use $detected from $source" \
+      "Records the applicationId this repository builds. Naming the package doesn't create anything. This screen comes back with the package named, and you still choose whether to approve it." \
+      "package recorded as $detected; ladder re-read" "" \
+      "$BIN/agent set PACKAGE=$detected" "$BIN/agent"
   else
     q_opt "I'll give you the package name" \
       "Type the applicationId from build.gradle. Naming the package doesn't create anything. This screen comes back with the package named, and you still choose whether to approve it." \
@@ -585,8 +613,14 @@ q_run_app_context() {
 }
 
 q_run_app() {
+  local who="Sign in, then tell the skill which address you used"
+  [[ -z "${ITBL_EMAIL:-}" ]] || who="Sign in as $ITBL_EMAIL, that exact address"
   printf '{"header":"Your app","prompt":%s,' \
-    "$(jstr "Signed in on ${TARGET_DEVICE:-the device}, with notifications allowed?")"
+    "$(jstr "In your app on ${TARGET_DEVICE:-the device}:
+1. $who
+2. Allow notifications when Android asks
+
+Signed in on ${TARGET_DEVICE:-the device}, with notifications allowed?")"
   printf '"context":%s,' "$(q_run_app_context | q_arr)"
   printf '"requires":[],'
   # Nothing out here can see their screen, so nothing out here gets to nudge "done" — the
@@ -643,6 +677,15 @@ q_approve_requires() {
   echo "Sign in to Google yourself. Run 'gcloud auth login' in your terminal. Setup never sees your password."
 }
 
+# The changes themselves, because the prompt is the one part of a screen every host shows.
+q_approve_prompt() {
+  echo "Setting up the Google part changes Firebase project ${PID:-<none chosen yet>}, package ${PACKAGE:-<none chosen yet>}. Nothing has happened yet. It would:"
+  firebase_plan | awk '/^ / { sub(/^ +/, ""); cur = cur " " $0; next } { if (cur != "") print cur; cur = "· " $0 } END { if (cur != "") print cur }' \
+    | sed 's/  */ /g'
+  echo ""
+  echo "Do you want to proceed?"
+}
+
 q_approve_firebase() {
   # The recommendation comes out of the same variable as the label it points at, because
   # a recommendation naming an option that has since been reworded recommends nothing.
@@ -650,8 +693,7 @@ q_approve_firebase() {
   # have: unanswered, the ladder reports choose_driver and the opening screen asks. So the
   # recommendation here is "carry on the way you said", not an opinion about which is better.
   local manual="No — I want to do this manually" yes="Yes — the tool does it, and I agree"
-  printf '{"header":"Firebase","prompt":%s,' \
-    "$(jstr "Do you want to proceed?")"
+  printf '{"header":"Firebase","prompt":%s,' "$(jstr "$(q_approve_prompt)")"
   printf '"context":%s,' "$(q_approve_context | q_arr)"
   printf '"requires":%s,' "$(q_approve_requires | q_arr)"
   # Follows what they already said. Somebody who answered the opening question with "set
@@ -665,7 +707,7 @@ q_approve_firebase() {
   fi
   printf '"options":['
   q_opt "$yes" \
-    "Records your approval for ${PID:-this project} and hands the Google steps to the skill. Only the changes listed above are made, and nothing that's already working is redone." \
+    "Records your approval for ${PID:-this project} and hands the Google steps to the skill. Only the changes this question lists are made, and nothing that's already working is redone." \
     "approval recorded against ${PID:-<no project>}; DRIVER=agent recorded" "" \
     "$BIN/agent approve firebase" "$BIN/agent set DRIVER=agent" "$BIN/agent"
   printf ','
@@ -696,7 +738,9 @@ q_iterable_context() {
 q_iterable_entry() {
   local start="Start — step 1 of 4"
   printf '{"header":"Iterable","prompt":%s,' \
-    "$(jstr "Start the four Iterable steps now?")"
+    "$(jstr "Four steps in the Iterable dashboard, about five minutes. Iterable has no API for them, so you click and the skill checks each result. The keys go from your clipboard into a mode-0600 file, never into this conversation.
+
+Start the four Iterable steps now?")"
   printf '"context":%s,' "$(q_iterable_context | q_arr)"
   printf '"requires":[],'
   printf '"recommended":%s,' "$(jstr "$start")"
@@ -738,18 +782,10 @@ q_iterable_entry() {
 # The relay instruction, not a summary of the step — and on step 1, the one rule the
 # relaying agent has to follow: it has shell access, so "never handle the key" has to say
 # which command handles it instead.
+# The step's clicks live in the prompt, not here: agents were seen relaying the prompt and
+# never printing context, which left the developer a question with no steps above it.
 q_step_context() {
-  # The step itself, not a reference to one. This used to open with "the block above is
-  # step N" — an assertion about output a *second* command had to have produced first, and
-  # an option carrying two commands is an ordering an agent can get wrong. Run only the
-  # question and the developer gets the right choices with no instructions above them, and
-  # a line pointing at a block that was never printed. So one call carries both, and the
-  # cheapest thing to do is also the whole screen.
-  # Dedented by two, because the terminal's left margin inside a chat message is just a
-  # ragged edge; the leading blank goes because q_arr keeps every line it is given.
-  "$BIN/iterable-keys" --step "$1" --relay 2>/dev/null | plain | sed 's/^  //' \
-    | sed '1{/^[[:space:]]*$/d;}'
-  echo "Show the steps above exactly as written, including every value. The exact strings matter. Shortening this step is the costliest mistake in setup."
+  echo "The step is in the prompt. Show it whole, with every value and line break. The exact strings matter. Shortening this step is the costliest mistake in setup."
   if (( $1 == 1 )); then
     echo ""
     echo "Don't ask for either key, and don't read the clipboard yourself. pbpaste and similar commands are off limits here. --take is what moves a key, and it is the only thing in this tool that ever holds one."
@@ -772,6 +808,9 @@ q_iterable_step() {
          && prompt="The test identity is $ITBL_EMAIL. Prove the whole thing now?" \
          || prompt="What address does your app sign in as?" ;;
   esac
+  prompt="$("$BIN/iterable-keys" --step "$n" --prompt 2>/dev/null)
+
+$prompt"
   printf '{"header":%s,"prompt":%s,' "$(jstr "Step $n of 4")" "$(jstr "$prompt")"
   # The relay instruction, not a summary of the step. A model that condenses these
   # screens is how "FCM type: Data notifications" becomes "enable notifications", and
@@ -813,7 +852,7 @@ q_iterable_step() {
     q_opt "Show step 1 again" \
       "The step is shown again, unchanged, including the two lines that take a key. Nothing is skipped. A missing key shows up later as a push that never sends." \
       "step 1 still open" "" \
-      "$BIN/iterable-keys --step 1"
+      "$BIN/agent question iterable_step 1"
   elif ((n < 4)); then
     rec="Done — next step"
     q_opt "$rec" \
@@ -824,7 +863,7 @@ q_iterable_step() {
     q_opt "It doesn't look like that" \
       "The step is shown again, unchanged, and stays open. Help stays on this step. The Iterable screens can change, but the values and what they mean do not. Nothing is skipped. A step marked done that wasn't done shows up later as a broken integration." \
       "step $n still open" "" \
-      "$BIN/iterable-keys --step $n"
+      "$BIN/agent question iterable_step $n"
   else
     # The identity is not a secret, so unlike the keys it can be said out loud — and the
     # free-text answer is the point of this screen. The device knows it already when the
@@ -851,12 +890,12 @@ q_iterable_step() {
       q_opt "Show step 4 again" \
         "The step is shown again, including any addresses the device has registered." \
         "step 4 still open" "" \
-        "$BIN/iterable-keys --step 4"
+        "$BIN/agent question iterable_step 4"
     else
       q_opt "Show step 4 again" \
         "The step is shown again, unchanged. Enter the address below, or set ITBL_EMAIL in the 0600 file." \
         "step 4 still open" "" \
-        "$BIN/iterable-keys --step 4"
+        "$BIN/agent question iterable_step 4"
       printf ','
       # The way out for somebody who does not know the answer yet — the app may not sign
       # anyone in at all. Everything up to here still gets proved; the identity gate says
@@ -912,10 +951,7 @@ q_render() {
   # Paragraphs arrive unwrapped on purpose — a chat window reflows them anyway — so the
   # width belongs to whoever is drawing. Wrapped here rather than with fold, which would
   # lose the indent on every continuation line.
-  prompt="$(printf '%s' "$q" | jqn 'process.stdout.write(j.prompt||"")')"
-  echo
-  [[ -n "$prompt" ]] && printf '  %s\n\n' "$(bold "$prompt")"
-  printf '%s' "$q" | jqn '
+  local wrap='
     const W = 76, pad = "  ", out = [];
     const wrap = s => {
       if (!s) { out.push(""); return; }
@@ -925,7 +961,18 @@ q_render() {
         else cur = cur ? cur + " " + word : word;
       }
       if (cur) out.push(pad + cur);
-    };
+    };'
+  # The prompt's last line is the question; any lines before it are the steps it asks about.
+  prompt="$(printf '%s' "$q" | jqn 'process.stdout.write((j.prompt||"").split("\n").pop())')"
+  echo
+  printf '%s' "$q" | jqn "$wrap"'
+    const lead = (j.prompt || "").split("\n").slice(0, -1);
+    while (lead.length && !lead[lead.length - 1]) lead.pop();
+    lead.forEach(wrap);
+    if (out.length) process.stdout.write(out.join("\n") + "\n\n");
+  '
+  [[ -n "$prompt" ]] && printf '  %s\n\n' "$(bold "$prompt")"
+  printf '%s' "$q" | jqn "$wrap"'
     (j.context  || []).forEach(wrap);
     (j.requires || []).forEach(s => { out.push(""); wrap(s); });
     process.stdout.write(out.join("\n") + "\n\n");

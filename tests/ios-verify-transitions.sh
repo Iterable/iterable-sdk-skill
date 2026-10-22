@@ -38,6 +38,9 @@ IterableAPI.email = currentEmail
 UIApplication.shared.registerForRemoteNotifications()
 EOF
 printf 'fixture\n' > "$SIM_APP/Info.plist"
+printf 'linked executable\n' > "$SIM_APP/DogShelter"
+mkdir -p "$SIM_APP/IterableSDKResources.bundle"
+touch -t 202601011200 "$APP/DogShelter/AppDelegate.swift"
 printf 'Iterable initialized\n' > "$STATE/app.log"
 
 cat > "$FAKEBIN/xcodebuild" <<'EOF'
@@ -58,7 +61,26 @@ key=""
 while (($#)); do
   if [[ "$1" == -extract ]]; then key="$2"; shift 2; else shift; fi
 done
-[[ "$key" == CFBundleIdentifier ]] && printf 'com.example.dogshelter\n'
+case "$key" in
+  CFBundleIdentifier) printf 'com.example.dogshelter\n' ;;
+  CFBundleExecutable) printf 'DogShelter\n' ;;
+  aps-environment) grep -q '<string>development</string>' && printf 'development\n' ;;
+esac
+EOF
+cat > "$FAKEBIN/otool" <<'EOF'
+#!/usr/bin/env bash
+node -e '
+  const data=Buffer.from("<plist><dict><key>aps-environment</key><string>development</string></dict></plist>");
+  console.log("Contents of (__TEXT,__entitlements) section");
+  for (let at=0; at<data.length; at+=16) {
+    const words=[];
+    for (let w=at; w<Math.min(at+16,data.length); w+=4) {
+      if (w+4<=data.length) words.push(data.subarray(w,w+4).reverse().toString("hex"));
+      else for (let b=w; b<data.length; b++) words.push(data.subarray(b,b+1).toString("hex"));
+    }
+    console.log((0x100003468+at).toString(16).padStart(16,"0")+"\t"+words.join(" "));
+  }
+'
 EOF
 cat > "$FAKEBIN/xcrun" <<'EOF'
 #!/usr/bin/env bash

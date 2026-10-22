@@ -57,7 +57,7 @@ case "$*" in
     ;;
   "simctl get_app_container SIM-PROVE-1 com.example.dogshelter app")
     [[ ! -f "$PROVE_STATE/not-installed" ]] || exit 2
-    printf '/tmp/DogShelter.app\n'
+    printf '%s/DogShelter.app\n' "$PROVE_STATE"
     ;;
   "simctl terminate SIM-PROVE-1 com.example.dogshelter"|"simctl launch SIM-PROVE-1 com.apple.Preferences") ;;
   *"--predicate process == \"apsd\" OR process == \"SpringBoard\""*)
@@ -110,7 +110,36 @@ case "$url" in
   *) printf '{"msg":"unexpected"}\n500\n' ;;
 esac
 EOF
+# Prints the fixture plist the way otool dumps __TEXT,__entitlements.
+cat > "$FAKEBIN/otool" <<'EOF'
+#!/usr/bin/env bash
+[[ -f "$PROVE_STATE/entitlements.plist" ]] || exit 1
+node -e '
+  const data=require("fs").readFileSync(process.argv[1]);
+  console.log("Contents of (__TEXT,__entitlements) section");
+  for (let at=0; at<data.length; at+=16) {
+    const words=[];
+    for (let w=at; w<Math.min(at+16,data.length); w+=4) {
+      if (w+4<=data.length) words.push(data.subarray(w,w+4).reverse().toString("hex"));
+      else for (let b=w; b<data.length; b++) words.push(data.subarray(b,b+1).toString("hex"));
+    }
+    console.log((0x100003468+at).toString(16).padStart(16,"0")+"\t"+words.join(" "));
+  }
+' "$PROVE_STATE/entitlements.plist"
+EOF
 chmod +x "$FAKEBIN"/*
+
+installed_app_fixture() {
+  local app="$STATE/DogShelter.app"
+  mkdir -p "$app/IterableSDKResources.bundle"
+  plutil -create xml1 "$app/Info.plist"
+  plutil -insert CFBundleIdentifier -string com.example.dogshelter "$app/Info.plist"
+  plutil -insert CFBundleExecutable -string DogShelter "$app/Info.plist"
+  printf 'linked executable\n' > "$app/DogShelter"
+  chmod +x "$app/DogShelter"
+  printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>application-identifier</key><string>TEAM123456.com.example.dogshelter</string><key>aps-environment</key><string>development</string></dict></plist>' \
+    > "$STATE/entitlements.plist"
+}
 
 
 # A fake APNs for the Apple check, used only by the cases that import a key.
@@ -154,6 +183,7 @@ fresh() {
     },null,2)+"\n",{mode:0o600});
   ' "$WORKSPACE/proof-target.json"
   "$SIMULATE" register "$DEVICES" SIM-PROVE-1 com.example.dogshelter
+  installed_app_fixture
 }
 
 prove() {
@@ -420,6 +450,70 @@ if [[ "$(field "$out" diagnosis)" == app_never_registered_notifications && "$(pr
   ok "an app with no notification record on the Simulator is stopped before sending"
 else
   bad "ios-prove sent without the app having registered" "$out"
+fi
+
+# The installed app must be the integrated, signed, current build before any
+# notification-store advice is given.
+fresh apns
+rm -rf "$STATE/DogShelter.app/IterableSDKResources.bundle"
+rm -f "$DEVICES/SIM-PROVE-1/data/Library/UserNotifications/Library.plist"
+out="$(prove --timeout 5 2>/dev/null)"
+rc=$?
+if [[ "$rc" -eq 40 && "$(field "$out" diagnosis)" == installed_app_without_sdk &&
+      "$(field "$out" summary)" == *"no Iterable iOS SDK"*"never CODE_SIGNING_ALLOWED=NO"*"ios-prepare-proof restart --confirm --app-path"*"Nothing was sent." &&
+      "$(field "$out" send.state)" == not-sent && ! -s "$STATE/curl-calls" &&
+      ! -e "$WORKSPACE/sends/development/user-targeted.json" ]]; then
+  ok "an installed app without the SDK is named instead of app_never_registered_notifications, and nothing is sent"
+else
+  bad "an installed app without the SDK was not stopped by name" "rc=$rc $out"
+fi
+
+fresh apns
+rm -f "$STATE/entitlements.plist"
+out="$(prove --timeout 5 2>/dev/null)"
+if [[ "$(field "$out" diagnosis)" == installed_app_missing_aps_environment && "$(proof_calls)" -eq 0 &&
+      "$(field "$out" summary)" == *"CODE_SIGNING_ALLOWED=NO"* ]]; then
+  ok "an installed app without aps-environment is stopped before sending"
+else
+  bad "an installed app without aps-environment reached the send" "$out"
+fi
+
+fresh apns
+cp -R "$STATE/DogShelter.app" "$ROOT/Recorded.app"
+printf 'the build that was recorded\n' > "$ROOT/Recorded.app/DogShelter"
+node -e '
+  const fs=require("fs"), p=process.argv[1], v=JSON.parse(fs.readFileSync(p,"utf8"));
+  v.app_path=process.argv[2];
+  fs.writeFileSync(p,JSON.stringify(v,null,2)+"\n",{mode:0o600});
+' "$WORKSPACE/proof-target.json" "$ROOT/Recorded.app"
+out="$(prove --timeout 5 2>/dev/null)"
+if [[ "$(field "$out" diagnosis)" == installed_app_differs_from_recorded_build && "$(proof_calls)" -eq 0 &&
+      "$(field "$out" summary)" == *"$ROOT/Recorded.app"*"ios-install"* ]]; then
+  ok "an installed app that differs from the recorded build is stopped before sending"
+else
+  bad "an installed app that differs from the recorded build reached the send" "$out"
+fi
+cp "$STATE/DogShelter.app/DogShelter" "$ROOT/Recorded.app/DogShelter"
+out="$(prove --timeout 10 2>/dev/null)"
+if [[ "$(field "$out" observed)" == true && "$(proof_calls)" -eq 1 ]]; then
+  ok "an installed app byte-identical to the recorded build is proved"
+else
+  bad "the recorded build was refused although it is installed" "$out"
+fi
+rm -rf "$ROOT/Recorded.app"
+
+fresh apns
+printf 'name: DogShelter\n' > "$APP/project.yml"
+mkdir -p "$APP/DogShelter"
+touch -t 202601011200 "$STATE/DogShelter.app/DogShelter"
+printf 'IterableAPI.initialize(apiKey: key)\n' > "$APP/DogShelter/AppDelegate.swift"
+out="$(prove --timeout 5 2>/dev/null)"
+rm -rf "$APP/project.yml" "$APP/DogShelter"
+if [[ "$(field "$out" diagnosis)" == installed_app_older_than_source && "$(proof_calls)" -eq 0 &&
+      "$(field "$out" summary)" == *"DogShelter was built at 2026-01-01"*"$APP/DogShelter/AppDelegate.swift changed at"* ]]; then
+  ok "an installed app older than a source edit is stopped before sending, naming the file and both times"
+else
+  bad "a stale installed app reached the send" "$out"
 fi
 
 ((FAILED)) && exit 1

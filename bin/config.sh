@@ -161,6 +161,30 @@ load_env_file "$WS/resolved.env"
 
 : "${PID:=}"
 : "${PACKAGE:=}"
+
+# Prints "<package>\t<file>", or nothing when no single applicationId is readable.
+project_package() {
+  local root="${PROJECT_ROOT:-$(dirname "$WS")}" f value="" source=""
+  if [[ -f "$root/app.json" ]]; then
+    value="$(node -e '
+      try {
+        const app = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+        process.stdout.write(String(app?.expo?.android?.package || ""));
+      } catch {}
+    ' "$root/app.json" 2>/dev/null)"
+    [[ -z "$value" ]] || source="app.json"
+  fi
+  if [[ -z "$value" ]]; then
+    for f in android/app/build.gradle android/app/build.gradle.kts app/build.gradle app/build.gradle.kts; do
+      [[ -f "$root/$f" ]] || continue
+      value="$(sed -nE "s/^[[:space:]]*applicationId[[:space:]]*(=[[:space:]]*)?[\"']([A-Za-z][A-Za-z0-9_.]*)[\"'].*/\\2/p" "$root/$f" | sort -u)"
+      source="$f"
+      break
+    done
+  fi
+  [[ -n "$value" && "$value" != *$'\n'* && "$value" == *.* ]] || return 0
+  printf '%s\t%s' "$value" "$source"
+}
 : "${SA_ID:=itbl-onboard-fcm}"
 : "${APP_DISPLAY_NAME:=Iterable Onboard Test}"
 

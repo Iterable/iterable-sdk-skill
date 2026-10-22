@@ -151,6 +151,30 @@ Test Push remains optional troubleshooting and never blocks completion.
 Only missing verification credentials return to their narrow capture command.
 Missing proof metadata is not evidence that the SDK integration is missing.
 
+## React Native path
+
+A React Native app runs the Android path and then the iOS path, one after the
+other, under the `iterable-react-native` skill:
+
+1. Record the scope once — features, identity mode, region, JWT policy. Both
+   platforms use that one record.
+2. **Android first.** The Android ladder provisions Firebase and Iterable, the
+   skill writes the integration, and `iterable-android-verify` proves a push.
+   No iOS step starts before that verdict is green.
+3. **iOS second.** The iOS provider path offers to reuse both Iterable keys,
+   the region, No JWT, and the test email from the Android setup, carries over
+   the feature scope from step 1 (passed with `--features`, shown again for
+   confirmation), and adds the Apple/APNs prerequisites. The skill writes the
+   native push code (bare) or relies on the Expo plugin, and
+   `iterable-ios-verify` proves a push on a Release Simulator build.
+4. The app is integrated when the verifier has passed for every platform in
+   scope. One green platform is not done.
+
+The Mobile key reaches the app as a gitignored file the tool writes — bare
+React Native `.iterable/rn/iterable.local.ts`, Expo `EXPO_PUBLIC_ITERABLE_API_KEY`
+in `.env.local` — and the app loads it so that a checkout without the file
+still builds.
+
 ## What divergence looks like
 
 The three classes, because they need different fixes and get confused constantly:

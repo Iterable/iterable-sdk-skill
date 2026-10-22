@@ -2,15 +2,15 @@
 slug: managing-user-identity
 feature: user-profiles
 archetype: identity
-sdk_min_version: 3.1.0
+sdk_min_version: 3.2.1
 sdk_artifact: "@iterable/react-native-sdk"
 title: Managing User Identity with Iterable's React Native SDK
 source_url: https://iterable.zendesk.com/hc/articles/360045714152
 source_repo: Iterable/iterable-docs
 source_path: docs/developer-and-api-docs/iterables-react-native-sdk/managing-user-identity/index.md
-source_ref: 59c40504c91bc0b13751c5ef5f348810eb0fd4f2
+source_ref: 275e9063f5aa922a9c282d6d34a8aebec3d15448
 source_sha: d9c6d023a1405845d55aef9e6315f6e1dbecd905
-fetched_at: 2026-08-28T14:44:26.822Z
+fetched_at: 2026-10-19T10:21:42.510Z
 summary: As people use your mobile apps, you'll likely want to save data and
   events to their Iterable user profiles. Your marketing team can then use this
   data to send relevant, personalized messages.

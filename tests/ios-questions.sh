@@ -75,6 +75,14 @@ question() {
       ios_q_apple_step_push "${bundle:-com.example.dogshelter}"
       return
       ;;
+    import_android)
+      ios_q_import_android "Android setup: Mobile key, Server-side key, EU region."
+      return
+      ;;
+    fix_expo_gitignore)
+      ios_q_fix_expo_gitignore "$ROOT/expo-app"
+      return
+      ;;
     check_jwt)
       ios_q_check_jwt "${bundle:-US}"
       return
@@ -148,7 +156,7 @@ const artifact = new Set([
   "configure_iterable_app", "configure_iterable_push", "proof_region",
   "proof_identity_type", "proof_bundle", "proof_identity",
   "proof_switch_identity", "proof_app", "asc_key", "asc_issuer",
-  "asc_rejected", "asc_conflict", "replace_apns_key"
+  "asc_rejected", "asc_conflict", "replace_apns_key", "fix_expo_gitignore"
 ]);
 const developerSide = /^(I don't have|I do not have|I don't know|I'm not sure|I am not sure|Help me)\b/;
 const concrete = text => /https?:\/\//.test(text) || /(^|\s)1\.\s/.test(text) || /\/bin\/ios-/.test(text);
@@ -413,7 +421,11 @@ screen_dump() {
     printf '%s\t%s\n' "$kind" "$(ios_question "$kind")"
   done
   printf 'check_jwt\t%s\n' "$(ios_q_check_jwt US)"
+  printf 'import_android\t%s\n' "$(ios_q_import_android "Android setup: Mobile key, Server-side key, EU region.")"
+  printf 'import_android\t%s\n' "$(ios_q_import_android "Android setup: Mobile key, Server-side key, EU region." push-notifications,sdk-initialization)"
+  printf 'fix_expo_gitignore\t%s\n' "$(ios_q_fix_expo_gitignore /app)"
   printf 'confirm_scope\t%s\n' "$(ios_q_confirm_scope push-notifications email US false)"
+  printf 'confirm_scope\t%s\n' "$(ios_q_confirm_scope push-notifications email US false react-native-step0)"
   printf 'configure_iterable\t%s\n' "$(ios_q_configure_iterable US false)"
   printf 'capture_iterable\t%s\n' "$(ios_q_capture_iterable US false)"
   printf 'configure_server\t%s\n' "$(ios_q_configure_server US false)"
@@ -588,6 +600,8 @@ append_question choose_identity
 append_question choose_region
 append_question choose_jwt
 append_question check_jwt EU
+append_question import_android
+append_question fix_expo_gitignore
 append_question configure_iterable
 append_question capture_iterable
 append_question configure_server US

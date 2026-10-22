@@ -19,7 +19,7 @@ before reading or changing scoped cloud resources.
 | `iterable-android` | Integrates and troubleshoots Iterable's native Android SDK using version-pinned documentation. |
 | `iterable-android-verify` | Independently verifies native Android and React Native Android integrations and push delivery. |
 | `iterable-ios` | Integrates and troubleshoots Iterable's native iOS SDK using Iterable documentation and iOS lifecycle guidance. |
-| `iterable-ios-verify` | Independently verifies an existing native iOS integration, using no-app-edits behavioral proof by default and optional instrumented diagnostics. |
+| `iterable-ios-verify` | Independently verifies a native iOS, React Native iOS, or Expo iOS integration, using no-app-edits behavioral proof by default and optional instrumented diagnostics. |
 | `iterable-react-native` | Integrates and troubleshoots `@iterable/react-native-sdk`, including Expo projects. |
 
 The skills can work independently. A new push integration normally follows:

@@ -8,10 +8,11 @@
 # Keep `triggers` narrow enough to avoid noise but broad enough to catch
 # the obvious mentions. Over-triggering is fine — a human reviews.
 #
-# Sourced from RN SDK 3.1.0 master (public exports vs NativeRNIterableAPI
+# Sourced from RN SDK 3.2.1 (public exports vs NativeRNIterableAPI
 # spec, README native-version table, CHANGELOG init-promise fix, example/).
 # Ids 7–11 and 13–14 are Expo config-plugin traps. Id 12 is Xcode 27 iOS
-# (bare and Expo). Apply Expo ids only after SKILL.md Step 0 classifies Expo.
+# (bare and Expo). 19–20 are the iOS Release Simulator build, 21 JavaScript,
+# 22 bare iOS permission. Apply Expo ids only after SKILL.md Step 0 classifies Expo.
 
 platform: react-native
 
@@ -147,4 +148,64 @@ pitfalls:
       - "node=\"remove\""
       - "@react-native-firebase/messaging"
       - "react-native-onesignal"
+    features: [push-notifications, integration]
+
+  - id: 16
+    title: Link bounces between the SDK and the app
+    triggers:
+      - "urlHandler"
+      - "handleAppLink"
+      - "Linking.openURL"
+      - "Linking.addEventListener"
+    features: [deep-links, integration]
+
+  - id: 17
+    title: "Expo: the plugin does not configure deep links"
+    triggers:
+      - "associatedDomains"
+      - "intentFilters"
+      - "applinks:"
+    features: [deep-links, integration]
+
+  - id: 18
+    title: npm install returns 401 for @iterable packages
+    triggers:
+      - "E401"
+      - "npm.pkg.github.com"
+      - "@iterable:registry"
+      - ".npmrc"
+    features: [integration]
+
+  - id: 19
+    title: "iOS: a stale .app installed for proof"
+    triggers:
+      - "derivedDataPath"
+      - "DerivedData"
+      - "Release-iphonesimulator"
+      - "simctl install"
+    features: [push-notifications, integration]
+
+  - id: 20
+    title: "iOS: code signing disabled strips aps-environment"
+    triggers:
+      - "CODE_SIGNING_ALLOWED=NO"
+      - "CODE_SIGNING_REQUIRED=NO"
+      - "CODE_SIGN_IDENTITY=\"\""
+      - "CODE_SIGN_ENTITLEMENTS"
+      - "aps-environment"
+    features: [push-notifications, integration]
+
+  - id: 21
+    title: Iterable.registerForPush() does not exist
+    triggers:
+      - "registerForPush"
+      - "autoPushRegistration"
+    features: [push-notifications, integration]
+
+  - id: 22
+    title: "Bare iOS: nothing asks for notification permission"
+    triggers:
+      - "requestAuthorization"
+      - "UNUserNotificationCenter"
+      - "react-native-permissions"
     features: [push-notifications, integration]

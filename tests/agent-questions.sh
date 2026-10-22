@@ -332,27 +332,39 @@ grep -qF "no API" <<< "$entry" \
 # without running that command therefore showed the right options above nothing, and a
 # live trial produced exactly that: a selector with invented instructions, including a
 # rename this repo had already deleted. One call carries both now.
-ctx() { q iterable_step "$1" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{console.log((JSON.parse(s).context||[]).join("\n"))})'; }
+# Agents relay `prompt` and were seen never printing `context`, so the step itself has to
+# be in the prompt: links, values and warnings, with the question as its last line.
+prm() { q iterable_step "$1" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{process.stdout.write(JSON.parse(s).prompt||"")})'; }
+step_has() { # <n> <label> <fixed string>
+  grep -qF -- "$3" <<< "$(prm "$1")" && ok "step $1's prompt carries $2" \
+    || bad "step $1's prompt is missing $2 ($3)"
+}
+step_has 1 "its URL" "https://app.iterable.com/settings/apiKeys"
+step_has 1 "the JWT-off warning" "Require JWT off"
+step_has 2 "its URL" "https://app.iterable.com/integrations/mobileApps/create"
+step_has 2 "the package, character for character" "Package name com.dogshelter ← character for character"
+step_has 3 "the FCM type" 'Data notifications ← not "Notification messages"'
+step_has 3 "the absolute service-account key path" "Upload $W/artifacts/sa-key.json"
+step_has 4 "the setEmail join key" "passes to setEmail(). It is the join key"
 for n in 1 2 3 4; do
-  grep -qF "Step $n of 4" <<< "$(ctx "$n")" \
-    && ok "step $n carries its own clicks, not a pointer to a block" \
-    || bad "step $n's question has no instructions in it — the options alone are the screen"
+  prm "$n" | node -e '
+    let s=""; process.stdin.on("data",d=>s+=d).on("end",()=>{
+      const l = s.split("\n");
+      process.exit(l.length >= 3 && /\?$/.test(l[l.length-1]) && l[l.length-2] === "" && !/\x1b/.test(s) ? 0 : 1);
+    })' \
+    && ok "step $n's prompt ends on its question, after a blank line, with no colour codes" \
+    || bad "step $n's prompt is not steps, a blank line, then the question: $(prm "$n" | tail -1)"
 done
-# The two substitutions that break push while everything else still reads as configured.
-# They are the whole reason this walk is narrated instead of linked, so losing them from
-# the relay costs more than losing the rest of it.
-grep -qF "Require JWT" <<< "$(ctx 1)" \
-  && ok "and the JWT-off arrow survives the relay" \
-  || bad "step 1 relays without the JWT trap"
-grep -qF "Data notifications" <<< "$(ctx 3)" \
-  && ok "and so does the FCM type" \
-  || bad "step 3 relays without the FCM-type trap"
-# Nothing to type, though. The captures and the successor are options on the same screen,
-# and a command printed beside the option that runs it is the terminal path in a chat's
-# clothes — which is what the chat front end exists to stop being the only way.
-grep -qF "iterable-keys --take" <<< "$(ctx 1)" \
+grep -qF "iterable-keys --take" <<< "$(prm 1)" \
   && bad "step 1's instructions hand over a command its own options already carry" \
   || ok "the relayed clicks name no command — the options do that"
+# An EU project signs in on its own host, and a US link there lands on the wrong login.
+for n in 1 2; do
+  eu="$(ITBL_BASE=https://api.eu.iterable.com prm "$n")"
+  grep -qF "https://app.eu.iterable.com/" <<< "$eu" && ! grep -qF "https://app.iterable.com/" <<< "$eu" \
+    && ok "step $n links to app.eu.iterable.com when the base is EU" \
+    || bad "step $n links to the US dashboard for an EU project"
+done
 
 # The chain, because nothing tracks which step the walk is on. Each step names its
 # successor, exactly as the terminal walk does — a walk that forgets its own next step
@@ -555,6 +567,88 @@ grep -q 'CREATE_APP=1' <<< "$reg" \
 grep -qF "never makes this change unless you ask for it here" <<< "$reg" \
   && ok "and it says that this is the asking the limits promised" \
   || bad "the registration screen never connects itself to the promise it is honouring"
+
+# Consent and sign-in screens name what they ask about in the prompt itself, the one part
+# every host shows.
+pq() { node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{process.stdout.write(JSON.parse(s).prompt||"")})'; }
+# A workspace with no ladder run yet, so the plan is the whole of part 1.
+fp="$(WS="$TMP/consent-ws" PID=my-proj PACKAGE=com.dogshelter PATH="$TOOLS:$PATH" bash -c '
+  source bin/config.sh >/dev/null 2>&1; source bin/questions.sh; question_for approve_firebase' | pq)"
+for want in "my-proj" "com.dogshelter" "a service account, '" "roles/firebasecloudmessaging.admin" "a JSON key for it"; do
+  grep -qF -- "$want" <<< "$fp" && ok "the Firebase consent prompt names $want" \
+    || bad "the Firebase consent prompt never names $want"
+done
+rp="$(qd register_app proj-number-2 | pq)"
+grep -qF "one Android app in Firebase project proj-number-2: package com.dogshelter" <<< "$rp" \
+  && ok "the registration prompt names the project and package it creates" \
+  || bad "the registration prompt asks for a yes without naming what it creates: $rp"
+grep -qF "gcloud auth login" <<< "$(q authenticate | pq)" \
+  && ok "the sign-in prompt carries the command the developer runs" \
+  || bad "the sign-in prompt never says which command to run"
+# "Listed above" points at context, which a relaying agent may never print.
+above=""
+for k in opening choose_target "pick_project" "pick_app proj-number-11" "register_app proj-number-2" \
+         "keep_target my-proj" approve_firebase sign_in iterable_keys run_app; do
+  set -- $k
+  out="$(qd "$1" "${2:-}" 2>/dev/null)" || continue
+  hit="$(printf '%s' "$out" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);process.stdout.write((j.options||[]).filter(o=>/\babove\b/i.test(o.description)).map(o=>o.label).join(", "))})')"
+  [[ -z "$hit" ]] || above="$above $1: $hit;"
+done
+for n in 1 2 3 4; do
+  hit="$(q iterable_step "$n" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);process.stdout.write((j.options||[]).filter(o=>/\babove\b/i.test(o.description)).map(o=>o.label).join(", "))})')"
+  [[ -z "$hit" ]] || above="$above iterable_step $n: $hit;"
+done
+[[ -z "$above" ]] && ok "no Android option description points 'above' at text only context holds" \
+  || bad "option descriptions lean on context:$above"
+
+# The package is read from the repository when it can be: build.gradle(.kts) for bare
+# React Native and native apps, app.json for Expo (which wins over a prebuilt android/).
+PKG_ROOT="$TMP/pkgs"
+mkdir -p "$PKG_ROOT/rn/android/app" "$PKG_ROOT/native/app" "$PKG_ROOT/expo/android/app" \
+  "$PKG_ROOT/dog/android/app" "$PKG_ROOT/none"
+printf 'android {\n    defaultConfig {\n        applicationId "com.example.rn"\n    }\n}\n' \
+  > "$PKG_ROOT/rn/android/app/build.gradle"
+printf 'android {\n    defaultConfig {\n        applicationId = "com.example.native"\n    }\n}\n' \
+  > "$PKG_ROOT/native/app/build.gradle.kts"
+printf '{"expo":{"android":{"package":"com.example.expo"}}}\n' > "$PKG_ROOT/expo/app.json"
+printf 'android { defaultConfig {\n  applicationId "com.example.prebuilt"\n} }\n' \
+  > "$PKG_ROOT/expo/android/app/build.gradle"
+printf 'android { defaultConfig {\n  applicationId "com.dogshelter.dev"\n} }\n' \
+  > "$PKG_ROOT/dog/android/app/build.gradle"
+qpkg() {
+  QCALLS="$QCALLS" WS="$DISC" PROJECT_ROOT="$1" PID="$3" PACKAGE="$4" PATH="$QSTUB:$TOOLS:$PATH" \
+    bash -c 'source bin/config.sh >/dev/null 2>&1; source bin/questions.sh; question_for "$@"' _ "$2"
+}
+for case in "rn com.example.rn android/app/build.gradle" \
+    "native com.example.native app/build.gradle.kts" "expo com.example.expo app.json"; do
+  read -r dir pkg src <<< "$case"
+  out="$(qpkg "$PKG_ROOT/$dir" register_app proj-number-2 "")"
+  if node -e '
+    const [raw, pkg, src] = process.argv.slice(1);
+    const q = JSON.parse(raw);
+    const label = `Use ${pkg} from ${src}`;
+    const option = q.options.find(o => o.label === label);
+    process.exit(q.recommended === label &&
+      option?.commands[0].endsWith(`agent set PACKAGE=${pkg}`) ? 0 : 1);
+  ' "$out" "$pkg" "$src"; then
+    ok "$dir: the package question recommends $pkg read from $src"
+  else
+    bad "$dir: the package question did not offer the repository's $pkg"
+  fi
+done
+picked="$(qpkg "$PKG_ROOT/dog" pick_app proj-number-11 com.dogshelter)"
+undetected="$(qpkg "$PKG_ROOT/none" register_app proj-number-2 "")"
+if node -e '
+  const [picked, none] = process.argv.slice(1).map(JSON.parse);
+  process.exit(picked.recommended === "com.dogshelter.dev" &&
+    picked.context.some(line => line.includes("This repository builds com.dogshelter.dev")) &&
+    none.recommended === null &&
+    none.options.some(o => o.label === "I\u0027ll give you the package name") ? 0 : 1);
+' "$picked" "$undetected"; then
+  ok "the app picker recommends the listed app this repository builds; no build file, no recommendation"
+else
+  bad "the app picker ignored the repository's applicationId, or invented one"
+fi
 
 # A yes recorded for one project must not be spendable in another — the same rule the
 # firebase approval already follows, and the reason approve takes a scope at all.

@@ -22,9 +22,10 @@ selector. `AskUserQuestion` has no field for `context`, so in the same turn:
 2. then call `AskUserQuestion` with `header`, `prompt`, and the options.
 
 Never call `AskUserQuestion` for a screen whose `context` you have not printed
-in that turn. On iOS screens the links and numbered steps are in `prompt` itself,
-with the question as its last line: pass `prompt` to `AskUserQuestion` whole,
-line breaks included, and never shorten it to the question line.
+in that turn. On every screen, Android and iOS, the links, numbered steps,
+values and the list of changes being approved are in `prompt` itself, with the
+question as its last line: pass `prompt` to `AskUserQuestion` whole, line
+breaks included, and never shorten it to the question line.
 
 Some options run a command that prints another screen, such as an iOS
 `question --kind help_…` guide or "Show these steps again". Render that screen
@@ -38,7 +39,9 @@ own walkthrough.
 Inspect the app before invoking a program:
 
 - For an Android app, or the Android target of a React Native app, follow the
-  Android program below.
+  Android program below. A React Native app with both platforms in scope does
+  Android first: provisioned, integrated, and proved by `iterable-android-verify`
+  before its iOS target starts.
 - For a native iOS app, read
   [`reference/ios.md`](reference/ios.md) and use `<root>/bin/ios-provision`.
   Conduct the interactive state machine in the main session. Do not hand the
@@ -122,7 +125,13 @@ Inspect the app before invoking a program:
   delete the retained APNs private key.
 - For an iOS target owned by a React Native or Expo integration, keep the
   React Native skill in charge of application code. Use the iOS provisioning
-  path only for the Apple and Iterable prerequisites it explicitly needs.
+  path only for the Apple and Iterable prerequisites it explicitly needs. Run
+  the Android program first: the iOS path then offers to reuse its Mobile and
+  Server-side keys, region, No JWT policy, and test email, plus the feature
+  scope the React Native skill confirmed when passed with `--features`, and
+  writes the Mobile key where the JavaScript app reads it
+  (bare React Native `.iterable/rn/iterable.local.ts`, Expo
+  `EXPO_PUBLIC_ITERABLE_API_KEY` in a gitignored `.env.local`).
 
 Do not run the Android gate ladder against an iOS project. Its Firebase,
 `adb`, package-name, and FCM conclusions do not apply to APNs.
@@ -570,4 +579,5 @@ it as part of its one confirmed diff. This skill produces the file; it does not
 write into the developer's source tree.
 
 After the integration is written, `iterable-android-verify` proves it with a
-real push.
+real push. For a React Native app with iOS in scope, that green verdict is
+where the iOS phase begins.

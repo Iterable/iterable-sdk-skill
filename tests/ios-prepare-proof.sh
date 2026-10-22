@@ -271,6 +271,40 @@ else
   bad "the one-answer Simulator start did not record a neutral development run" "$sim_started"
 fi
 
+mkdir -p "$ROOT/Fresh.app" "$ROOT/Recorded.app"
+fresh_app="$(cd "$ROOT/Fresh.app" && pwd -P)"
+recorded_app="$(cd "$ROOT/Recorded.app" && pwd -P)"
+run_sim_prepare restart --confirm --app-path "$ROOT/Fresh.app" >/dev/null 2>&1
+rebound="$(json_value "$(cat "$SIMSPACE/proof-target.json")" app_path)"
+[[ "$rebound" == "$fresh_app" ]] &&
+  ok "restart --app-path binds a fresh build to a run started without one" ||
+  bad "restart ignored --app-path" "app_path=$rebound"
+
+node -e '
+  const fs=require("fs"), p=process.argv[1], v=JSON.parse(fs.readFileSync(p,"utf8"));
+  v.app_path=process.argv[2];
+  fs.writeFileSync(p,JSON.stringify(v,null,2)+"\n",{mode:0o600});
+' "$SIMSPACE/proof-target.json" "$recorded_app"
+run_sim_prepare restart --confirm >/dev/null 2>&1
+kept="$(json_value "$(cat "$SIMSPACE/proof-target.json")" app_path)"
+[[ "$kept" == "$recorded_app" ]] &&
+  ok "restart without --app-path keeps the run's recorded app path" ||
+  bad "restart without --app-path dropped the recorded app path" "app_path=$kept"
+
+before_missing="$(cat "$SIMSPACE/proof-target.json")"
+archives_before="$(find "$SIMSPACE/archive" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')"
+run_sim_prepare restart --confirm --app-path "$ROOT/Missing.app" >/dev/null 2>"$ROOT/missing.err"
+missing_rc=$?
+archives_after="$(find "$SIMSPACE/archive" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')"
+if [[ "$missing_rc" -ne 0 && "$(cat "$SIMSPACE/proof-target.json")" == "$before_missing" &&
+      "$archives_after" == "$archives_before" ]] &&
+    grep -q 'must name an existing .app bundle' "$ROOT/missing.err"; then
+  ok "restart refuses an --app-path that is not an existing .app before archiving anything"
+else
+  bad "restart accepted a missing .app or archived the run first" \
+    "rc=$missing_rc archives=$archives_before->$archives_after $(cat "$ROOT/missing.err")"
+fi
+
 MINBIN="$ROOT/minbin"
 MINAPP="$ROOT/minapp"
 MINSPACE="$MINAPP/.iterable/ios"

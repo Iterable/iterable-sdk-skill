@@ -11,7 +11,9 @@ set -uo pipefail
 
 BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TOOL_ROOT="$(cd "$BIN/.." && pwd)"
+source "$BIN/ios-project.sh"
 source "$BIN/ios-simulator.sh"
+source "$BIN/ios-app-check.sh"
 READER="$BIN/ios-notify-read.js"
 
 usage() {
@@ -97,7 +99,7 @@ if [[ -n "$WORKSPACE_OVERRIDE" ]]; then
 elif [[ -n "${IOS_WORKSPACE:-}" ]]; then
   WORKSPACE="$IOS_WORKSPACE"
 else
-  project_root="$(git rev-parse --show-toplevel 2>/dev/null)" || project_root="$PWD"
+  project_root="$(ios_project_app_root "$PWD")" || project_root="$PWD"
   [[ "$project_root" != "$TOOL_ROOT" ]] ||
     die "run this from the iOS app being proved, not from the skill repository"
   WORKSPACE="$project_root/.iterable/ios"
@@ -473,9 +475,15 @@ ios_simulator_host_supports_apns ||
 ios_simulator_device_supports_apns "$simulators" "$DEVICE_ID" ||
   pending_without_send simulator_not_ready \
     "The selected Simulator must be booted, available, and on an iOS 16+ runtime. Boot it, then run ios-prove again; nothing was sent."
-xcrun simctl get_app_container "$DEVICE_ID" "$BUNDLE_ID" app >/dev/null 2>&1 ||
+INSTALLED_APP="$(xcrun simctl get_app_container "$DEVICE_ID" "$BUNDLE_ID" app 2>/dev/null)" ||
   pending_without_send app_not_installed \
     "$BUNDLE_ID is not installed on the selected Simulator. Build and install it, then run ios-prove again; nothing was sent."
+# A stale or unsigned build fails every notification check below for a reason
+# no permission fix can reach.
+APP_ROOT="$(dirname "$(dirname "$WORKSPACE")")"
+INTEGRITY="$(ios_app_installed_integrity "$INSTALLED_APP" "$APP_ROOT" \
+  "$(ios_project_framework "$APP_ROOT")" "$ENVIRONMENT" "$(read_target app_path)" true "$BIN")" ||
+  pending_without_send "${INTEGRITY%%$'\t'*}" "${INTEGRITY#*$'\t'} Nothing was sent."
 
 STORE_BEFORE="$(read_store)"
 [[ "$(json_field "$STORE_BEFORE" mapped)" == true ]] ||

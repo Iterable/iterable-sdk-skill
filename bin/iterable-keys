@@ -20,12 +20,17 @@ source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
 # skim: what survives skimming is a numbered list and an arrow at the value that matters.
 # The two arrows are not decoration — JWT and the FCM type are the whole reason this walk
 # is narrated rather than linked.
+# EU projects sign in on their own host; a US link there lands on the wrong login.
+dash_host() {
+  [[ "$ITBL_BASE" == https://api.eu.iterable.com ]] && printf app.eu.iterable.com || printf app.iterable.com
+}
+
 step_keys() {
   cat <<EOF
 
   $(bold "Step 1 of 4 — two API keys")
 
-    1. Open  $(bold "https://app.iterable.com/settings/apiKeys")
+    1. Open  $(bold "https://$(dash_host)/settings/apiKeys")
     2. $(bold "New API Key") → type $(bold "Server-side") → copy it
     3. $(bold "New API Key") → type $(bold "Mobile") → $(bold "Require JWT") off  ← leave it off
        → copy it
@@ -41,7 +46,7 @@ step_mobile_app() {
 
   $(bold "Step 2 of 4 — the mobile app")
 
-    1. Open  $(bold "https://app.iterable.com/integrations/mobileApps/create")
+    1. Open  $(bold "https://$(dash_host)/integrations/mobileApps/create")
        (or $(bold "Settings › Apps and Websites") → $(bold "Add a new app or website"))
     2. Platform      $(bold "Android")
     3. Package name  $(bold "${PACKAGE:-<your package name>}")  ← character for character
@@ -83,6 +88,26 @@ step_identity() {
     value — it becomes a real user profile in this Iterable project.
 
 EOF
+}
+
+# The question-screen form: the identity text above is a paragraph a chat selector can't
+# hold, and the join-key point is the one thing in it that has to survive.
+step_identity_short() {
+  echo "Use the exact address your app passes to setEmail(). It is the join key: if the app and Iterable disagree, the token is filed under one identity and the proof push goes to the other."
+}
+
+# A step as a question prompt: no heading or colour, and each numbered line or paragraph
+# joined onto one line so a chat selector doesn't break it mid-sentence.
+as_prompt() {
+  plain | awk '
+    function flush() { if (cur != "") { if (gap && wrote) print ""; print cur; cur = ""; gap = 0; wrote = 1 } }
+    { sub(/^[[:space:]]+/, ""); sub(/[[:space:]]+$/, ""); gsub(/[[:space:]]+/, " ") }
+    /^Step [0-9] of 4/ { next }
+    $0 == "" { flush(); gap = 1; next }
+    /^[0-9]+\. / { flush(); cur = $0; next }
+    { cur = cur == "" ? $0 : cur " " $0 }
+    END { flush() }
+  '
 }
 
 # Where the values go, printed with the step that produces them. A destination named in a
@@ -249,7 +274,7 @@ banner() {
 # experiences it. Four screens of instructions handed over at once is a document;
 # a developer who is on step 2 wants step 2.
 #
-# --relay prints the clicks and nothing around them, for a question to carry into a chat.
+# --prompt prints the clicks and nothing around them, for a question to carry into a chat.
 # What it leaves out is everything that names a command: the screen it goes on already
 # has the two capture lines and the next step as options, and a command line printed
 # beside an option that runs it is the "type this yourself" the chat path exists to
@@ -258,33 +283,40 @@ banner() {
 if [[ "${1:-}" == "--step" ]]; then
   ensure_env || true
   STEP_N="${2:-}"
-  RELAY=""
+  PROMPT=""
   case "${3:-}" in
     "") ;;
-    --relay) RELAY=1 ;;
-    *) echo "usage: $(cmd_path iterable-keys) --step 1|2|3|4 [--relay]" >&2; exit 30 ;;
+    --prompt) PROMPT=1 ;;
+    *) echo "usage: $(cmd_path iterable-keys) --step 1|2|3|4 [--prompt]" >&2; exit 30 ;;
   esac
   case "$STEP_N" in
-    1) [[ -n "$RELAY" ]] || banner ;;
+    1) [[ -n "$PROMPT" ]] || banner ;;
     2|3|4) ;;
-    *) echo "usage: $(cmd_path iterable-keys) --step 1|2|3|4 [--relay]" >&2; exit 30 ;;
+    *) echo "usage: $(cmd_path iterable-keys) --step 1|2|3|4 [--prompt]" >&2; exit 30 ;;
   esac
+  if [[ -n "$PROMPT" ]]; then
+    case "$STEP_N" in
+      1) step_keys | as_prompt ;;
+      2) step_mobile_app | as_prompt ;;
+      3) step_push_integration | as_prompt ;;
+      4) step_identity_short ;;
+    esac
+    exit 0
+  fi
   # Every step says where it is, not just the first: somebody who arrives at step 3 by
   # following the one before it has no other way of knowing how much is left. In the
   # heading rather than on a line of its own, so the inline walk gets it too.
   case "$STEP_N" in
-    1) step_keys; [[ -n "$RELAY" ]] || where_keys ;;
+    1) step_keys; where_keys ;;
     2) step_mobile_app ;;
     3) step_push_integration ;;
-    4) step_identity; [[ -n "$RELAY" ]] || { offer_identity; where_identity; } ;;
+    4) step_identity; offer_identity; where_identity ;;
   esac
   # A walk has to name its own next step. Only the fourth knew it had a successor, so a
   # developer handed step 1 — which is exactly what the pending ending hands them — did
   # that one step and hit a dead end, with nothing on screen saying three more existed.
   # It reads as a one-step job that silently failed.
-  if [[ -n "$RELAY" ]]; then
-    :
-  elif ((STEP_N < 4)); then
+  if ((STEP_N < 4)); then
     echo "  When that is done:"
     echo
     run_line iterable-keys --step $((STEP_N + 1))
