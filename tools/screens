@@ -142,7 +142,7 @@ node -e '
 const projects = [];
 for (let i = 1; i <= 5; i++) projects.push({ id: `proj-number-${i}`, name: `Project ${i}`, apps: [] });
 projects[1].apps = [{ package: "com.other.thing", appId: "1:2:android:aaa" }];
-projects[3].apps = [{ package: "com.dogshelter", appId: "1:4:android:bbb" }];
+projects[3].apps = [{ package: "com.sampleshop", appId: "1:4:android:bbb" }];
 process.stdout.write(JSON.stringify({ account: "you@example.com", projects }));
 ' > "$WSD/discovered.json"
 
@@ -152,7 +152,7 @@ process.stdout.write(JSON.stringify({ account: "you@example.com", projects }));
 render() {
   local kind="$1" arg="${2:-}" state
   for state in chosen fresh; do
-    if [[ "$state" == chosen ]]; then P=proj-number-4; K=com.dogshelter; else P=""; K=""; fi
+    if [[ "$state" == chosen ]]; then P=proj-number-4; K=com.sampleshop; else P=""; K=""; fi
     WS="$WSD" PID="$P" PACKAGE="$K" PATH="$WSD/tools:$PATH" \
       bash -c '
         source bin/config.sh >/dev/null 2>&1; source bin/questions.sh
@@ -179,7 +179,7 @@ render() {
         '\''
       ' _ "$kind" "$arg" && {
         if [[ "$state" == chosen ]]; then
-          printf '     %s\n' "$(dim "with proj-number-4 / com.dogshelter already on record")"
+          printf '     %s\n' "$(dim "with proj-number-4 / com.sampleshop already on record")"
         else
           printf '     %s\n' "$(dim "with nothing chosen yet")"
         fi

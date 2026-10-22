@@ -44,7 +44,7 @@ for pad in "" "x" "xx" "xxx"; do
   node -e '
     const pad=process.argv[2];
     require("fs").writeFileSync(process.argv[1],
-      `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n<dict>\n\t<key>application-identifier</key>\n\t<string>TEAM123456.com.example.dogshelter${pad}</string>\n\t<key>aps-environment</key>\n\t<string>development</string>\n</dict>\n</plist>\n`);
+      `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n<dict>\n\t<key>application-identifier</key>\n\t<string>TEAM123456.com.example.sampleshop${pad}</string>\n\t<key>aps-environment</key>\n\t<string>development</string>\n</dict>\n</plist>\n`);
   ' "$ROOT/entitlements.plist" "$pad"
   size="$(wc -c < "$ROOT/entitlements.plist" | tr -d ' ')"
   out="$(env PATH="$ROOT/bin:$PATH" IOS_ENTITLEMENTS_FIXTURE="$ROOT/entitlements.plist" \

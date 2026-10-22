@@ -42,8 +42,8 @@ ASC_KEY_PATH="$(cd "$KEYS" && pwd -P)/AuthKey_ASCKEY0001.p8"
 cat > "$FAKEBIN/xcodebuild" <<'EOF'
 #!/usr/bin/env bash
 if [[ " $* " == *" -showBuildSettings "* ]]; then
-  app='{"target":"DogShelter","action":"build","buildSettings":{"PRODUCT_TYPE":"com.apple.product-type.application","PLATFORM_NAME":"iphoneos","PRODUCT_BUNDLE_IDENTIFIER":"com.example.dogshelter","PRODUCT_NAME":"Dog Shelter","DEVELOPMENT_TEAM":"TEAMID0001"}}'
-  ext='{"target":"NotificationService","action":"build","buildSettings":{"PRODUCT_TYPE":"com.apple.product-type.app-extension","PLATFORM_NAME":"iphoneos","PRODUCT_BUNDLE_IDENTIFIER":"com.example.dogshelter.NotificationService","PRODUCT_NAME":"NotificationService","DEVELOPMENT_TEAM":"TEAMID0001"}}'
+  app='{"target":"SampleShop","action":"build","buildSettings":{"PRODUCT_TYPE":"com.apple.product-type.application","PLATFORM_NAME":"iphoneos","PRODUCT_BUNDLE_IDENTIFIER":"com.example.sampleshop","PRODUCT_NAME":"Sample Shop","DEVELOPMENT_TEAM":"TEAMID0001"}}'
+  ext='{"target":"NotificationService","action":"build","buildSettings":{"PRODUCT_TYPE":"com.apple.product-type.app-extension","PLATFORM_NAME":"iphoneos","PRODUCT_BUNDLE_IDENTIFIER":"com.example.sampleshop.NotificationService","PRODUCT_NAME":"NotificationService","DEVELOPMENT_TEAM":"TEAMID0001"}}'
   printf '[%s,%s,%s]\n' "$app" "$ext" "$app"
   exit 0
 fi
@@ -99,13 +99,13 @@ ROTATED_SERVER_KEY="server-key-canary-rotated-0987654321"
 new_app() {
   APP="$ROOT/$1"
   WORKSPACE="$APP/.iterable/ios"
-  mkdir -p "$APP/DogShelter.xcodeproj" "$APP/DogShelter"
-  cat > "$APP/DogShelter.xcodeproj/project.pbxproj" <<'EOF'
+  mkdir -p "$APP/SampleShop.xcodeproj" "$APP/SampleShop"
+  cat > "$APP/SampleShop.xcodeproj/project.pbxproj" <<'EOF'
 // !$*UTF8*$!
 {
 	objects = {
-		PRODUCT_BUNDLE_IDENTIFIER = com.example.dogshelter;
-		PRODUCT_BUNDLE_IDENTIFIER = com.example.dogshelter.NotificationService;
+		PRODUCT_BUNDLE_IDENTIFIER = com.example.sampleshop;
+		PRODUCT_BUNDLE_IDENTIFIER = com.example.sampleshop.NotificationService;
 		DEVELOPMENT_TEAM = TEAMID0001;
 	};
 }
@@ -290,7 +290,7 @@ if [[ "$guide_steps" == app-id,push,apns-key && "$readiness_via" == walkthrough 
 else
   bad "the walkthrough did not record its Apple steps" "steps=$guide_steps via=$readiness_via"
 fi
-if [[ "$target_name" == "Dog Shelter" ]] &&
+if [[ "$target_name" == "Sample Shop" ]] &&
     grep -q '"key_id": "APNSKEY001"' <<< "$apns_meta" &&
     grep -q '"team_id": "TEAMID0001"' <<< "$apns_meta" &&
     ! grep -rq "$MOBILE_KEY\|$SERVER_KEY" "$WORKSPACE"/*.json; then

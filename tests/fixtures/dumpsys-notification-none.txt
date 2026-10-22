@@ -145,7 +145,7 @@
   Notification attention state:
   Usage Stats:
     AggregatedStats{
-      key='com.dogshelter',
+      key='com.sampleshop',
       numEnqueuedByApp=2,
       numPostedByApp=2,
       numUpdatedByApp=0,

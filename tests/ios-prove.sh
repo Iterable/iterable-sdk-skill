@@ -21,7 +21,7 @@ case "$ROOT" in
 esac
 trap '[[ -z "${APNS_PID:-}" ]] || { kill "$APNS_PID" 2>/dev/null; wait "$APNS_PID" 2>/dev/null; }; rm -rf "$ROOT"' EXIT
 
-APP="$ROOT/DogShelter"
+APP="$ROOT/SampleShop"
 WORKSPACE="$APP/.iterable/ios"
 FAKEBIN="$ROOT/bin"
 STATE="$ROOT/state"
@@ -55,11 +55,11 @@ case "$*" in
   "simctl list devices --json")
     printf '{"devices":{"com.apple.CoreSimulator.SimRuntime.iOS-26-2":[{"udid":"SIM-PROVE-1","name":"iPhone 17","state":"Booted","isAvailable":true}]}}\n'
     ;;
-  "simctl get_app_container SIM-PROVE-1 com.example.dogshelter app")
+  "simctl get_app_container SIM-PROVE-1 com.example.sampleshop app")
     [[ ! -f "$PROVE_STATE/not-installed" ]] || exit 2
-    printf '%s/DogShelter.app\n' "$PROVE_STATE"
+    printf '%s/SampleShop.app\n' "$PROVE_STATE"
     ;;
-  "simctl terminate SIM-PROVE-1 com.example.dogshelter"|"simctl launch SIM-PROVE-1 com.apple.Preferences") ;;
+  "simctl terminate SIM-PROVE-1 com.example.sampleshop"|"simctl launch SIM-PROVE-1 com.apple.Preferences") ;;
   *"--predicate process == \"apsd\" OR process == \"SpringBoard\""*)
     [[ -f "$PROVE_STATE/log-dead" ]] ||
       printf '{"timestamp":"%s","processImagePath":"/usr/libexec/apsd","subsystem":"com.apple.apsd","eventMessage":"keep alive"}\n' "$(date -u '+%Y-%m-%d %H:%M:%S.000000+0000')"
@@ -85,7 +85,7 @@ token="$(node -e 'process.stdout.write(Buffer.alloc(80,0x11).toString("hex"))')"
 case "$url" in
   */api/users/getByEmail*)
     [[ ! -f "$PROVE_STATE/slow" ]] || sleep "$(cat "$PROVE_STATE/slow")"
-    printf '{"user":{"email":"dogs@example.com","dataFields":{"devices":[{"appPackageName":"com.example.dogshelter","endpointEnabled":true,"notificationsEnabled":true,"platform":"APNS_SANDBOX","token":"%s"}]}}}\n200\n' "$token"
+    printf '{"user":{"email":"dogs@example.com","dataFields":{"devices":[{"appPackageName":"com.example.sampleshop","endpointEnabled":true,"notificationsEnabled":true,"platform":"APNS_SANDBOX","token":"%s"}]}}}\n200\n' "$token"
     ;;
   */api/templates/push/upsert)
     printf '%s' "$data" > "$PROVE_STATE/upsert.json"
@@ -99,7 +99,7 @@ case "$url" in
       nonce="$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).payload.iterableProofNonce)' "$PROVE_STATE/upsert.json")"
       printf '%s' "$nonce" > "$PROVE_STATE/nonce"
       "$PROVE_SIMULATE" deliver "$(cat "$PROVE_STATE/scenario")" "$PROVE_DEVICES" SIM-PROVE-1 \
-        com.example.dogshelter "$marker" "$nonce" 424242 "$PROVE_STATE/log.ndjson"
+        com.example.sampleshop "$marker" "$nonce" 424242 "$PROVE_STATE/log.ndjson"
     fi
     if [[ "$code" == 200 ]]; then
       printf '{"msg":"Push proof sent"}\n200\n'
@@ -130,14 +130,14 @@ EOF
 chmod +x "$FAKEBIN"/*
 
 installed_app_fixture() {
-  local app="$STATE/DogShelter.app"
+  local app="$STATE/SampleShop.app"
   mkdir -p "$app/IterableSDKResources.bundle"
   plutil -create xml1 "$app/Info.plist"
-  plutil -insert CFBundleIdentifier -string com.example.dogshelter "$app/Info.plist"
-  plutil -insert CFBundleExecutable -string DogShelter "$app/Info.plist"
-  printf 'linked executable\n' > "$app/DogShelter"
-  chmod +x "$app/DogShelter"
-  printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>application-identifier</key><string>TEAM123456.com.example.dogshelter</string><key>aps-environment</key><string>development</string></dict></plist>' \
+  plutil -insert CFBundleIdentifier -string com.example.sampleshop "$app/Info.plist"
+  plutil -insert CFBundleExecutable -string SampleShop "$app/Info.plist"
+  printf 'linked executable\n' > "$app/SampleShop"
+  chmod +x "$app/SampleShop"
+  printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>application-identifier</key><string>TEAM123456.com.example.sampleshop</string><key>aps-environment</key><string>development</string></dict></plist>' \
     > "$STATE/entitlements.plist"
 }
 
@@ -169,7 +169,7 @@ fresh() {
     const fs=require("fs");
     fs.writeFileSync(process.argv[1],JSON.stringify({
       proof_mode:"behavioral",
-      bundle_id:"com.example.dogshelter",
+      bundle_id:"com.example.sampleshop",
       identity_type:"email",
       identity:"dogs@example.com",
       device:"SIM-PROVE-1",
@@ -182,7 +182,7 @@ fresh() {
       started_at:new Date(Date.now()-60000).toISOString()
     },null,2)+"\n",{mode:0o600});
   ' "$WORKSPACE/proof-target.json"
-  "$SIMULATE" register "$DEVICES" SIM-PROVE-1 com.example.dogshelter
+  "$SIMULATE" register "$DEVICES" SIM-PROVE-1 com.example.sampleshop
   installed_app_fixture
 }
 
@@ -229,13 +229,13 @@ if ! grep -rqF -- "$nonce" "$WORKSPACE" && ! grep -rq 'dogs@example.com' "$WORKS
 else
   bad "the workspace retained a raw nonce or identity"
 fi
-if [[ "$(field "$(cat "$STATE/upsert.json")" clientTemplateId)" == itbl-ios-proof-com-example-dogshelter &&
+if [[ "$(field "$(cat "$STATE/upsert.json")" clientTemplateId)" == itbl-ios-proof-com-example-sampleshop &&
       "$(field "$(cat "$STATE/upsert.json")" payload.recipientEmail)" == "" ]]; then
   ok "one stable template per app, and the payload carries no identity"
 else
   bad "the proof template is per-run or the payload carries the identity"
 fi
-record_created="$(node "$REPO/bin/ios-notify-read.js" store "$DEVICES" SIM-PROVE-1 com.example.dogshelter |
+record_created="$(node "$REPO/bin/ios-notify-read.js" store "$DEVICES" SIM-PROVE-1 com.example.sampleshop |
   node -e 'let i="";process.stdin.on("data",c=>i+=c).on("end",()=>process.stdout.write(JSON.parse(i).records[0].created))')"
 if [[ -n "$record_created" ]] && node -e '
     process.exit(Date.parse(process.argv[1]) < Date.parse(process.argv[2]) &&
@@ -337,7 +337,7 @@ node -e '
   const core="/System/Library/PrivateFrameworks/UserNotificationsCore.framework/UserNotificationsCore";
   const out=[];
   for (let i=0;i<20000;i++) out.push(JSON.stringify({timestamp:stamp,processImagePath:sb,senderImagePath:core,subsystem:"com.apple.UserNotifications",category:"DataStore",
-    eventMessage:"[com.example.dogshelter] Saving notification 1111-2222: NO [ hasAlertContent: YES, shouldPresentAlert: NO settingsShouldSave: YES pipelineState: completed]"}));
+    eventMessage:"[com.example.sampleshop] Saving notification 1111-2222: NO [ hasAlertContent: YES, shouldPresentAlert: NO settingsShouldSave: YES pipelineState: completed]"}));
   process.stdout.write(out.join("\n")+"\n");
 ' "/Library/Developer/CoreSimulator/Volumes/iOS_23C54/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.2.simruntime/Contents/Resources/RuntimeRoot" > "$STATE/stale.ndjson"
 out="$(prove --timeout 10 2>/dev/null)"
@@ -455,7 +455,7 @@ fi
 # The installed app must be the integrated, signed, current build before any
 # notification-store advice is given.
 fresh apns
-rm -rf "$STATE/DogShelter.app/IterableSDKResources.bundle"
+rm -rf "$STATE/SampleShop.app/IterableSDKResources.bundle"
 rm -f "$DEVICES/SIM-PROVE-1/data/Library/UserNotifications/Library.plist"
 out="$(prove --timeout 5 2>/dev/null)"
 rc=$?
@@ -479,8 +479,8 @@ else
 fi
 
 fresh apns
-cp -R "$STATE/DogShelter.app" "$ROOT/Recorded.app"
-printf 'the build that was recorded\n' > "$ROOT/Recorded.app/DogShelter"
+cp -R "$STATE/SampleShop.app" "$ROOT/Recorded.app"
+printf 'the build that was recorded\n' > "$ROOT/Recorded.app/SampleShop"
 node -e '
   const fs=require("fs"), p=process.argv[1], v=JSON.parse(fs.readFileSync(p,"utf8"));
   v.app_path=process.argv[2];
@@ -493,7 +493,7 @@ if [[ "$(field "$out" diagnosis)" == installed_app_differs_from_recorded_build &
 else
   bad "an installed app that differs from the recorded build reached the send" "$out"
 fi
-cp "$STATE/DogShelter.app/DogShelter" "$ROOT/Recorded.app/DogShelter"
+cp "$STATE/SampleShop.app/SampleShop" "$ROOT/Recorded.app/SampleShop"
 out="$(prove --timeout 10 2>/dev/null)"
 if [[ "$(field "$out" observed)" == true && "$(proof_calls)" -eq 1 ]]; then
   ok "an installed app byte-identical to the recorded build is proved"
@@ -503,14 +503,14 @@ fi
 rm -rf "$ROOT/Recorded.app"
 
 fresh apns
-printf 'name: DogShelter\n' > "$APP/project.yml"
-mkdir -p "$APP/DogShelter"
-touch -t 202601011200 "$STATE/DogShelter.app/DogShelter"
-printf 'IterableAPI.initialize(apiKey: key)\n' > "$APP/DogShelter/AppDelegate.swift"
+printf 'name: SampleShop\n' > "$APP/project.yml"
+mkdir -p "$APP/SampleShop"
+touch -t 202601011200 "$STATE/SampleShop.app/SampleShop"
+printf 'IterableAPI.initialize(apiKey: key)\n' > "$APP/SampleShop/AppDelegate.swift"
 out="$(prove --timeout 5 2>/dev/null)"
-rm -rf "$APP/project.yml" "$APP/DogShelter"
+rm -rf "$APP/project.yml" "$APP/SampleShop"
 if [[ "$(field "$out" diagnosis)" == installed_app_older_than_source && "$(proof_calls)" -eq 0 &&
-      "$(field "$out" summary)" == *"DogShelter was built at 2026-01-01"*"$APP/DogShelter/AppDelegate.swift changed at"* ]]; then
+      "$(field "$out" summary)" == *"SampleShop was built at 2026-01-01"*"$APP/SampleShop/AppDelegate.swift changed at"* ]]; then
   ok "an installed app older than a source edit is stopped before sending, naming the file and both times"
 else
   bad "a stale installed app reached the send" "$out"

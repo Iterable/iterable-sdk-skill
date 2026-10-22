@@ -45,7 +45,7 @@ chmod +x "$FAKEBIN/xcrun"
 
 write_target() {
   cat > "$WORKSPACE/proof-target.json" <<EOF
-{"bundle_id":"com.example.dogshelter","device":"$1","device_kind":"$2","run_id":"run-launch-1"}
+{"bundle_id":"com.example.sampleshop","device":"$1","device_kind":"$2","run_id":"run-launch-1"}
 EOF
 }
 
@@ -60,13 +60,13 @@ if [[ "$simulator_rc" -eq 0 &&
     node -e '
       const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
       process.exit(v.launched===true && v.phase==="restore" &&
-        v.bundle_id==="com.example.dogshelter" &&
+        v.bundle_id==="com.example.sampleshop" &&
         v.device==="SIM-BOOTED" && v.device_kind==="simulator" &&
         v.run_id==="run-launch-1" &&
         Date.parse(v.expires_at)>Date.parse(v.launched_at) ? 0 : 1);
     ' "$WORKSPACE/launches/restore.json" &&
     grep -q '^run-launch-1|.*|restore$' "$STATE/simulator-environment" &&
-    grep -q 'simctl launch --terminate-running-process SIM-BOOTED com.example.dogshelter' \
+    grep -q 'simctl launch --terminate-running-process SIM-BOOTED com.example.sampleshop' \
       "$STATE/calls"; then
   ok "Simulator launch carries one short-lived run and writes only its scoped receipt"
 else

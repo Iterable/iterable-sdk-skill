@@ -6,14 +6,16 @@ BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TOOL_ROOT="$(cd "$BIN/.." && pwd)"
 source "$BIN/ios-simulator.sh"
 source "$BIN/ios-project.sh"
+source "$BIN/ios-app-check.sh"
 FASTLANE_VERSION="2.240.1"
 PRIVATE_APNS_ACTOR="$TOOL_ROOT/tools/ios-apns-private.rb"
 
 usage() {
   cat <<'EOF'
 Usage:
-  ios-provision status [--offline] [--bundle-id ID] [--features ID,...] [--workspace PATH]
-  ios-provision question --kind KIND [--features ID,...] [--workspace PATH]
+  ios-provision status [--offline] [--bundle-id ID] [--features ID,...] [--identity MODE] [--workspace PATH]
+  ios-provision question --kind KIND [--features ID,...] [--identity MODE] [--workspace PATH]
+  ios-provision carry-scope [--features ID,...] [--identity email|user-id|unknown-user] --confirm [--workspace PATH]
   ios-provision answer [--field FIELD --value VALUE [--add] | --clear] [--workspace PATH]
   ios-provision record-scope [--from-answers | --features LIST --identity-mode MODE --region US|EU --jwt-enabled true|false] --confirm [--workspace PATH]
   ios-provision record-iterable-setup --driver guided|developer --confirm [--workspace PATH]
@@ -31,12 +33,13 @@ Usage:
   ios-provision validate-apns [--workspace PATH]
   ios-provision capture-mobile --region US|EU --jwt-enabled true|false [--replace] --confirm [--workspace PATH]
   ios-provision validate-mobile [--workspace PATH]
-  ios-provision import-from-android --confirm [--features ID,...] [--framework native|react-native|expo] [--workspace PATH]
+  ios-provision import-from-android --confirm [--features ID,...] [--identity MODE] [--framework native|react-native|expo] [--workspace PATH]
   ios-provision deliver-mobile-key [--framework native|react-native|expo] [--workspace PATH]
   ios-provision ignore-expo-env --confirm [--workspace PATH]
   ios-provision capture-server [--replace] --confirm [--workspace PATH]
   ios-provision validate-server [--workspace PATH]
-  ios-provision proof-status [--workspace PATH]
+  ios-provision proof-status [--identity-candidate VALUE ...] [--workspace PATH]
+  ios-provision proof-read-identity --confirm [--identity-candidate VALUE ...] [--workspace PATH]
   ios-provision proof-answer [--field FIELD --value VALUE | --clear] [--workspace PATH]
   ios-provision record-proof --proof-mode behavioral|instrumented
     --bundle-id ID --identity-type email|user-id --identity VALUE
@@ -54,7 +57,9 @@ Usage:
 status and question are read-only and make no Apple or Iterable request.
 question --kind help_* renders a guide for a step the developer is stuck on;
 its options record the answer or return to status.
-answer persists proposed selector answers;
+answer persists proposed selector answers; carry-scope proposes the features
+and identity mode the app's skill already confirmed, passed to status as
+--features and --identity, so their screens are not asked again;
 record-scope confirms the developer's selected features, identity mode, region,
 and JWT policy before application code changes.
 record-iterable-setup records whether the coding agent will guide the
@@ -95,6 +100,11 @@ expectations, and a second marker. Neither mode asserts that an outcome
 happened. restart-proof preserves standard identity/device choices while
 rotating run-scoped state; instrumented restart also creates fresh identities
 and baselines.
+On a Simulator, proof-status offers an identity only after Iterable shows this
+Simulator's current APNs token on that user. Candidates come from the app's
+ITBL_PROOF marker, the Iterable SDK's own log lines, and --identity-candidate;
+with none, it makes no request. proof-read-identity relaunches the app with
+-iterableProofIdentity YES so the marker logs the identity it signs in with.
 
 experimental-apns-* is an explicit opt-in path that pins Fastlane Spaceship and
 uses unsupported Apple web-session endpoints. It never revokes existing keys,
@@ -433,6 +443,7 @@ read_args() {
   JWT_ENABLED=""
   FEATURES=""
   IDENTITY_MODE=""
+  CARRY_IDENTITY=""
   ITERABLE_DRIVER=""
   ITERABLE_APP_SOURCE=""
   APPLE_STRATEGY=""
@@ -455,6 +466,8 @@ read_args() {
   PROOF_LOGOUT_EXPECT=""
   PROOF_PROFILE_FIELDS=()
   PROOF_EVENTS=()
+  PROOF_IDENTITY_CANDIDATES=()
+  PROOF_RELAUNCH=false
   APPLE_ID=""
   OUTPUT_DIR=""
   EXPERIMENTAL=false
@@ -670,6 +683,15 @@ read_args() {
         (($# >= 2)) || die "--identity needs a value"
         PROOF_IDENTITY="$2"
         shift 2
+        ;;
+      --identity-candidate)
+        (($# >= 2)) || die "--identity-candidate needs a value"
+        PROOF_IDENTITY_CANDIDATES+=("$2")
+        shift 2
+        ;;
+      --identity-candidate=*)
+        PROOF_IDENTITY_CANDIDATES+=("${1#*=}")
+        shift
         ;;
       --identity=*)
         PROOF_IDENTITY="${1#*=}"
@@ -905,6 +927,49 @@ carried_features() {
   ' "$1"
 }
 
+carried_identity() {
+  [[ "$1" == email || "$1" == user-id || "$1" == unknown-user ]] || return 2
+  printf '%s' "$1"
+}
+
+# The skill that owns the app ran Step 0; the label must name that skill.
+step0_source() {
+  if [[ "$(ios_framework)" == native ]]; then
+    printf 'ios-step0'
+  else
+    printf 'react-native-step0'
+  fi
+}
+
+# Shared by carry-scope and import-from-android. Each carried field keeps its
+# own source, so changing one answer drops only that attribution.
+propose_step0() {
+  node -e '
+    const [current, features, identity, source] = process.argv.slice(1);
+    const value = JSON.parse(current);
+    if (features) {
+      delete value.feature_choices;
+      value.features = features.split(",");
+      value.scope_source = source;
+    }
+    if (identity) {
+      value.identity_mode = identity;
+      value.identity_source = source;
+    }
+    if (features || identity) value.step0_scope = "carried";
+    process.stdout.write(JSON.stringify(value, null, 2) + "\n");
+  ' "$1" "$2" "$3" "$4"
+}
+
+# Refused before anything is read or written.
+read_step0_flags() {
+  CARRY_IDENTITY="$PROOF_IDENTITY"
+  [[ -z "$FEATURES" ]] || carried_features "$FEATURES" >/dev/null ||
+    die "--features takes the ids choose_features records: push-notifications, event-tracking, user-profiles, deep-linking, in-app-messages, mobile-inbox, embedded-messaging, or sdk-initialization"
+  [[ -z "$CARRY_IDENTITY" ]] || carried_identity "$CARRY_IDENTITY" >/dev/null ||
+    die "--identity takes the values choose_identity records: email, user-id, or unknown-user"
+}
+
 answer_scope() {
   command -v node >/dev/null 2>&1 || die "node is not installed"
   if [[ "$ANSWER_CLEAR" == true && -z "$ANSWER_FIELD" ]]; then
@@ -952,6 +1017,10 @@ answer_scope() {
       [[ "$ANSWER_CLEAR" == true || "$ANSWER_VALUE" == skip ]] ||
         die "android-import can only be answered with skip; run import-from-android to reuse the Android setup"
       ;;
+    step0-scope)
+      [[ "$ANSWER_CLEAR" == true || "$ANSWER_VALUE" == skip ]] ||
+        die "step0-scope can only be answered with skip; run carry-scope to record the confirmed answers"
+      ;;
     *)
       die "unknown answer field: $ANSWER_FIELD"
       ;;
@@ -974,10 +1043,12 @@ answer_scope() {
       "region": "data_region",
       "jwt-enabled": "jwt_enabled",
       "jwt-check": "jwt_check",
-      "android-import": "android_import"
+      "android-import": "android_import",
+      "step0-scope": "step0_scope"
     }[field];
     const featureKey=field.startsWith("feature-") ? field.slice(8) : "";
     if (field === "features" || featureKey) delete current.scope_source;
+    if (field === "identity-mode") delete current.identity_source;
     if (clear) {
       if (featureKey) {
         if (current.feature_choices) delete current.feature_choices[featureKey];
@@ -1054,6 +1125,10 @@ proof_answer() {
     identity|switch-identity|device|app-path|profile-field|event|tap-expect|logout-expect)
       ((${#ANSWER_VALUE} <= 500)) || die "proof answer is too long"
       ;;
+    app-source)
+      [[ "$ANSWER_CLEAR" == true || "$ANSWER_VALUE" == installed ]] ||
+        die "proof app-source must be installed"
+      ;;
     *)
       die "unknown proof-answer field: $ANSWER_FIELD"
       ;;
@@ -1077,6 +1152,7 @@ proof_answer() {
       "switch-identity":"switch_identity",
       "device":"device",
       "app-path":"app_path",
+      "app-source":"app_source",
       "profile-field":"profile_field",
       "event":"event",
       "tap-expect":"tap_expect",
@@ -1206,6 +1282,214 @@ proof_min_os() {
   [[ "$value" =~ ^[0-9]+(\.[0-9]+)*$ ]] && printf '%s' "$value"
 }
 
+proof_app_built_at() {
+  local binary
+  binary="$(ios_app_newest_binary "$1")"
+  [[ -n "$binary" && -f "$binary" ]] || return 1
+  stat -f '%m' "$binary"
+}
+
+# Prints "<path>\t<epoch>" for the newest Iterable-carrying .app of this bundle that a
+# run recorded or the project's own -derivedDataPath holds, or nothing.
+proof_built_app() {
+  local bundle="$1" platform="$2" root="$3" ios_dir framework sdk dir data app at
+  local best="" best_at=0 recorded
+  [[ -n "$bundle" && -n "$root" ]] || return 0
+  ios_dir="$(ios_project_ios_dir "$root")"
+  framework="$(ios_project_framework "$root")"
+  [[ "$platform" == iphoneos ]] && sdk=iphoneos || sdk=iphonesimulator
+  while IFS= read -r app; do
+    [[ -n "$app" && -f "$app/Info.plist" ]] || continue
+    app="$(cd "$app" 2>/dev/null && pwd -P)" || continue
+    [[ "$(plutil -extract CFBundleIdentifier raw -o - "$app/Info.plist" 2>/dev/null)" == "$bundle" ]] || continue
+    [[ "$(plutil -extract DTPlatformName raw -o - "$app/Info.plist" 2>/dev/null)" == "$sdk" ]] ||
+      [[ "$(basename "$(dirname "$app")")" == *-"$sdk" ]] || continue
+    ! ios_app_artifact_without_sdk "$app" "$root" "$framework" "$sdk" "$BIN" >/dev/null || continue
+    at="$(proof_app_built_at "$app")" || continue
+    ((at > best_at)) || continue
+    best="$app"
+    best_at="$at"
+  done < <(
+    for recorded in "$PROOF_TARGET" "$WORKSPACE"/archive/*/proof-target.json; do
+      [[ -f "$recorded" ]] || continue
+      node -e '
+        try { process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).app_path||"")+"\n") } catch {}
+      ' "$recorded"
+    done
+    for dir in "$root" ${ios_dir:+"$ios_dir"}; do
+      for data in build build/DerivedData .derived-data DerivedData; do
+        [[ -d "$dir/$data/Build/Products" ]] || continue
+        find "$dir/$data/Build/Products" -mindepth 2 -maxdepth 2 -type d -name '*.app' -print 2>/dev/null
+      done
+    done
+  )
+  [[ -z "$best" ]] || printf '%s\t%s' "$best" "$best_at"
+}
+
+# Prints "<build|installed|same>\t<what the installed copy is>": which copy the
+# proof should test, given the newest known build and the installed copy.
+proof_artifact_compare() {
+  local built="$1" built_at="$2" installed="$3" device_kind="$4" installed_at built_exec installed_exec
+  if [[ "$device_kind" != simulator ]]; then
+    printf 'build\tits copy cannot be compared from this Mac'
+  elif [[ -z "$installed" || ! -d "$installed" ]]; then
+    printf 'build\tnot installed'
+  elif ! ios_app_sdk_signal "$installed" >/dev/null; then
+    printf 'build\ta copy with no Iterable SDK, so a build from before the integration'
+  elif built_exec="$(ios_app_executable "$built")" && installed_exec="$(ios_app_executable "$installed")" &&
+      [[ "$(shasum -a 256 < "$built_exec")" == "$(shasum -a 256 < "$installed_exec")" ]]; then
+    printf 'same\tthis same build'
+  elif installed_at="$(proof_app_built_at "$installed")" && ((installed_at > built_at)); then
+    printf 'installed\ta copy built %s, after this build' "$(ios_app_time "$installed_at")"
+  else
+    printf 'build\tan older build%s' \
+      "$([[ -z "${installed_at:-}" ]] || printf ', from %s' "$(ios_app_time "$installed_at")")"
+  fi
+}
+
+# How to find the identity by hand when no candidate is verified: Iterable has no
+# lookup by device token, and the SDK only logs it when a request fails.
+proof_identity_steps() {
+  local identity_type="$1" device="$2" device_kind="$3" executable="$4"
+  local call=userId setter="IterableAPI.userId or setUserId" lead="If the app generates it on the device"
+  [[ "$identity_type" != email ]] ||
+    { call=email; setter="IterableAPI.email or setEmail"; lead="To read it from the running app instead"; }
+  printf '1. Search the app'"'"'s code for %s: the value passed there is the one Iterable knows.\n' "$setter"
+  if [[ "$identity_type" == email ]]; then
+    printf '2. It is usually the address you signed in with on this device.'
+  else
+    printf '2. If it is your own account or backend ID, read it from your backend or the app'"'"'s account screen.'
+  fi
+  if [[ "$device_kind" == simulator ]]; then
+    printf '\n3. %s, open the app on the Simulator and run this in Terminal; it prints the value the Iterable SDK holds and leaves the app running:\n' "$lead"
+    printf "lldb --batch -p \"\$(pgrep -f 'Devices/%s/.*/%s\\\\.app/%s( |\$)')\" -o 'expr -l objc -O -- [NSClassFromString(@\"IterableSDK.IterableAPI\") %s]' -o detach" \
+      "$device" "${executable:-<App>}" "${executable:-<App>}" "$call"
+  fi
+}
+
+# Prints "<source>\t<type>\t<value>", newest first, for each identity the app's own
+# log names: the integration's ITBL_PROOF marker, or the SDK echoing Iterable's
+# "No user exists with userId|email <value>" for a request sent before the user existed.
+proof_log_identities() {
+  local device="$1" executable="$2" since="${3:-}"
+  local -a window=(--last 24h)
+  [[ "$executable" =~ ^[A-Za-z0-9\ ._-]+$ ]] || return 0
+  [[ -z "$since" ]] || window=(--start "$since")
+  xcrun simctl spawn "$device" log show "${window[@]}" --style ndjson --predicate \
+    "process == \"$executable\" AND (eventMessage BEGINSWITH \"ITBL_PROOF identity=\" OR eventMessage CONTAINS \"No user exists with\")" \
+    2>/dev/null | node -e '
+      const marker=[], sdk=[];
+      for (const line of require("fs").readFileSync(0,"utf8").split("\n")) {
+        if (!line.startsWith("{")) continue;
+        let entry; try { entry=JSON.parse(line) } catch { continue }
+        const message=String(entry.eventMessage||"");
+        const own=message.match(/^ITBL_PROOF identity=(.+)$/);
+        if (own) { marker.push(["-", own[1].trim()]); continue; }
+        if (!/^(\u2764\uFE0F?|\u{1F49B}|\u{1F49A}) /u.test(message)) continue;
+        for (const hit of message.matchAll(/No user exists with (userId|email) ([^\s"\x27,;]+)/g))
+          sdk.push([hit[1]==="email" ? "email" : "user-id", hit[2].replace(/\.+$/,"")]);
+      }
+      const out=[], seen=new Set();
+      for (const [source,list] of [["marker",marker],["sdk-log",sdk]])
+        for (const [type,value] of list.reverse())
+          if (value && !seen.has(value)) { seen.add(value); out.push([source,type,value].join("\t")); }
+      process.stdout.write(out.join("\n"));
+    '
+}
+
+proof_server_key() {
+  local region="$1" key hash
+  [[ -f "$MOBILE_ENV" && -f "$SERVER_VALIDATION" ]] || return 0
+  key="$(sed -n 's/^ITERABLE_SERVER_KEY=//p' "$MOBILE_ENV" | head -1)"
+  [[ -n "$key" ]] || return 0
+  hash="$(printf '%s' "$key" | shasum -a 256 | awk '{print $1}')"
+  node -e '
+    const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
+    process.exit(v.valid===true && v.data_region===process.argv[2] && v.key_sha256===process.argv[3] ? 0 : 1);
+  ' "$SERVER_VALIDATION" "$region" "$hash" 2>/dev/null && printf '%s' "$key"
+}
+
+# Prints "<verdict>\t<source>\t<value>" for at most three candidates: match when
+# Iterable holds this Simulator's current APNs token on that user, as I12 checks.
+# No candidates means no Iterable request.
+proof_identity_checks() {
+  local device="$1" bundle="$2" executable="$3" identity_type="$4" region="$5"
+  local source type value token="" key="" verdict devices count=0 logged
+  local -a candidates=()
+  logged="$(proof_log_identities "$device" "$executable")"
+  while IFS=$'\t' read -r source type value; do
+    [[ -n "$value" ]] || continue
+    [[ "$type" == - || "$type" == "$identity_type" ]] || continue
+    candidates+=("$source"$'\t'"$value")
+  done < <(
+    grep '^marker' <<< "$logged"
+    for value in "${PROOF_IDENTITY_CANDIDATES[@]+"${PROOF_IDENTITY_CANDIDATES[@]}"}"; do
+      [[ "$value" == *$'\n'* || "$value" == *$'\t'* ]] || printf 'agent\t-\t%s\n' "$value"
+    done
+    grep '^sdk-log' <<< "$logged"
+  )
+  local -a kept=()
+  local seen=$'\n'
+  for value in "${candidates[@]+"${candidates[@]}"}"; do
+    source="${value%%$'\t'*}"
+    value="${value#*$'\t'}"
+    [[ "$value" != *$'\n'* && "$value" != *$'\t'* && ${#value} -le 500 ]] || continue
+    [[ "$identity_type" != email || "$value" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[A-Za-z]{2,}$ ]] || continue
+    [[ "$seen" != *$'\n'"$value"$'\n'* ]] || continue
+    seen="$seen$value"$'\n'
+    kept+=("$source"$'\t'"$value")
+    ((++count < 3)) || break
+  done
+  ((${#kept[@]})) || return 0
+  token="$(node "$BIN/ios-notify-read.js" store "$(ios_simulator_devices_root)" "$device" "$bundle" 2>/dev/null |
+    node -e 'let i="";process.stdin.on("data",c=>i+=c).on("end",()=>{try{process.stdout.write(String(JSON.parse(i).registration?.token_sha256||""))}catch{}})')"
+  [[ -z "$token" ]] || key="$(proof_server_key "$region")"
+  for value in "${kept[@]}"; do
+    source="${value%%$'\t'*}"
+    value="${value#*$'\t'}"
+    if [[ -z "$token" ]]; then
+      verdict=notoken
+    elif [[ -z "$key" ]]; then
+      verdict=nokey
+    else
+      proof_user_get "$key" "$region" "$identity_type" "$value"
+      if [[ "$PROOF_HTTP_CODE" == 200 ]]; then
+        devices="$(printf '%s' "$PROOF_HTTP_BODY" |
+          node "$BIN/ios-notify-read.js" iterable-devices "$bundle" "$token" 2>/dev/null)"
+        [[ "$devices" == *'"token_match":true'* ]] && verdict=match || verdict=absent
+      elif [[ "$PROOF_HTTP_CODE" == 400 ]] && grep -Eqi 'no user exists|not found' <<< "$PROOF_HTTP_BODY"; then
+        verdict=absent
+      else
+        verdict="unreadable:$PROOF_HTTP_CODE"
+      fi
+      PROOF_HTTP_BODY=""
+    fi
+    printf '%s\t%s\t%s\n' "$verdict" "$source" "$value"
+  done
+  unset key
+}
+
+# Relaunches the installed app so the integration's marker logs the identity it
+# signs in with, and waits briefly for that line. Prints a note for the screen.
+proof_relaunch_for_identity() {
+  local device="$1" bundle="$2" executable="$3" started waited=0 wait="${IOS_PROOF_IDENTITY_WAIT:-20}"
+  started="$(ios_simulator_log_time "$(node -e 'process.stdout.write(new Date().toISOString())')" 2000)"
+  xcrun simctl launch --terminate-running-process "$device" "$bundle" -iterableProofIdentity YES >/dev/null 2>&1 || {
+    printf 'The Simulator could not relaunch %s, so nothing new was logged.' "$bundle"
+    return 0
+  }
+  while :; do
+    proof_log_identities "$device" "$executable" "$started" | grep -q '^marker' && {
+      printf 'Relaunched %s with -iterableProofIdentity YES; its proof marker logged the identity below.' "$bundle"
+      return 0
+    }
+    ((waited < wait)) || break
+    sleep 2
+    waited=$((waited + 2))
+  done
+  printf 'Relaunched %s with -iterableProofIdentity YES, but no ITBL_PROOF line appeared within %ss: this build has no proof marker, or the app has not identified a user yet.' "$bundle" "$wait"
+}
+
 proof_devices_json() {
   local environment="${1:-}" push_required="${2:-false}" min_os="${3:-}"
   local simulators='{}' physical='{}' host_apns=false
@@ -1314,22 +1598,68 @@ proof_devices_json() {
 }
 
 proof_question_identity_and_confirm() {
-  local summary="$1" identity_type="$2" device="$3" noun="email address"
+  local summary="$1" identity_type="$2" device="$3" steps="${4:-}" findings="${5:-}"
+  local verified="${6:-}" verified_how="${7:-}" check="${8:-}" relaunch="${9:-}" bundle="${10:-the app}"
+  local noun="email address" use="" quoted rec=null shown=0
   [[ "$identity_type" == email ]] || noun="user ID"
+  [[ -z "$findings" ]] || summary="$summary
+
+$findings"
+  [[ -z "$steps" ]] || summary="$summary
+
+To find the $noun:
+$steps"
+  if [[ -n "$verified" ]]; then
+    use="Use $verified: Iterable has this Simulator's current device token on that user"
+    rec="$(jstr "$use")"
+  elif [[ -n "$relaunch" ]]; then
+    rec="$(jstr "Relaunch the app to read the identity it signs in with")"
+  fi
   printf '{"header":"Proof run","prompt":%s,"selection":"single",' \
-    "$(jstr "Which $noun is the app signed in with? Entering it starts the proof run.")"
-  printf '"context":%s,' "$(printf '%s\n' "$summary" | ios_q_arr)"
-  printf '"requires":[],"recommended":null,"before_commands":[],"options":['
+    "$(jstr "$summary
+
+Check which $noun the app is signed in with: typing it starts the proof run. Which is it?")"
+  printf '"context":%s,' "$(ios_q_arr <<'EOF'
+Use the identity the app itself passes to Iterable. Nothing is sent until the proof step runs, and that one push goes only to this identity on this device.
+EOF
+)"
+  printf '"requires":[],"recommended":%s,"before_commands":[],"options":[' "$rec"
+  if [[ -n "$verified" ]]; then
+    printf -v quoted '%q' "$verified"
+    ios_q_opt "$use" \
+      "Records $verified as the proof identity and starts the run, exactly as typing it would. $verified_how" \
+      "records the identity and starts the run; ios-prove later sends one marked push to it on $device" \
+      "$BIN/ios-prepare-proof start --confirm --identity $quoted"
+    printf ','
+    shown=1
+  elif [[ -n "$relaunch" ]]; then
+    ios_q_opt "Relaunch the app to read the identity it signs in with" \
+      "Relaunches $bundle on this Simulator with the launch argument -iterableProofIdentity YES, so the integration's ITBL_PROOF marker logs the identity it signs in with. Nothing is recorded until you choose it here." \
+      "the app restarts on the Simulator; this screen comes back with what it logged" \
+      "$relaunch"
+    printf ','
+    shown=1
+  fi
+  if [[ -z "$verified" && -n "$check" ]]; then
+    ios_q_opt "Check again" \
+      "Reads the app's log and Iterable again, for example after you sign in or relaunch the app. Nothing is recorded." \
+      "this screen comes back with a fresh check" \
+      "$check"
+    printf ','
+    shown=$((shown + 1))
+  fi
   ios_q_opt "I don't have a test user yet — help me" \
     "Shows how to sign in to the app with a test identity you control, then you answer with it." \
     "opens the test-user guide; nothing is recorded yet" \
     "$BIN/ios-provision question --kind help_proof_identity_start"
   printf ','
-  ios_q_opt "Use a different device" \
-    "Clears the prefilled device so you can pick another booted Simulator or iPhone." \
-    "returns to device selection" \
-    "$BIN/ios-prepare-proof answer --field device --clear"
-  printf ','
+  if ((shown < 2)); then
+    ios_q_opt "Use a different device" \
+      "Clears the prefilled device so you can pick another booted Simulator or iPhone." \
+      "returns to device selection" \
+      "$BIN/ios-prepare-proof answer --field device --clear"
+    printf ','
+  fi
   ios_q_opt "Stop here" \
     "No proof run is created and nothing is sent." \
     "the integration remains unproved"
@@ -1343,6 +1673,7 @@ proof_status_json() {
   local proposed='{}' scope_identity="" scope_features="" scope_region=""
   local target_bundle="" project_root verification_only=false detected_features='[]'
   local proof_mode bundle identity_type environment identity switch_identity device app_path
+  local app_source device_kind=physical installed="" built="" built_at="" artifact_pick="" artifact_state=""
   local profile_field event tap_expect logout_expect push_required=false data_region=""
   local next_kind summary question devices summary_text
   [[ ! -f "$PROOF_DISCOVERY_META" ]] ||
@@ -1392,6 +1723,7 @@ proof_status_json() {
   switch_identity="$(read_proposed switch_identity)"
   device="$(read_proposed device)"
   app_path="$(read_proposed app_path)"
+  app_source="$(read_proposed app_source)"
   profile_field="$(read_proposed profile_field)"
   event="$(read_proposed event)"
   tap_expect="$(read_proposed tap_expect)"
@@ -1407,8 +1739,18 @@ proof_status_json() {
       process.stdout.write(list.length===1 ? String(list[0].id) : "");
     ' "$candidates")"
   fi
-  if [[ -z "$environment" && -n "$device" ]] && is_booted_simulator "$device"; then
+  [[ -z "$device" ]] || ! is_booted_simulator "$device" || device_kind=simulator
+  if [[ -z "$environment" && "$device_kind" == simulator ]]; then
     environment=development
+  fi
+  if [[ -n "$bundle" && -n "$device" && -z "$app_path" && "$proof_mode" == behavioral ]]; then
+    [[ "$device_kind" != simulator ]] ||
+      installed="$(xcrun simctl get_app_container "$device" "$bundle" app 2>/dev/null)"
+    IFS=$'\t' read -r built built_at <<< "$(proof_built_app "$bundle" \
+      "$([[ "$device_kind" == simulator ]] && printf iphonesimulator || printf iphoneos)" "$project_root")"
+    [[ -z "$built" ]] ||
+      IFS=$'\t' read -r artifact_pick artifact_state <<< \
+        "$(proof_artifact_compare "$built" "$built_at" "$installed" "$device_kind")"
   fi
 
   if [[ -z "$bundle" ]]; then next_kind=proof_bundle
@@ -1416,6 +1758,7 @@ proof_status_json() {
   elif [[ -z "$identity_type" ]]; then next_kind=proof_identity_type
   elif [[ -z "$device" ]]; then next_kind=proof_device
   elif [[ -z "$environment" ]]; then next_kind=proof_environment
+  elif [[ "$proof_mode" == behavioral && -n "$built" && -z "$app_source" ]]; then next_kind=proof_artifact
   elif [[ -z "$identity" && "$proof_mode" == behavioral ]]; then next_kind=confirm_proof
   elif [[ -z "$identity" ]]; then next_kind=proof_identity
   elif [[ "$proof_mode" == instrumented && -z "$switch_identity" ]]; then next_kind=proof_switch_identity
@@ -1436,6 +1779,30 @@ proof_status_json() {
 
   case "$next_kind" in
     existing_proof)
+      local run_device run_kind run_bundle run_app fresh="" fresh_at="" fresh_note=""
+      local rec="Keep this run" rebuild="" quoted_fresh
+      IFS=$'\t' read -r run_device run_kind run_bundle run_app <<< "$(node -e '
+        const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
+        process.stdout.write([v.device,v.device_kind,v.bundle_id,v.app_path||""].map(String).join("\t"));
+      ' "$PROOF_TARGET")"
+      IFS=$'\t' read -r fresh fresh_at <<< "$(proof_built_app "$run_bundle" \
+        "$([[ "$run_kind" == simulator ]] && printf iphonesimulator || printf iphoneos)" "$project_root")"
+      # The run's own build is a candidate, so any other winner is newer or the run's is unusable.
+      if [[ -n "$fresh" && "$fresh" != "$run_app" ]]; then
+        if [[ -n "$run_app" && ! -d "$run_app" ]]; then
+          fresh_note="the build this run tests is no longer on disk"
+        elif [[ -n "$run_app" ]] && ! ios_app_sdk_signal "$run_app" >/dev/null; then
+          fresh_note="the build this run tests has no Iterable SDK"
+        elif [[ -n "$run_app" ]]; then
+          fresh_note="this run tests an older build"
+        else
+          [[ "$run_kind" != simulator ]] ||
+            installed="$(xcrun simctl get_app_container "$run_device" "$run_bundle" app 2>/dev/null)"
+          IFS=$'\t' read -r artifact_pick artifact_state <<< \
+            "$(proof_artifact_compare "$fresh" "$fresh_at" "$installed" "$run_kind")"
+          [[ "$artifact_pick" != build ]] || fresh_note="on the device: $artifact_state"
+        fi
+      fi
       summary_text="$(node -e '
         const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
         const age=Math.round((Date.now()-Date.parse(v.started_at))/60000);
@@ -1443,30 +1810,48 @@ proof_status_json() {
           `Run: ${v.run_id}`,
           `Started: ${v.started_at} (${age} minutes ago)`,
           `Identity: ${v.identity}`,
-          `Device: ${v.device} (${v.device_kind})`
+          `Device: ${v.device} (${v.device_kind})`,
+          `App: ${v.app_path || "the copy installed on the device"}`
         ].join("\n"));
       ' "$PROOF_TARGET")"
+      if [[ -n "$fresh_note" ]]; then
+        rebuild="Start a fresh run with the build at $(basename "$(dirname "$fresh")")/${fresh##*/}"
+        rec="$rebuild"
+        summary_text="$summary_text
+Newer build: $fresh (built $(ios_app_time "$fresh_at")); $fresh_note"
+      fi
       question="$(
         printf '{"header":"Proof run","prompt":%s,"selection":"single",' \
-          "$(jstr "A proof run already exists. Keep it or start a fresh one?")"
-        printf '"context":%s,' "$(printf '%s\n' "$summary_text" | ios_q_arr)"
-        printf '"requires":[],"recommended":%s,"before_commands":[],"options":[' "$(jstr "Keep this run")"
+          "$(jstr "$summary_text
+
+A proof run already exists. Keep it or start a fresh one?")"
+        printf '"context":%s,' "$(printf '%s\n' \
+          "Keeping reads where this run stands. A fresh run archives the current evidence first, then records a new run ID and marker." | ios_q_arr)"
+        printf '"requires":[],"recommended":%s,"before_commands":[],"options":[' "$(jstr "$rec")"
         ios_q_opt "Keep this run" \
           "Reads this run's current state; nothing is sent or reset." \
           "the verifier reports where this run stands" \
           "$BIN/ios-verify status"
         printf ','
         ios_q_opt "Start a fresh run" \
-          "Archives this run's evidence and records a new run ID and marker for the same identity and device." \
+          "Archives this run's evidence and records a new run ID and marker for the same identity, device, and app." \
           "a new proof run replaces this one" \
           "$BIN/ios-prepare-proof restart --confirm"
+        if [[ -n "$rebuild" ]]; then
+          printf -v quoted_fresh '%q' "$fresh"
+          printf ','
+          ios_q_opt "$rebuild" \
+            "Archives this run's evidence and starts a new run for the same identity and device, bound to $fresh." \
+            "a new proof run bound to the newer build replaces this one" \
+            "$BIN/ios-prepare-proof restart --confirm --app-path $quoted_fresh"
+        fi
         printf ']}'
       )"
       summary="A proof run already exists; keep it or start a fresh one with the same identity and device."
       ;;
     proof_device)
       devices="$(proof_devices_json "$environment" "$push_required" "$min_os")"
-      question="$(ios_question proof_device "$devices")"
+      question="$(ios_question proof_device "$devices" "$min_os")"
       summary="Choose the exact device that will run and display this proof."
       [[ -z "$min_os" ]] ||
         summary="$summary Only Simulators on iOS $min_os or later are listed: that is the app's deployment target."
@@ -1486,14 +1871,11 @@ Build: this app has no embedded main.jsbundle, so it is a Debug build that needs
         fi
       fi
       if [[ "$proof_mode" == behavioral ]]; then
-        summary_text="Verification: standard integration proof
-Bundle: $bundle
-Iterable region: $data_region
-Environment: $environment
-Identity type: $identity_type
-Identity: ${identity:-the exact $identity_type the app is signed in with (type it to start)}
-Device: $device
-App artifact: ${app_path:-use the app already installed for this bundle}$js_build
+        summary_text="Bundle: $bundle
+Device: $device ($device_kind, $environment)
+Iterable region: $data_region${identity:+
+Identity: $identity ($identity_type)}
+App: ${app_path:-the copy already installed on this device}$js_build
 Checks: installed app, Iterable identity, device registration, then one marked push sent through Iterable and read back from the device's own records"
       else
         summary_text="Verification: instrumented evaluation
@@ -1511,12 +1893,71 @@ Tap expectation: ${tap_expect:-not applicable}
 Logout expectation: $logout_expect"
       fi
       if [[ "$proof_mode" == behavioral && -z "$identity" ]]; then
-        question="$(proof_question_identity_and_confirm "$summary_text" "$identity_type" "$device")"
+        local executable="" app findings="" verified="" verified_how="" check="" relaunch="" flags=""
+        local candidate quoted_candidate verdict source value how note matches=0 ambiguous=""
+        [[ -n "$installed" || "$device_kind" != simulator ]] ||
+          installed="$(xcrun simctl get_app_container "$device" "$bundle" app 2>/dev/null)"
+        for app in "$installed" "$app_path" "$built"; do
+          [[ -n "$app" && -z "$executable" ]] || continue
+          executable="$(plutil -extract CFBundleExecutable raw -o - "$app/Info.plist" 2>/dev/null)"
+        done
+        for candidate in "${PROOF_IDENTITY_CANDIDATES[@]+"${PROOF_IDENTITY_CANDIDATES[@]}"}"; do
+          printf -v quoted_candidate '%q' "$candidate"
+          flags="$flags --identity-candidate $quoted_candidate"
+        done
+        if [[ "$device_kind" == simulator ]]; then
+          [[ "$PROOF_RELAUNCH" != true || -z "$installed" ]] ||
+            findings="$(proof_relaunch_for_identity "$device" "$bundle" "$executable")"
+          while IFS=$'\t' read -r verdict source value; do
+            [[ -n "$value" ]] || continue
+            check="$BIN/ios-prepare-proof status$flags"
+            case "$source" in
+              marker) how="the app's proof marker logged it"; note="The app's proof marker logged $value" ;;
+              agent) how="the agent proposed it"; note="The agent proposed $value" ;;
+              *) how="the Iterable SDK's log mentions it"; note="The app's log mentions $value" ;;
+            esac
+            case "$verdict" in
+              match)
+                matches=$((matches + 1))
+                ambiguous="${ambiguous:+$ambiguous, }$value"
+                [[ -n "$verified" ]] || {
+                  verified="$value"
+                  verified_how="It is offered because $how, and Iterable has this Simulator's current device token on that user."
+                }
+                note="$note, and Iterable has this Simulator's current device token on that user."
+                ;;
+              absent) note="$note, but Iterable doesn't have this Simulator's token on it yet; sign in or relaunch, then check again." ;;
+              notoken) note="$note, but this Simulator has no APNs token for $bundle yet, so Iterable cannot be checked; open the app, allow notifications, then check again." ;;
+              nokey) note="$note, but the workspace has no Server-side key validated for the $data_region region, so Iterable cannot be checked." ;;
+              *) note="$note, but Iterable could not be read (HTTP ${verdict#*:}); check again." ;;
+            esac
+            findings="${findings:+$findings
+}$note"
+          done < <(proof_identity_checks "$device" "$bundle" "$executable" "$identity_type" "$data_region")
+          if ((matches > 1)); then
+            findings="${findings:+$findings
+}Iterable has this Simulator's token on more than one of these: $ambiguous. Type the one the app is signed in with."
+            verified=""
+          fi
+          [[ -z "$installed" ]] || relaunch="$BIN/ios-prepare-proof read-identity --confirm$flags"
+        elif ((${#PROOF_IDENTITY_CANDIDATES[@]})); then
+          findings="Proposed identities are checked against a Simulator's APNs token, which a physical iPhone does not expose, so none is offered here."
+        fi
+        question="$(proof_question_identity_and_confirm "$summary_text" "$identity_type" "$device" \
+          "$(proof_identity_steps "$identity_type" "$device" "$device_kind" "$executable")" \
+          "$findings" "$verified" "$verified_how" "$check" "$relaunch" "$bundle")"
         summary="Type the identity the app is signed in with; that starts the run on the device shown."
+        [[ -z "$verified" ]] ||
+          summary="Iterable has this Simulator's current device token on $verified: the developer can choose it, or type the identity the app is signed in with."
       else
         question="$(ios_question confirm_proof "$summary_text")"
         summary="Review the exact proof target before the live freshness checks create the run."
       fi
+      ;;
+    proof_artifact)
+      question="$(ios_question proof_artifact "$bundle" "$built" "$(ios_app_time "$built_at")" \
+        "$artifact_state" "$artifact_pick")"
+      summary="Choose which copy of the app this run tests: the newest build, or the copy already installed."
       ;;
     proof_app)
       question="$(ios_question proof_app "$proof_mode")"
@@ -1531,10 +1972,10 @@ Logout expectation: $logout_expect"
   esac
   printf '{"tool":"iterable-ios-proof-setup","contract":2,"workspace":%s,' \
     "$(jstr "$WORKSPACE")"
-  printf '"verification_only":%s,"proposed":{"proof_mode":%s,"bundle_id":%s,"data_region":%s,"identity_type":%s,"environment":%s,"identity":%s,"switch_identity":%s,"device":%s,"app_path":%s,"profile_field":%s,"event":%s,"tap_expect":%s,"logout_expect":%s},' \
+  printf '"verification_only":%s,"proposed":{"proof_mode":%s,"bundle_id":%s,"data_region":%s,"identity_type":%s,"environment":%s,"identity":%s,"switch_identity":%s,"device":%s,"app_path":%s,"app_source":%s,"profile_field":%s,"event":%s,"tap_expect":%s,"logout_expect":%s},' \
     "$verification_only" "$(jstr "$proof_mode")" "$(jstr "$bundle")" "$(jstr "$data_region")" "$(jstr "$identity_type")" "$(jstr "$environment")" \
     "$(jstr "$identity")" "$(jstr "$switch_identity")" "$(jstr "$device")" \
-    "$(jstr "$app_path")" "$(jstr "$profile_field")" "$(jstr "$event")" \
+    "$(jstr "$app_path")" "$(jstr "$app_source")" "$(jstr "$profile_field")" "$(jstr "$event")" \
     "$(jstr "$tap_expect")" "$(jstr "$logout_expect")"
   printf '"next":{"owner":"human","kind":%s,"command":%s,"summary":%s,"question":%s}}\n' \
     "$(jstr "$next_kind")" "$(jstr "$BIN/ios-prepare-proof status")" \
@@ -1542,7 +1983,7 @@ Logout expectation: $logout_expect"
 }
 
 record_scope() {
-  local scope_source=""
+  local scope_source="" identity_source=""
   [[ "$CONFIRM" == true ]] ||
     die "record-scope requires --confirm after the developer answers the integration questions"
   if [[ "$FROM_ANSWERS" == true ]]; then
@@ -1583,6 +2024,10 @@ record_scope() {
       const value = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
       process.stdout.write(String(value.scope_source || ""));
     ' "$DISCOVERY_META")"
+    identity_source="$(node -e '
+      const value = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+      process.stdout.write(String(value.identity_source || ""));
+    ' "$DISCOVERY_META")"
   fi
   [[ -n "$FEATURES" ]] || die "record-scope requires --features or --from-answers"
   [[ "$IDENTITY_MODE" == email || "$IDENTITY_MODE" == user-id ||
@@ -1612,9 +2057,10 @@ record_scope() {
       identity_mode: process.argv[2],
       data_region: process.argv[3],
       jwt_enabled: process.argv[4] === "true",
-      ...(process.argv[5] ? { scope_source: process.argv[5] } : {})
+      ...(process.argv[5] ? { scope_source: process.argv[5] } : {}),
+      ...(process.argv[6] ? { identity_source: process.argv[6] } : {})
     }, null, 2) + "\n");
-  ' "$normalized" "$IDENTITY_MODE" "$DATA_REGION" "$JWT_ENABLED" "${scope_source:-}")"
+  ' "$normalized" "$IDENTITY_MODE" "$DATA_REGION" "$JWT_ENABLED" "${scope_source:-}" "${identity_source:-}")"
 
   if [[ -f "$SCOPE_META" ]]; then
     if node -e '
@@ -1725,6 +2171,7 @@ status_json() {
   local discovery_push="" discovery_events="" discovery_profiles=""
   local discovery_more="" discovery_in_app="" discovery_inbox="" discovery_embedded=""
   local discovery_deep_links="" discovery_scope_source="" scope_source_recorded=""
+  local discovery_identity_source="" scope_identity_source="" discovery_step0=""
   local iterable_setup_present=false iterable_setup_secure=false
   local iterable_setup_valid=false iterable_setup_driver=""
   local apple_setup_present=false apple_setup_secure=false
@@ -1790,6 +2237,10 @@ status_json() {
       scope_source_recorded="$(node -e '
         const scope = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
         process.stdout.write(String(scope.scope_source || ""));
+      ' "$SCOPE_META")"
+      scope_identity_source="$(node -e '
+        const scope = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+        process.stdout.write(String(scope.identity_source || ""));
       ' "$SCOPE_META")"
       if [[ ",$scope_features," == *,push-notifications,* ]]; then
         push_required=true
@@ -1873,6 +2324,14 @@ status_json() {
       discovery_scope_source="$(node -e '
         const value = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
         process.stdout.write(String(value.scope_source || ""));
+      ' "$DISCOVERY_META")"
+      discovery_identity_source="$(node -e '
+        const value = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+        process.stdout.write(String(value.identity_source || ""));
+      ' "$DISCOVERY_META")"
+      discovery_step0="$(node -e '
+        const value = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+        process.stdout.write(String(value.step0_scope || ""));
       ' "$DISCOVERY_META")"
     fi
   fi
@@ -2249,6 +2708,8 @@ status_json() {
     fi
   fi
 
+  local step0_features="" step0_identity="$CARRY_IDENTITY"
+  [[ -z "$FEATURES" ]] || step0_features="$(carried_features "$FEATURES")" || step0_features=""
   local android_import_answered=false
   [[ -f "$DISCOVERY_META" ]] &&
     node -e 'process.exit(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).android_import ? 0 : 1)' \
@@ -2259,6 +2720,9 @@ status_json() {
         android_setup_present; then
       next_kind="import_android"
       next_summary="The Android setup in $(dirname "$WORKSPACE") already recorded the Iterable keys and region. Offer to reuse them for iOS instead of asking again."
+    elif [[ -n "$step0_features$step0_identity" && -z "$discovery_step0" ]]; then
+      next_kind="carry_scope"
+      next_summary="Show the answers the $(ios_q_step0_skill "$(step0_source)") already confirmed and record them only if the developer agrees, instead of asking those questions again."
     elif [[ "$discovery_valid" != true ||
           "$discovery_push" == unset || "$discovery_events" == unset ||
           "$discovery_profiles" == unset || "$discovery_deep_links" == unset ||
@@ -2469,7 +2933,8 @@ status_json() {
       ;;
     confirm_scope)
       next_question="$(ios_question confirm_scope "$discovery_features" \
-        "$discovery_identity" "$discovery_region" "$discovery_jwt" "$discovery_scope_source")"
+        "$discovery_identity" "$discovery_region" "$discovery_jwt" "$discovery_scope_source" \
+        "$discovery_identity_source")"
       next_command="$BIN/ios-provision question --kind confirm_scope"
       ;;
     configure_iterable)
@@ -2506,10 +2971,13 @@ status_json() {
       next_command="$BIN/ios-provision asc-read"
       ;;
     import_android)
-      local carried=""
-      [[ -z "$FEATURES" ]] || carried="$(carried_features "$FEATURES")" || carried=""
-      next_question="$(ios_question import_android "$(android_import_summary)" "$carried")"
-      next_command="$BIN/ios-provision question --kind import_android${carried:+ --features $carried}"
+      next_question="$(ios_question import_android "$(android_import_summary)" "$step0_features" \
+        "$step0_identity" "$(ios_q_step0_skill "$(step0_source)")")"
+      next_command="$BIN/ios-provision question --kind import_android${step0_features:+ --features $step0_features}${step0_identity:+ --identity $step0_identity}"
+      ;;
+    carry_scope)
+      next_question="$(ios_question carry_scope "$step0_features" "$step0_identity" "$(step0_source)")"
+      next_command="$BIN/ios-provision question --kind carry_scope${step0_features:+ --features $step0_features}${step0_identity:+ --identity $step0_identity}"
       ;;
     fix_expo_gitignore)
       next_question="$(ios_question fix_expo_gitignore "$(app_root)")"
@@ -2564,16 +3032,18 @@ status_json() {
   printf '"target":{"bundle_id":%s,"name":%s,"recorded":%s,"detected_bundle_id":%s,"detected_name":%s,"detected_source":%s},' \
     "$(jstr "$BUNDLE_ID")" "$(jstr "$APP_NAME")" "$target_recorded" \
     "$(jstr "$detected_bundle")" "$(jstr "$detected_name")" "$(jstr "$detected_source")"
-  printf '"scope":{"path":%s,"present":%s,"mode_0600":%s,"valid":%s,"features":%s,"identity_mode":%s,"data_region":%s,"jwt_enabled":%s,"push_required":%s,"verification_only":%s,"source":%s},' \
+  printf '"scope":{"path":%s,"present":%s,"mode_0600":%s,"valid":%s,"features":%s,"identity_mode":%s,"data_region":%s,"jwt_enabled":%s,"push_required":%s,"verification_only":%s,"source":%s,"identity_source":%s},' \
     "$(jstr "$SCOPE_META")" "$scope_present" "$scope_secure" "$scope_valid" \
     "$(jstr "$scope_features")" "$(jstr "$scope_identity")" \
     "$(jstr "$scope_region")" "$(jstr "$scope_jwt")" "$push_required" \
-    "$scope_verification_only" "$(jstr "$scope_source_recorded")"
-  printf '"discovery":{"path":%s,"present":%s,"mode_0600":%s,"valid":%s,"features":%s,"identity_mode":%s,"data_region":%s,"jwt_enabled":%s,"scope_source":%s},' \
+    "$scope_verification_only" "$(jstr "$scope_source_recorded")" \
+    "$(jstr "$scope_identity_source")"
+  printf '"discovery":{"path":%s,"present":%s,"mode_0600":%s,"valid":%s,"features":%s,"identity_mode":%s,"data_region":%s,"jwt_enabled":%s,"scope_source":%s,"identity_source":%s},' \
     "$(jstr "$DISCOVERY_META")" "$discovery_present" "$discovery_secure" \
     "$discovery_valid" "$(jstr "$discovery_features")" \
     "$(jstr "$discovery_identity")" "$(jstr "$discovery_region")" \
-    "$(jstr "$discovery_jwt")" "$(jstr "$discovery_scope_source")"
+    "$(jstr "$discovery_jwt")" "$(jstr "$discovery_scope_source")" \
+    "$(jstr "$discovery_identity_source")"
   printf '"tools":{"xcodebuild":%s,"node":%s,"npx":%s,"curl":%s},' \
     "$has_xcode" "$has_node" "$has_npx" "$has_curl"
   printf '"apple_setup":{"path":%s,"present":%s,"mode_0600":%s,"valid":%s,"strategy":%s,"readiness_path":%s,"readiness_present":%s,"readiness_mode_0600":%s,"readiness_valid":%s,"evidence_level":%s,"guide_steps":%s,"guide_next":%s,"asc_key_present":%s,"asc_issuer_present":%s,"asc_state":%s,"asc_actions":%s},' \
@@ -3228,10 +3698,8 @@ android_setup_present() {
 import_from_android() {
   [[ "$CONFIRM" == true ]] || die "import-from-android requires --confirm"
   command -v node >/dev/null 2>&1 || die "node is not installed"
-  local carried=""
-  if [[ -n "$FEATURES" ]]; then
-    carried="$(carried_features "$FEATURES")" || die "--features takes the ids choose_features records: push-notifications, event-tracking, user-profiles, deep-linking, in-app-messages, mobile-inbox, embedded-messaging, or sdk-initialization"
-  fi
+  local carried="" carried_mode="$CARRY_IDENTITY"
+  [[ -z "$FEATURES" ]] || carried="$(carried_features "$FEATURES")"
   android_setup_present ||
     die "no Android setup with a Mobile key was found at $(android_env_path)"
   require_ios_next "import-from-android" import_android
@@ -3266,29 +3734,54 @@ import_from_android() {
   init_workspace
   local current='{}'
   [[ ! -f "$DISCOVERY_META" ]] || current="$(cat "$DISCOVERY_META")"
+  current="$(propose_step0 "$current" "$carried" "$carried_mode" "$(step0_source)")" ||
+    die "could not read $DISCOVERY_META"
   (
     umask 077
     node -e '
-      const [path, current, region, email, source, carried] = process.argv.slice(1);
+      const [path, current, region, email, source] = process.argv.slice(1);
       const value = JSON.parse(current);
       value.android_import = "imported";
       value.android_import_path = source;
-      if (carried) {
-        delete value.feature_choices;
-        value.features = carried.split(",");
-        value.scope_source = "react-native-step0";
-      }
       value.data_region = region;
       value.jwt_enabled = false;
       if (email && !value.identity_mode) value.identity_mode = "email";
       require("fs").writeFileSync(path, JSON.stringify(value, null, 2) + "\n", { mode: 0o600 });
-    ' "$DISCOVERY_META" "$current" "$region" "$email" "$android_env" "$carried"
+    ' "$DISCOVERY_META" "$current" "$region" "$email" "$android_env"
   )
   chmod 600 "$DISCOVERY_META"
   printf 'Reused the Android setup from %s: the Mobile%s key, region %s, and No JWT. Both keys are validated again for iOS later; nothing was printed.\n' \
     "$android_env" "$([[ -n "$(env_value ITERABLE_SERVER_KEY)" ]] && printf ' and Server-side')" "$region" >&2
   [[ -z "$carried" ]] ||
-    printf 'Proposed the feature scope confirmed in the React Native skill: %s. It is recorded only after the confirmation screen.\n' "$carried" >&2
+    printf 'Proposed the feature scope confirmed in the %s: %s. It is recorded only after the confirmation screen.\n' \
+      "$(ios_q_step0_skill "$(step0_source)")" "$carried" >&2
+  [[ -z "$carried_mode" ]] ||
+    printf 'Proposed the identity confirmed in the %s: %s. It is recorded only after the confirmation screen.\n' \
+      "$(ios_q_step0_skill "$(step0_source)")" "$carried_mode" >&2
+  status_json
+}
+
+carry_scope() {
+  [[ "$CONFIRM" == true ]] ||
+    die "carry-scope requires --confirm after the developer chooses Use these answers"
+  command -v node >/dev/null 2>&1 || die "node is not installed"
+  [[ -n "$FEATURES$CARRY_IDENTITY" ]] || die "carry-scope requires --features, --identity, or both"
+  local carried="" carried_mode="$CARRY_IDENTITY" current='{}' candidate
+  [[ -z "$FEATURES" ]] || carried="$(carried_features "$FEATURES")"
+  require_ios_next "carry-scope" carry_scope
+  [[ ! -f "$DISCOVERY_META" ]] || current="$(cat "$DISCOVERY_META")" ||
+    die "could not read $DISCOVERY_META"
+  candidate="$(propose_step0 "$current" "$carried" "$carried_mode" "$(step0_source)")" ||
+    die "could not read $DISCOVERY_META"
+  init_workspace
+  (
+    umask 077
+    printf '%s' "$candidate" > "$DISCOVERY_META"
+  )
+  chmod 600 "$DISCOVERY_META"
+  printf 'Proposed the answers confirmed in the %s:%s%s. They are recorded only after the final scope screen.\n' \
+    "$(ios_q_step0_skill "$(step0_source)")" "${carried:+ features $carried}" \
+    "${carried_mode:+${carried:+;} identity $carried_mode}" >&2
   status_json
 }
 
@@ -4097,9 +4590,10 @@ json_array_from_args() {
   '
 }
 
-proof_user_exists() {
-  local key="$1" region="$2" identity_type="$3" identity="$4"
-  local base encoded path out code body
+# The same user read the verifier's I12 gate makes. Sets PROOF_HTTP_CODE and
+# PROOF_HTTP_BODY.
+proof_user_get() {
+  local key="$1" region="$2" identity_type="$3" identity="$4" base encoded path out
   [[ "$region" == EU ]] &&
     base="https://api.eu.iterable.com" ||
     base="https://api.iterable.com"
@@ -4111,8 +4605,15 @@ proof_user_exists() {
   fi
   out="$(curl_with_secret_header "Api-Key: $key" \
     -sS -w $'\n%{http_code}' "$base$path" 2>&1)" || true
-  code="${out##*$'\n'}"
-  body="${out%$'\n'*}"
+  PROOF_HTTP_CODE="${out##*$'\n'}"
+  PROOF_HTTP_BODY="${out%$'\n'*}"
+}
+
+proof_user_exists() {
+  local code body
+  proof_user_get "$@"
+  code="$PROOF_HTTP_CODE"
+  body="$PROOF_HTTP_BODY"
   case "$code" in
     200)
       printf 'true'
@@ -4814,11 +5315,16 @@ read_args "$@"
 
 case "$COMMAND" in
   status)
-    [[ -z "$FEATURES" ]] || carried_features "$FEATURES" >/dev/null || die "--features takes the ids choose_features records: push-notifications, event-tracking, user-profiles, deep-linking, in-app-messages, mobile-inbox, embedded-messaging, or sdk-initialization"
+    read_step0_flags
     status_json
+    ;;
+  carry-scope)
+    read_step0_flags
+    carry_scope
     ;;
   question)
     [[ -n "$QUESTION_KIND" ]] || die "question requires --kind"
+    read_step0_flags
     case "$QUESTION_KIND" in
       confirm_scope)
         [[ -f "$DISCOVERY_META" ]] ||
@@ -4846,7 +5352,8 @@ case "$COMMAND" in
           "$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.identity_mode||""))' "$DISCOVERY_META")" \
           "$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.data_region||""))' "$DISCOVERY_META")" \
           "$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(typeof v.jwt_enabled==="boolean"?String(v.jwt_enabled):"")' "$DISCOVERY_META")" \
-          "$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.scope_source||""))' "$DISCOVERY_META")"
+          "$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.scope_source||""))' "$DISCOVERY_META")" \
+          "$(node -e 'const v=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(v.identity_source||""))' "$DISCOVERY_META")"
         printf '\n'
         ;;
       choose_features|choose_more_features|choose_identity|choose_region|choose_jwt|choose_apple_setup)
@@ -4893,10 +5400,16 @@ case "$COMMAND" in
       import_android)
         require_ios_next "question import_android" import_android
         question_carried=""
-        if [[ -n "$FEATURES" ]]; then
-          question_carried="$(carried_features "$FEATURES")" || die "--features takes the ids choose_features records: push-notifications, event-tracking, user-profiles, deep-linking, in-app-messages, mobile-inbox, embedded-messaging, or sdk-initialization"
-        fi
-        ios_question import_android "$(android_import_summary)" "$question_carried"
+        [[ -z "$FEATURES" ]] || question_carried="$(carried_features "$FEATURES")"
+        ios_question import_android "$(android_import_summary)" "$question_carried" \
+          "$CARRY_IDENTITY" "$(ios_q_step0_skill "$(step0_source)")"
+        printf '\n'
+        ;;
+      carry_scope)
+        require_ios_next "question carry_scope" carry_scope
+        question_carried=""
+        [[ -z "$FEATURES" ]] || question_carried="$(carried_features "$FEATURES")"
+        ios_question carry_scope "$question_carried" "$CARRY_IDENTITY" "$(step0_source)"
         printf '\n'
         ;;
       fix_expo_gitignore)
@@ -5087,6 +5600,7 @@ case "$COMMAND" in
     validate_apns
     ;;
   import-from-android)
+    read_step0_flags
     import_from_android
     ;;
   ignore-expo-env)
@@ -5096,6 +5610,12 @@ case "$COMMAND" in
     deliver_mobile_key_cmd
     ;;
   proof-status)
+    proof_status_json
+    ;;
+  proof-read-identity)
+    [[ "$CONFIRM" == true ]] ||
+      die "proof-read-identity requires --confirm: it relaunches the app on the Simulator"
+    PROOF_RELAUNCH=true
     proof_status_json
     ;;
   proof-answer)

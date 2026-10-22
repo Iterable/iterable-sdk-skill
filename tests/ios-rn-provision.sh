@@ -269,7 +269,7 @@ else
   bad "reusing the Android setup asked again, skipped validation, or exposed a key"
 fi
 
-if [[ "$(field "$offer" next.question.context)" == *"Feature scope is still asked"* &&
+if [[ "$(field "$offer" next.question.prompt)" == *"Feature scope is still asked"* &&
       "$(field "$imported" discovery.scope_source)" == "" &&
       "$(field "$scoped" scope.source)" == "" ]]; then
   ok "without --features the import proposes no scope and the feature questions are asked"
@@ -286,14 +286,14 @@ carry_imported="$(run_in "$CARRY" import-from-android --confirm \
   --features push-notifications,event-tracking,user-profiles 2>"$STATE/carry.err")"
 carry_scoped="$(run_in "$CARRY" record-scope --from-answers --confirm 2>/dev/null)"
 if [[ "$(field "$carry_offer" next.kind)" == import_android &&
-      "$(field "$carry_offer" next.question.context)" == *"React Native skill: event-tracking, push-notifications, sdk-initialization, user-profiles."* &&
+      "$(field "$carry_offer" next.question.prompt)" == *"React Native skill: event-tracking, push-notifications, sdk-initialization, user-profiles."* &&
       "$(field "$carry_offer" next.question.options.0.description)" == *"proposes the features event-tracking, push-notifications"* &&
       "$(field "$carry_offer" next.question.options.0.commands.0)" == *"import-from-android --confirm --features $carried_ids" &&
       "$(field "$carry_offer" next.command)" == *"question --kind import_android --features $carried_ids" &&
       "$(field "$carry_imported" next.kind)" == confirm_scope &&
       "$(field "$carry_imported" discovery.features)" == "$carried_ids" &&
       "$(field "$carry_imported" discovery.scope_source)" == react-native-step0 &&
-      "$(field "$carry_imported" next.question.context)" == *"Features: $carried_ids (the scope confirmed in the React Native skill)"* &&
+      "$(field "$carry_imported" next.question.prompt)" == *"Features: $carried_ids (the scope confirmed in the React Native skill)"* &&
       "$(field "$carry_scoped" scope.features)" == "$carried_ids" &&
       "$(field "$carry_scoped" scope.source)" == react-native-step0 ]] &&
     grep -q "Proposed the feature scope confirmed in the React Native skill" "$STATE/carry.err"; then
@@ -308,7 +308,7 @@ run_in "$CHANGED" import-from-android --confirm --features push-notifications >/
 changed="$(run_in "$CHANGED" answer --field features --value event-tracking)"
 if [[ "$(field "$changed" discovery.features)" == event-tracking,sdk-initialization &&
       "$(field "$changed" discovery.scope_source)" == "" &&
-      "$(field "$changed" next.question.context)" != *"React Native skill"* ]]; then
+      "$(field "$changed" next.question.prompt)" != *"React Native skill"* ]]; then
   ok "a scope the developer changes on iOS is no longer attributed to the React Native skill"
 else
   bad "a changed scope still claims it came from the React Native skill"
@@ -378,7 +378,7 @@ MONO_REAL="$(cd "$MONO" && pwd -P)"
 mono_offer="$(run_in "$MONO_APP" status)"
 mono_imported="$(run_in "$MONO_APP" import-from-android --confirm 2>"$STATE/mono.err")"
 if [[ "$(field "$mono_offer" next.kind)" == import_android &&
-      "$(field "$mono_offer" next.question.context)" == *"$MONO_REAL/.iterable"* &&
+      "$(field "$mono_offer" next.question.prompt)" == *"$MONO_REAL/.iterable"* &&
       "$(field "$mono_imported" iterable.imported_from)" == "$MONO_REAL/.iterable/.env" &&
       "$(field "$(cat "$MONO_APP/.iterable/ios/discovery.json")" android_import_path)" == "$MONO_REAL/.iterable/.env" &&
       "$(field "$mono_imported" discovery.data_region)" == EU &&

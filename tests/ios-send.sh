@@ -45,7 +45,7 @@ EOF
 cat > "$WORKSPACE/proof-target.json" <<'EOF'
 {
   "proof_mode": "instrumented",
-  "bundle_id": "com.example.dogshelter",
+  "bundle_id": "com.example.sampleshop",
   "identity_type": "email",
   "identity": "ios-proof@example.com",
   "switch_identity": "ios-proof-b@example.com",
@@ -69,7 +69,7 @@ prepare_springboard() {
   observed_at="$(node -e 'process.stdout.write(new Date().toISOString())')"
   mkdir -p "$WORKSPACE/observations"
   cat > "$WORKSPACE/observations/current-notifications-$purpose.json" <<EOF
-{"inspected":true,"kind":"notifications","purpose":"$purpose","bundle_id":"com.example.dogshelter","device":"00008101-TESTDEVICE","run_id":"causal-run-1","observed_at":"$observed_at","non_interactive":true,"may_foreground_target":true,"classification":"springboard_visible","summary":"SpringBoard accessibility state was read"}
+{"inspected":true,"kind":"notifications","purpose":"$purpose","bundle_id":"com.example.sampleshop","device":"00008101-TESTDEVICE","run_id":"causal-run-1","observed_at":"$observed_at","non_interactive":true,"may_foreground_target":true,"classification":"springboard_visible","summary":"SpringBoard accessibility state was read"}
 EOF
   chmod 600 "$WORKSPACE/observations/current-notifications-$purpose.json"
 }

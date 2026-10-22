@@ -67,7 +67,7 @@ NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 cat > "$WORKSPACE/proof-target.json" <<EOF
 {
   "proof_mode":"behavioral",
-  "bundle_id":"com.example.dogshelter",
+  "bundle_id":"com.example.sampleshop",
   "identity_type":"email",
   "identity":"dogs@example.com",
   "device":"PHYSICAL-DELIVER-1",
@@ -93,7 +93,7 @@ cat > "$WORKSPACE/observations/current-notifications-pre-send.json" <<EOF
   "kind":"notifications",
   "purpose":"pre-send",
   "classification":"springboard_visible",
-  "bundle_id":"com.example.dogshelter",
+  "bundle_id":"com.example.sampleshop",
   "device":"PHYSICAL-DELIVER-1",
   "run_id":"deliver-run",
   "observed_at":"$NOW"

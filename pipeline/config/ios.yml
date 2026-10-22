@@ -141,6 +141,33 @@ articles:
     feature: unknown-user-activation
     archetype: identity
 
+  # Identity rules the skill's Step 0 decisions cite. Platform-neutral, so all
+  # three platform configs pull the same paths.
+  - slug: user-id-validation-in-iterable
+    source_path: docs/audience-management/users-and-user-profiles/user-id-validation-in-iterable/index.md
+    feature: user-profiles
+    archetype: identity
+
+  - slug: user-profile-fields-used-by-iterable
+    source_path: docs/audience-management/users-and-user-profiles/user-profile-fields-used-by-iterable/index.md
+    feature: user-profiles
+    archetype: identity
+
+  - slug: handling-anonymous-users
+    source_path: docs/developer-and-api-docs/api/handling-anonymous-users/index.md
+    feature: user-profiles
+    archetype: identity
+
+  - slug: creating-users-with-apis
+    source_path: docs/developer-and-api-docs/api/creating-users-with-APIs/index.md
+    feature: user-profiles
+    archetype: identity
+
+  - slug: updating-a-users-email-address
+    source_path: docs/developer-and-api-docs/api/updating-a-users-email-address/index.md
+    feature: user-profiles
+    archetype: identity
+
   - slug: api-keys
     source_path: docs/developer-and-api-docs/api/api-keys/index.md
     feature: integration
@@ -149,4 +176,14 @@ articles:
   - slug: jwt-enabled-api-keys
     source_path: docs/developer-and-api-docs/api/jwt-enabled-api-keys/index.md
     feature: jwt-authentication
+    archetype: prerequisite
+
+  - slug: project-types-and-unique-identifiers
+    source_path: docs/setup-and-administration/projects/project-types-and-unique-identifiers/index.md
+    feature: user-profiles
+    archetype: prerequisite
+
+  - slug: european-data-center
+    source_path: docs/welcome-to-iterable/about-iterable/iterables-european-data-center-edc/index.md
+    feature: integration
     archetype: prerequisite

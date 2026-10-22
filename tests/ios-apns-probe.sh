@@ -26,7 +26,7 @@ trap '[[ -z "$server_pid" ]] || { kill "$server_pid" 2>/dev/null; wait "$server_
 WORKSPACE="$ROOT/workspace"
 DEVICES="$ROOT/devices"
 mkdir -p "$WORKSPACE"
-"$REPO/tests/fixtures/ios-prove/simulate" register "$DEVICES" SIM-APPLE-1 com.example.dogshelter
+"$REPO/tests/fixtures/ios-prove/simulate" register "$DEVICES" SIM-APPLE-1 com.example.sampleshop
 node -e '
   const crypto=require("crypto"), fs=require("fs"), dir=process.argv[1];
   const {privateKey,publicKey}=crypto.generateKeyPairSync("ec",{namedCurve:"P-256"});
@@ -44,7 +44,7 @@ TOKEN_HEX="$(node -e 'process.stdout.write(Buffer.alloc(80,0x11).toString("hex")
 probe() {
   env ITERABLE_IOS_TEST_MODE=1 IOS_APNS_PROBE_ORIGIN="${PROBE_ORIGIN:-$ORIGIN}" \
     node "$REPO/bin/ios-apns-probe.js" --workspace "${PROBE_WORKSPACE:-$WORKSPACE}" --devices-root "$DEVICES" \
-      --udid SIM-APPLE-1 --bundle com.example.dogshelter --environment "${PROBE_ENVIRONMENT:-development}"
+      --udid SIM-APPLE-1 --bundle com.example.sampleshop --environment "${PROBE_ENVIRONMENT:-development}"
 }
 field() {
   node -e '
@@ -68,7 +68,7 @@ if node -e '
   const [h,c,sig]=r.authorization.replace(/^bearer /,"").split(".");
   const header=JSON.parse(Buffer.from(h,"base64url")), claims=JSON.parse(Buffer.from(c,"base64url"));
   const verified=crypto.verify("sha256",Buffer.from(`${h}.${c}`),{key:pub,dsaEncoding:"ieee-p1363"},Buffer.from(sig,"base64url"));
-  process.exit(r.method==="POST" && r.path===`/3/device/${token}` && r.topic==="com.example.dogshelter" &&
+  process.exit(r.method==="POST" && r.path===`/3/device/${token}` && r.topic==="com.example.sampleshop" &&
     r.push_type==="background" && r.priority==="5" &&
     JSON.stringify(JSON.parse(r.body))===JSON.stringify({aps:{"content-available":1}}) &&
     header.alg==="ES256" && header.kid==="ABC123DEFG" && claims.iss==="TEAM123456" &&
@@ -91,7 +91,7 @@ expect() {
   LAST="$out"
 }
 expect "400 TopicDisallowed" blocked app_id_push_disabled "TopicDisallowed names the App ID's Push capability or a restricted key"
-if [[ "$(field "$LAST" summary)" == *"App ID com.example.dogshelter isn't enabled for Push on team TEAM123456"* &&
+if [[ "$(field "$LAST" summary)" == *"App ID com.example.sampleshop isn't enabled for Push on team TEAM123456"* &&
       "$(field "$LAST" urls)" == *"identifiers/list"*"authkeys/list"* &&
       "$(field "$LAST" steps)" == *"tick Push Notifications, click Save, then Confirm"* &&
       "$(field "$LAST" steps)" == *"team selector"* ]]; then

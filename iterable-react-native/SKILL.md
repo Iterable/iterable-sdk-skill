@@ -101,16 +101,80 @@ rendering) is scope; having it is not.
 **First check whether this is an upgrade, not a new integration.** If the
 project already depends on `@iterable/react-native-sdk` (and, on Expo,
 `@iterable/expo-plugin`), ask which version they're on and what they want
-out of the upgrade, then follow the upgrade row in the slug table.
+out of the upgrade, then follow the upgrade row in the
+[decisions table](#decisions-read-before-recommending).
 
 **And check whether the app already sends push without Iterable.** Look for
 `@react-native-firebase/messaging` or another push SDK in `package.json`, and
 for `FirebaseMessagingService` / `com.google.firebase.MESSAGING_EVENT` under
-`android/`. If any is present, that channel is an integration constraint rather
-than something to replace — rule 8 has the shape. Say what you found and confirm
-the plan before touching it.
+`android/`. If any is present, say what you found and ask: "Keep your app's own
+notifications working alongside Iterable's, or use Iterable notifications
+only?" **Keep both:** forward only Iterable payloads (rule 8). **Iterable
+only:** propose, in the one diff they confirm, how the old provider stops
+receiving or showing pushes. Don't delete the provider's code unless they
+confirm that diff.
 
 Confirm the scope, *then* run Preflight, *then* build.
+
+### Identity: project type first
+
+Ask which kind of Iterable project the app sends to, per
+`project-types-and-unique-identifiers`:
+
+- **Hybrid**: `email` and `userId` are both unique identifiers.
+- **UserID-based**: `userId` only.
+- **Email-based**: `email` only; limited availability (some older US-hosted
+  organizations).
+- **I don't have a project yet / I don't know — help me.**
+
+For an existing project, also ask which identifier their backend, CRM, or other
+SDKs already send to Iterable, and reuse exactly that value: another value is
+another user. Decide from what a signed-in session holds, not what sign-up asks
+for: an app that asks for an email only at sign-up has none to pass later.
+**Help me** means inspect, then recommend: what identifier exists after *every*
+sign-in path, a session restored at launch included, and what the app's other
+SDKs already identify the user with. Recommend a project type and identity mode
+from that, citing the docs in the table below. With no project yet, guide
+creating one and warn that its type can't be changed later.
+
+A `userId` is the app's own stable internal account ID when it meets
+`user-id-validation-in-iterable` → `### User ID best practices`, otherwise a
+random UUID created once per account and stored with it (kept only on the
+device, a reinstall makes a new user). Never an email, phone number, username,
+or handle, nothing built from them, and nothing sequential. That doc's
+128-character limit supersedes `identifying-the-user`'s "52 characters" and its
+"email recommended"; that doc's snippets are native, so the JS calls are in
+`managing-user-identity`.
+
+### Decisions: read before recommending
+
+Before recommending an option for a decision below, open the named section and
+cite it in the option ("per `user-id-validation-in-iterable`"). If no shipped
+doc covers a decision, offer no recommendation and say so. Slugs are
+`reference/<slug>.md`; a `../iterable-*/reference/` path is the sibling skill's
+doc for a native step.
+
+| Decision | Read |
+|---|---|
+| New integration or upgrade | `installing` → `## Upgrading the SDK`; `migrating` |
+| Project type | `project-types-and-unique-identifiers` → `### Choosing a project type`, `#### Project type availability` |
+| Identity mode, and which app value supplies it | `project-types-and-unique-identifiers` → `### Comparing project types`; `user-id-validation-in-iterable` → `### User ID best practices`; `managing-user-identity` |
+| An existing client's identifier | `creating-users-with-apis` → `## Understanding user identification in API requests`; `updating-a-users-email-address` |
+| Unknown users | `handling-anonymous-users`. No React Native doc covers Unknown User Activation: don't recommend it |
+| Data region | `installing` → `### Step 6`; `european-data-center` → `## Signing in to Iterable: region-specific URLs` |
+| Key type | `api-keys` → `### Selecting a key type`, `#### Mobile` |
+| JWT | `api-keys` → `#### JWT authentication`; `jwt-enabled-api-keys`; `authentication` |
+| Event creation | `api-keys` → `#### Event Creation` |
+| FCM type | `../iterable-android/reference/setting-up-android-push-notifications` → `#### Step 3.3` |
+| Push integration name | `installing` → `#### Step 4.2`, `### Step 6` |
+| APNs auth, environment, Bundle ID | `installing` → `#### Step 3.5`; `../iterable-ios/reference/setting-up-ios-push-notifications` → `### Step 3`, `### Step 4` |
+| Notification permission | `../iterable-ios/reference/ios-sdk` → `#### Step 7.6`; `../iterable-android/reference/setting-up-android-push-notifications` → `## Android 13: Push notification permissions`; Expo: `expo` |
+| Existing push | `../iterable-android/reference/setting-up-android-push-notifications` → `#### Handling Firebase push messages and tokens` (Android; rule 8) |
+| Deep links | `deep-links-and-custom-actions` |
+| Profile fields | `user-profile-data-and-subscription-preferences`; `user-profile-fields-used-by-iterable` → `## Other reserved field names` |
+| Events | `tracking-events` → `## Tracking custom events` |
+| Logout | `managing-user-identity` → `## Signing out` |
+| Test identity | `project-types-and-unique-identifiers` → `### Checking the unique identifier for a project`; `installing` → `### Step 7` |
 
 ### Two platforms: Android first, then iOS
 
@@ -184,9 +248,9 @@ everything".
 |---|---|---|
 | **Workflow** — Expo vs bare | Always | Detect from the project (Step 0). If both signals exist, ask. |
 | **Mobile API key** | Always | Never hardcode it into a tracked file. `iterable-provision` writes the copy the app reads: bare RN `.iterable/rn/iterable.local.ts`, Expo `EXPO_PUBLIC_ITERABLE_API_KEY` in a gitignored `.env.local` ([loading it](#loading-the-key)). |
-| **Identity model** — `setEmail` vs `setUserId`, and where the value comes from | Always | Ask. Never guess. |
+| **Identity model** — `setEmail` vs `setUserId`, and where the value comes from | Always | [Project type first](#identity-project-type-first). Never guess. |
 | **JWT?** — is the mobile key JWT-protected? | Always | Ask, and **assume yes until told otherwise** (it is on by default for client-side keys and is permanent). If yes, `authHandler` is mandatory (rule 1) **and the team needs a backend endpoint that mints the tokens** — if they don't have one, raise it as a blocker instead of signing in the app. |
-| **Data region** — US or EU | Always | Ask if their dashboard is `app.eu.iterable.com`. See pitfall #2. |
+| **Data region** — US or EU | Always | Ask if they sign in at `app.eu.iterable.com` (`european-data-center`). See pitfall #2. |
 | **`google-services.json`** (Firebase) | Android push (bare **or** Expo) | **Route into `iterable-provision`**, which downloads the real one; if it isn't installed, STOP and ask. Either way you cannot generate it. Expo: path goes in `expo.android.googleServicesFile`, not a hand-edited `android/`. |
 | **APNs key / capabilities** | Push on iOS | Route into `iterable-provision`'s iOS path once Android is proven. Native code: [Bare iOS](#bare-ios-native-push-code); Expo: the plugin. |
 | **Development build vs Expo Go** | Expo | Expo Go cannot run this SDK (pitfall #7). If they are in Expo Go, stop and move them to a development build before debugging JS. |
@@ -270,10 +334,8 @@ when mirroring an existing production integration into a sandbox project,
 `fcm-http-v1-migration` says match the production app definition — there, the
 doc wins.
 
-Two things these docs do **not** settle, so keep asking the developer:
-**data region** (confirm it from their dashboard URL — `app.eu.iterable.com`
-means EU; see pitfall #2) and **`google-services.json`**, which comes from their
-Firebase Console and cannot be generated.
+These docs do **not** settle `google-services.json`: it comes from the
+developer's Firebase Console and cannot be generated.
 
 ---
 
@@ -378,8 +440,9 @@ Expo). Rule 8 applies whenever the app already sends push of its own.
    gitignored env file or the project's existing secrets pattern. An empty
    fallback is the only acceptable default.
 
-6. **Never assume how the app identifies a user — ask.** Do not wire
-   identity to the first email-shaped field you find.
+6. **Never assume how the app identifies a user — ask** the project type
+   first ([Step 0](#identity-project-type-first)). Do not wire identity to the
+   first email-shaped field you find.
 
 7. **Expo: both packages, plugin owns native configuration.** Install with
    `npx expo install @iterable/expo-plugin@<resolved> @iterable/react-native-sdk@<resolved>`
@@ -400,8 +463,10 @@ Expo). Rule 8 applies whenever the app already sends push of its own.
    `Pods/`.
 
 8. **If the app already sends push, forward to Iterable — never replace what's
-   there.** Check before scoping push work: grep `android/` for
-   `FirebaseMessagingService` and `com.google.firebase.MESSAGING_EVENT`, and
+   there.** The one exception is a Step 0 "Iterable only" answer, and only in
+   the diff the developer confirmed. Check before scoping push work: grep
+   `android/` for `FirebaseMessagingService` and
+   `com.google.firebase.MESSAGING_EVENT`, and
    `package.json` for `@react-native-firebase/messaging`, `react-native-onesignal`,
    or another push SDK. RN apps commonly already have a transactional channel,
    and it usually matters more to the business than the marketing push being
@@ -603,6 +668,11 @@ and `[IterableAppIntegration userNotificationCenter:didReceiveNotificationRespon
 - **Permission is asked at launch, natively** — the `requestAuthorization` line
   above; neither the SDK nor the template asks (pitfall #22). Don't add a
   permission package for it.
+- **The app already has iOS push?** If the developer keeps it (Step 0), forward
+  from its callbacks as `iterable-ios` rule 8 says. `ios-verify` then lists
+  `existing-push-coexistence` in `verification_limitations`. After Iterable's
+  proof passes, offer the optional check that the app's own notifications still
+  show, and run it only if they ask. It never blocks the integration.
 - **Token registration is the SDK's, after identity.** There is no
   `Iterable.registerForPush()` or any other JavaScript registration call
   (pitfall #21). With the default `autoPushRegistration`, the SDK asks for the
@@ -639,6 +709,35 @@ and `[IterableAppIntegration userNotificationCenter:didReceiveNotificationRespon
   `CODE_SIGNING_ALLOWED=NO`, `CODE_SIGNING_REQUIRED=NO` or `CODE_SIGN_IDENTITY=""`:
   an unsigned app carries no `aps-environment` and never gets a token
   (pitfall #20).
+- **Proof identity marker (temporary):** when push is in scope, add this to
+  `AppDelegate.swift` and call it as the last line of
+  `application(_:didFinishLaunchingWithOptions:)`, before `return true`. At
+  proof time the verifier relaunches the app with `-iterableProofIdentity YES`
+  and reads the identity from the Simulator's log, as in `iterable-ios`
+  (*The proof identity marker*). It reads the native SDK, not JavaScript: the
+  identity is stored natively once `Iterable.initialize` and `setEmail` /
+  `setUserId` have run, and the app delegate starts before the JavaScript
+  bundle does, so it checks once a second until the SDK holds an identity. The
+  launch argument gates it, because the proved build is Release.
+
+  ```swift
+  // AppDelegate.swift — temporary: remove once the push is proved.
+  import os
+
+  private func logIterableProofIdentity(attempt: Int = 0) {
+    guard UserDefaults.standard.bool(forKey: "iterableProofIdentity") else { return }
+    if let identity = IterableAPI.userId ?? IterableAPI.email {
+      os_log("ITBL_PROOF identity=%{public}@", identity)
+    } else if attempt < 30 {
+      DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+        self.logIterableProofIdentity(attempt: attempt + 1)
+      }
+    }
+  }
+  ```
+
+  Remove it once the push is proved, as the last step of the handoff;
+  `ios-verify inspect` warns `proof_identity_marker_present` while it remains.
 
 Native push / APNs / FCM / `POST_NOTIFICATIONS` steps are in the installing
 and push (or expo) reference docs — do them as part of this skill when push
@@ -733,13 +832,12 @@ source — it is already on disk.**
 | ---------------------------- | ---- |
 | What the RN SDK covers, architecture, JS vs native | `overview` |
 | First-time setup, npm install, iOS + Android native project setup, `Iterable.initialize` | `installing` (bare; skip `## Upgrading the SDK` unless they are upgrading, and on React Native 0.82+ skip `## Configuring React Native's New Architecture` — see [Install](#install--android-first)). Expo: `expo` |
-| Upgrading from an older RN SDK version | `installing` → `## Upgrading the SDK`, or `migrating` |
 | Expo / `expo prebuild` / config plugin | `expo` |
 | JWT, `authHandler`, JWT-enabled API keys | `authentication` |
-| `setEmail`, `setUserId`, login / logout | `managing-user-identity` |
+| `setEmail`, `setUserId`, login / logout | `managing-user-identity`; the rules behind it are in [Decisions](#decisions-read-before-recommending) |
 | `updateUser`, profile fields, subscription preferences | `user-profile-data-and-subscription-preferences` |
 | FCM / APNs push, notification permission, device registration | `push-notifications` |
-| The app **already** sends push (`@react-native-firebase/messaging`, another vendor SDK, a hand-written `FirebaseMessagingService`) | **No slug covers this** — the forwarding contract lives on the native Android side. Use rule 8 and [`PITFALLS.md`](PITFALLS.md) #15, and verify against the merged manifest. |
+| The app **already** sends push (`@react-native-firebase/messaging`, another vendor SDK, a hand-written `FirebaseMessagingService`) | No RN slug: the forwarding contract is `../iterable-android/reference/setting-up-android-push-notifications.md` → `#### Handling Firebase push messages and tokens`. Use rule 8 and [`PITFALLS.md`](PITFALLS.md) #15, and verify against the merged manifest. |
 | In-app messages | `in-app-messages` |
 | Mobile inbox | `mobile-inbox` |
 | Deep links, custom actions, `urlHandler` | `deep-links-and-custom-actions` |
@@ -753,8 +851,6 @@ See [If they don't have an input yet](#if-they-dont-have-an-input-yet).
 
 | If the user is asking about… | Slug |
 | ---------------------------- | ---- |
-| Creating a mobile API key, key types, client-side key security, key scope | `api-keys` |
-| Turning on JWT for a key, the shared secret, token claims and expiry | `jwt-enabled-api-keys` |
 | Creating a Firebase service account, FCM JSON private key, defining a mobile app in Iterable, configuring the push integration, sandbox projects | `fcm-http-v1-migration` (read `## Step 1`, `### Step 2.4`–`### Step 2.7`; Android/FCM only) |
 | Creating or finding a placement ID in the dashboard | `embedded-message-placements` |
 | Embedded message subscription channels and message types | `embedded-message-subscription-channels` |

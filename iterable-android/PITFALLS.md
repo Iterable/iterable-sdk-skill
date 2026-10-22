@@ -301,9 +301,12 @@ hot-path subset; the full list lives here and is loaded on demand.
   email-shaped field in the app (a license email, account email, etc.). For
   most users that field is `null`, so `setEmail(null)` runs and the user is
   never identified. Identity source cannot be inferred from the codebase.
-- **Fix:** Ask the developer two things: which identifier (`setEmail` vs
-  `setUserId`) and where its value comes from. If there's no real account
-  system, a stable per-install `userId` (a persisted UUID) is a common answer.
+- **Fix:** Ask the project type first, then which identifier (`setEmail` vs
+  `setUserId`) and where its value comes from (SKILL.md, Step 0 → Identity). A
+  `userId` follows `reference/user-id-validation-in-iterable.md`: the account's
+  stable internal ID, or a random UUID; never an email, handle, or other PII.
+  With no account system, a persisted per-install UUID qualifies, but every
+  reinstall or new device is a new Iterable user, so confirm that first.
   Identify from the login/restore flow inside `IterableApi.onSDKInitialized { }`,
   never in the init callback (pitfall #2). Use one mode consistently (pitfall
   #12).

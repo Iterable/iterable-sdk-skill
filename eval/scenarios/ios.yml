@@ -413,7 +413,7 @@ scenarios:
   - id: contextual-notification-permission
     title: Request notification permission after a real product value moment
     prompt: >-
-      Ask Dog Shelter users to enable adoption alerts after they save their
+      Ask Sample Shop users to enable adoption alerts after they save their
       first favorite. They must be able to choose Not Now, recover later from
       settings, and keep the preference separate across accounts. Implement
       and test the complete product flow without prompting at launch.

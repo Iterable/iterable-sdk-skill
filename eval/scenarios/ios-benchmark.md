@@ -1,6 +1,6 @@
-# iOS benchmark rules — Dog Shelter trials
+# iOS benchmark rules — Sample Shop trials
 
-These rules come from the controlled iOS integration trials (the Dog Shelter
+These rules come from the controlled iOS integration trials (the Sample Shop
 adoption app: email identity, favorites, adoption alerts, several accounts on
 one device). They are that product's policy plus the scoring bar for
 [`ios.yml`](ios.yml). **They are not requirements for every Iterable iOS

@@ -88,10 +88,10 @@ commit:
   important question in the review. The pitfalls encode silent-failure traps;
   if Iterable's docs now recommend something a pitfall warns against, one of the
   two is wrong. Fix it promptly — a corpus that argues with itself is live.
-- [ ] **Did headings move?** `SKILL.md`'s routing table points at slugs, and the
-  upgrade row points at `## Upgrading the SDK` inside `android-sdk`. If a
-  referenced section was renamed, the routing table now points at nothing —
-  fix it in a follow-up.
+- [ ] **Did headings move?** `tests/decision-docs.sh` fails when a slug or
+  section named in a Step 0 decisions table stops resolving. The routing tables
+  further down `SKILL.md` aren't checked: if a section they name was renamed,
+  they now point at nothing — fix it in a follow-up.
 - [ ] **The transform only reshaped, never changed meaning.** Boilerplate
   removed, callouts converted, blank lines collapsed — but no claim added,
   weakened, or reversed. A *content* change not explained by an upstream edit

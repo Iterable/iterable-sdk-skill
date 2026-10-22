@@ -158,7 +158,7 @@ json_value() {
 }
 
 : > "$STATE/calls"
-fresh="$(run_ios status --offline --bundle-id com.example.dogshelter)"
+fresh="$(run_ios status --offline --bundle-id com.example.sampleshop)"
 if [[ "$(json_value "$fresh" next.kind)" == choose_features &&
       "$(json_value "$fresh" scope.present)" == false &&
       "$(json_value "$fresh" next.question.selection)" == multiple &&
@@ -287,8 +287,10 @@ if [[ "$(json_value "$answered_identity" next.kind)" == choose_region &&
       const status = JSON.parse(process.argv[1]);
       const question = status.next.question;
       process.exit(
-        question.context.some(line => line.includes("Region: EU")) &&
-        question.context.some(line => line.includes("JWT required: true")) &&
+        question.prompt.split("\n").includes("Region: EU") &&
+        question.prompt.split("\n").includes("JWT required: true") &&
+        question.prompt.split("\n").pop()==="Use this Iterable integration scope?" &&
+        !question.context.join("\n").includes("Region:") &&
         question.options[0].commands.some(command =>
           command.includes("record-scope --from-answers --confirm")
         ) ? 0 : 1
@@ -304,7 +306,7 @@ standalone_confirmation="$(
 )"
 if node -e '
   const question=JSON.parse(process.argv[1]);
-  const text=question.context.join("\n");
+  const text=question.prompt;
   process.exit(
     text.includes("deep-linking") &&
     text.includes("event-tracking") &&
@@ -480,11 +482,11 @@ else
   bad "Mobile-key capture ran independently of the state machine"
 fi
 
-flag_only="$(run_ios status --bundle-id com.example.dogshelter)"
+flag_only="$(run_ios status --bundle-id com.example.sampleshop)"
 run_ios record-apple-setup --strategy guided-manual --confirm \
   >"$ROOT/flag-only-apple.out" 2>"$ROOT/flag-only-apple.err"
 flag_only_apple_rc=$?
-run_ios record-target --bundle-id com.example.dogshelter --confirm \
+run_ios record-target --bundle-id com.example.sampleshop --confirm \
   >"$ROOT/no-name.out" 2>"$ROOT/no-name.err"
 no_name_rc=$?
 if [[ "$(json_value "$flag_only" next.kind)" == choose_bundle &&
@@ -502,8 +504,8 @@ fi
 
 targeted="$(
   run_ios record-target \
-    --bundle-id com.example.dogshelter \
-    --name 'Dog Shelter' \
+    --bundle-id com.example.sampleshop \
+    --name 'Sample Shop' \
     --confirm
 )"
 if [[ "$(json_value "$targeted" next.kind)" == choose_apple_setup &&
@@ -520,11 +522,11 @@ run_ios import-apns \
   --confirm >"$ROOT/early-apns.out" 2>"$ROOT/early-apns.err"
 early_apns_rc=$?
 run_ios record-iterable-push \
-  --bundle-id com.example.dogshelter \
+  --bundle-id com.example.sampleshop \
   --confirm >"$ROOT/early-push.out" 2>"$ROOT/early-push.err"
 early_push_rc=$?
 run_ios record-iterable-app \
-  --bundle-id com.example.dogshelter \
+  --bundle-id com.example.sampleshop \
   --source created \
   --confirm >"$ROOT/early-app.out" 2>"$ROOT/early-app.err"
 early_app_rc=$?
@@ -1036,7 +1038,7 @@ else
 fi
 
 : > "$STATE/calls"
-online="$(run_ios status --bundle-id com.example.dogshelter)"
+online="$(run_ios status --bundle-id com.example.sampleshop)"
 if [[ "$(json_value "$online" next.kind)" == import_apns &&
       "$(json_value "$online" next.question.free_text.command)" == \
         *"import-apns --file '{{answer}}' --confirm" &&
@@ -1068,7 +1070,7 @@ nonpush="$(
     PATH="$NO_ASC_BIN:/usr/bin:/bin" \
     ASC_TEST_STATE="$STATE" \
     IOS_WORKSPACE="$nonpush_workspace" \
-    bin/ios-provision status --offline --bundle-id com.example.dogshelter
+    bin/ios-provision status --offline --bundle-id com.example.sampleshop
 )"
 if [[ "$(json_value "$nonpush" next.kind)" == integrate_app &&
       "$(json_value "$nonpush" scope.push_required)" == false &&
@@ -1085,7 +1087,7 @@ without_npx="$(
     PATH="$NO_NPX_BIN:/usr/bin:/bin" \
     ASC_TEST_STATE="$STATE" \
     IOS_WORKSPACE="$nonpush_workspace" \
-    bin/ios-provision status --offline --bundle-id com.example.dogshelter
+    bin/ios-provision status --offline --bundle-id com.example.sampleshop
 )"
 if [[ "$(json_value "$without_npx" next.kind)" == integrate_app &&
       "$(json_value "$without_npx" tools.npx)" == false ]]; then
@@ -1102,7 +1104,7 @@ nested_status="$(
       PATH="$FAKEBIN:$PATH" \
       ASC_TEST_STATE="$STATE" \
       "$OLDPWD/bin/ios-provision" status --offline \
-        --bundle-id com.example.dogshelter
+        --bundle-id com.example.sampleshop
 )"
 nested_workspace="$(json_value "$nested_status" workspace)"
 if [[ "$nested_workspace" == "$nested_project/.iterable/ios" ]]; then
@@ -1115,7 +1117,7 @@ fi
 env \
   PATH="$FAKEBIN:$PATH" \
   ASC_TEST_STATE="$STATE" \
-  bin/ios-provision status --offline --bundle-id com.example.dogshelter \
+  bin/ios-provision status --offline --bundle-id com.example.sampleshop \
   >"$ROOT/tool-root.out" 2>"$ROOT/tool-root.err"
 tool_root_rc=$?
 if [[ "$tool_root_rc" -eq 30 && ! -s "$ROOT/tool-root.out" ]]; then
@@ -1209,7 +1211,7 @@ iterable_app_question="$(
 )"
 app_recorded="$(
   run_ios record-iterable-app \
-    --bundle-id com.example.dogshelter \
+    --bundle-id com.example.sampleshop \
     --source created \
     --confirm
 )"
@@ -1226,9 +1228,9 @@ if [[ "$(json_value "$app_recorded" next.kind)" == configure_iterable_push &&
         process.exit(
           context.includes("Step 1 of 2 — Create the iOS mobile app") &&
           context.includes("https://app.iterable.com/integrations/mobileApps/create") &&
-          context.includes("Name: Dog Shelter") &&
+          context.includes("Name: Sample Shop") &&
           context.includes("Platform: iOS") &&
-          context.includes("Bundle ID: com.example.dogshelter") ? 0 : 1
+          context.includes("Bundle ID: com.example.sampleshop") ? 0 : 1
         );
       });
     '; then
@@ -1256,7 +1258,7 @@ if printf '%s' "$push_dashboard_question" | node -e '
       context.includes(process.argv[1]) &&
       context.includes("Key ID: APNSKEY001") &&
       context.includes("Team ID: TEAMID0001") &&
-      context.includes("Bundle ID: com.example.dogshelter") ? 0 : 1
+      context.includes("Bundle ID: com.example.sampleshop") ? 0 : 1
     );
   });
 ' "$canonical_apns_path"; then
@@ -1265,8 +1267,8 @@ else
   bad "Iterable APNs setup omitted the upload path or Apple identifiers"
 fi
 
-mkdir -p "$STATE/DogShelter.app"
-proof_app_path="$(cd "$STATE/DogShelter.app" && pwd -P)"
+mkdir -p "$STATE/SampleShop.app"
+proof_app_path="$(cd "$STATE/SampleShop.app" && pwd -P)"
 proof_start="$(run_ios proof-status)"
 if [[ "$(json_value "$proof_start" proposed.proof_mode)" == behavioral &&
       "$(json_value "$proof_start" next.kind)" == proof_environment &&
@@ -1275,7 +1277,7 @@ if [[ "$(json_value "$proof_start" proposed.proof_mode)" == behavioral &&
 else
   bad "proof setup exposed its internal verification mode as a user decision"
 fi
-run_ios proof-answer --field bundle-id --value com.example.dogshelter >/dev/null
+run_ios proof-answer --field bundle-id --value com.example.sampleshop >/dev/null
 run_ios proof-answer --field environment --value development >/dev/null
 run_ios proof-answer --field identity --value ios-proof@example.com >/dev/null
 touch "$STATE/use-simulator"
@@ -1353,8 +1355,8 @@ run_ios_in "$order_workspace" record-scope \
   --jwt-enabled false \
   --confirm >/dev/null
 run_ios_in "$order_workspace" record-target \
-  --bundle-id com.example.dogshelter \
-  --name 'Dog Shelter' \
+  --bundle-id com.example.sampleshop \
+  --name 'Sample Shop' \
   --confirm >/dev/null
 run_ios_in "$order_workspace" record-apple-setup \
   --strategy guided-manual \
@@ -1362,21 +1364,21 @@ run_ios_in "$order_workspace" record-apple-setup \
 order_question="$(
   run_ios_in "$order_workspace" question \
     --kind confirm_manual_apple \
-    --bundle-id com.example.dogshelter
+    --bundle-id com.example.sampleshop
 )"
 run_ios_in "$order_workspace" record-apple-readiness \
   --strategy guided-manual \
   --confirm >/dev/null
 provider_ready="$(
   run_ios_in "$order_workspace" status \
-    --bundle-id com.example.dogshelter
+    --bundle-id com.example.sampleshop
 )"
 provider_imported="$(
   run_ios_in "$order_workspace" import-apns \
     --file "$ROOT/AuthKey_APNSKEY001.p8" \
     --key-id APNSKEY001 \
     --team-id TEAMID0001 \
-    --bundle-id com.example.dogshelter \
+    --bundle-id com.example.sampleshop \
     --confirm
 )"
 if [[ "$(json_value "$order_question" options.0.label)" == "I don't have these yet — walk me through it" &&
@@ -1607,7 +1609,7 @@ fi
 
 push_recorded="$(
   run_ios record-iterable-push \
-    --bundle-id com.example.dogshelter \
+    --bundle-id com.example.sampleshop \
     --confirm
 )"
 if [[ "$(json_value "$push_recorded" iterable_push.recorded_for_target)" == true &&
@@ -1656,7 +1658,7 @@ fi
 cp "$ROOT/AuthKey_APNSKEY001.p8" "$ROOT/AuthKey_APNSKEY001.backup"
 printf 'not a private key\n' > "$ROOT/AuthKey_APNSKEY001.p8"
 chmod 600 "$ROOT/AuthKey_APNSKEY001.p8"
-invalidated="$(run_ios status --bundle-id com.example.dogshelter)"
+invalidated="$(run_ios status --bundle-id com.example.sampleshop)"
 mv "$ROOT/AuthKey_APNSKEY001.backup" "$ROOT/AuthKey_APNSKEY001.p8"
 if [[ "$(json_value "$invalidated" apns.private_key_valid)" == false &&
       "$(json_value "$invalidated" next.kind)" == import_apns ]]; then
@@ -1669,7 +1671,7 @@ cp "$ROOT/AuthKey_APNSKEY001.p8" "$ROOT/AuthKey_APNSKEY001.backup"
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 \
   -out "$ROOT/AuthKey_APNSKEY001.p8" 2>/dev/null
 chmod 600 "$ROOT/AuthKey_APNSKEY001.p8"
-rsa_invalidated="$(run_ios status --bundle-id com.example.dogshelter)"
+rsa_invalidated="$(run_ios status --bundle-id com.example.sampleshop)"
 mv "$ROOT/AuthKey_APNSKEY001.backup" "$ROOT/AuthKey_APNSKEY001.p8"
 if [[ "$(json_value "$rsa_invalidated" apns.private_key_valid)" == false &&
       "$(json_value "$rsa_invalidated" next.kind)" == import_apns ]]; then

@@ -5,7 +5,7 @@
 09-21 11:54:18.861 11752 11793 V IterableRequest:   "platform": "Android",
 09-21 11:54:18.861 11752 11793 V IterableRequest:   "SDKVersion": "3.10.1",
 09-21 11:54:18.861 11752 11793 V IterableRequest:   "systemVersion": "16",
-09-21 11:54:18.861 11752 11793 V IterableRequest:   "packageName": "com.dogshelter",
+09-21 11:54:18.861 11752 11793 V IterableRequest:   "packageName": "com.sampleshop",
 09-21 11:54:18.861 11752 11793 V IterableRequest:   "createdAt": 1789988058
 09-21 11:54:18.861 11752 11793 V IterableRequest: }
 09-21 11:54:18.861 11752 11793 V IterableRequest:  💛 ======================================
@@ -26,7 +26,7 @@
 09-21 11:54:18.875 11752 11797 V IterableRequest:   "device": {
 09-21 11:54:18.875 11752 11797 V IterableRequest:     "token": "<redacted-by-fixture>",
 09-21 11:54:18.875 11752 11797 V IterableRequest:     "platform": "GCM",
-09-21 11:54:18.875 11752 11797 V IterableRequest:     "applicationName": "com.dogshelter",
+09-21 11:54:18.875 11752 11797 V IterableRequest:     "applicationName": "com.sampleshop",
 09-21 11:54:18.875 11752 11797 V IterableRequest:     "dataFields": {
 09-21 11:54:18.875 11752 11797 V IterableRequest:       "tokenRegistrationType": "FCM",
 09-21 11:54:18.875 11752 11797 V IterableRequest:       "firebaseCompatible": true,
@@ -37,7 +37,7 @@
 09-21 11:54:18.875 11752 11797 V IterableRequest:       "model": "sdk_gphone64_arm64",
 09-21 11:54:18.875 11752 11797 V IterableRequest:       "sdkVersion": 36,
 09-21 11:54:18.875 11752 11797 V IterableRequest:       "deviceId": "8d6ab09e-ac52-4075-890a-19c64aa31a1e",
-09-21 11:54:18.875 11752 11797 V IterableRequest:       "appPackageName": "com.dogshelter",
+09-21 11:54:18.875 11752 11797 V IterableRequest:       "appPackageName": "com.sampleshop",
 09-21 11:54:18.875 11752 11797 V IterableRequest:       "appVersion": "1.0",
 09-21 11:54:18.875 11752 11797 V IterableRequest:       "appBuild": "1",
 09-21 11:54:18.875 11752 11797 V IterableRequest:       "iterableSdkVersion": "3.10.1",
@@ -53,13 +53,13 @@
 09-21 11:54:18.903 11752 11752 W HWUI    : Unknown dataspace 0
 09-21 11:54:18.926 11752 11752 D IterableBackgroundInit:  💚 Initialization completed successfully, notifying callbacks after 396ms
 09-21 11:54:18.928 11752 11752 D IterableInitCallbackMgr:  💚 Called subscriber (immediate) callback on main thread
-09-21 11:54:19.157 11752 11752 W com.dogshelter: Method java.lang.Object androidx.compose.runtime.snapshots.SnapshotStateMap.mutate(kotlin.jvm.functions.Function1) failed lock verification and will run slower.
-09-21 11:54:19.157 11752 11752 W com.dogshelter: Common causes for lock verification issues are non-optimized dex code
-09-21 11:54:19.157 11752 11752 W com.dogshelter: and incorrect proguard optimizations.
-09-21 11:54:19.158 11752 11752 W com.dogshelter: Method void androidx.compose.runtime.snapshots.SnapshotStateMap.update(kotlin.jvm.functions.Function1) failed lock verification and will run slower.
-09-21 11:54:19.158 11752 11752 W com.dogshelter: Method boolean androidx.compose.runtime.snapshots.SnapshotStateMap.removeIf$runtime_release(kotlin.jvm.functions.Function1) failed lock verification and will run slower.
+09-21 11:54:19.157 11752 11752 W com.sampleshop: Method java.lang.Object androidx.compose.runtime.snapshots.SnapshotStateMap.mutate(kotlin.jvm.functions.Function1) failed lock verification and will run slower.
+09-21 11:54:19.157 11752 11752 W com.sampleshop: Common causes for lock verification issues are non-optimized dex code
+09-21 11:54:19.157 11752 11752 W com.sampleshop: and incorrect proguard optimizations.
+09-21 11:54:19.158 11752 11752 W com.sampleshop: Method void androidx.compose.runtime.snapshots.SnapshotStateMap.update(kotlin.jvm.functions.Function1) failed lock verification and will run slower.
+09-21 11:54:19.158 11752 11752 W com.sampleshop: Method boolean androidx.compose.runtime.snapshots.SnapshotStateMap.removeIf$runtime_release(kotlin.jvm.functions.Function1) failed lock verification and will run slower.
 09-21 11:54:19.332 11752 11797 V IterableRequest:  💛 ======================================
-09-21 11:54:19.384   687  1224 D CoreBackPreview: Window{6ff00c1 u0 com.dogshelter/com.dogshelter.MainActivity}: Setting back callback OnBackInvokedCallbackInfo{mCallback=android.window.IOnBackInvokedCallback$Stub$Proxy@c1a6c54, mPriority=0, mIsAnimationCallback=false, mOverrideBehavior=0}
+09-21 11:54:19.384   687  1224 D CoreBackPreview: Window{6ff00c1 u0 com.sampleshop/com.sampleshop.MainActivity}: Setting back callback OnBackInvokedCallbackInfo{mCallback=android.window.IOnBackInvokedCallback$Stub$Proxy@c1a6c54, mPriority=0, mIsAnimationCallback=false, mOverrideBehavior=0}
 09-21 11:54:19.444 11752 11794 V IterableRequest:  💛 <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 09-21 11:54:19.444 11752 11794 V IterableRequest: Response from : https://api.iterable.com/api/mobile/getRemoteConfiguration
 09-21 11:54:19.444 11752 11794 V IterableRequest:  💛 {

@@ -67,23 +67,85 @@ and that is a question to ask if they raise it, not up front.
 project already depends on `com.iterable:iterableapi`, the scope question above
 is the wrong one — they have working code and a version to move off. Ask which
 version they're on and what they want out of the upgrade, then follow the
-upgrade row in the slug table. The always-on rules still apply (existing
-integrations frequently violate rules 2 and 3), but don't re-derive their
-integration from scratch.
+upgrade row in the [decisions table](#decisions-read-before-recommending). The
+always-on rules still apply (existing integrations frequently violate rules 2
+and 3), but don't re-derive their integration from scratch.
 
 **And check whether the app already sends push without Iterable.** Grep for
 `FirebaseMessagingService` and `com.google.firebase.MESSAGING_EVENT` before
 scoping push work. If either is present the app has a push channel of its own —
 often transactional (order status, shipping, security codes) and more important
-to the business than the marketing push being added. That is an integration
-constraint, not a thing to replace: rule 8 has the shape. Say what you found
-and confirm the plan before editing their service.
+to the business than the marketing push being added. Say what you found and
+ask: "Keep your app's own notifications working alongside Iterable's, or use
+Iterable notifications only?" **Keep both** (recommend it when their push is
+transactional): their service forwards only Iterable payloads to Iterable
+(rule 8). **Iterable only:** propose, in the one diff they confirm, how their
+service and provider stop handling pushes, and touch nothing until they
+confirm it.
 
 Confirm the scope, *then* run Preflight for the inputs that scope needs, *then*
 build. "Finish, don't stub" (below) applies to **the scope you agreed on** —
 it is not licence to implement every feature unprompted. After delivering the
 agreed scope, it's fine to offer next steps — but the initial scope is a
 question, not an assumption.
+
+### Identity: project type first
+
+Ask which kind of Iterable project the app sends to, per
+`project-types-and-unique-identifiers`:
+
+- **Hybrid**: `email` and `userId` are both unique identifiers.
+- **UserID-based**: `userId` only.
+- **Email-based**: `email` only; limited availability (some older US-hosted
+  organizations).
+- **I don't have a project yet / I don't know — help me.**
+
+For an existing project, also ask which identifier their backend, CRM, or other
+SDKs already send to Iterable, and reuse exactly that value: another value is
+another user. Decide from what a signed-in session holds, not what sign-up asks
+for: an app that asks for an email only at sign-up has none to pass later.
+**Help me** means inspect, then recommend: what identifier exists after *every*
+sign-in path, a restored session included, and what the app's other SDKs
+already identify the user with. Recommend a project type and identity mode from
+that, citing the docs in the table below. With no project yet, guide creating
+one and warn that its type can't be changed later.
+
+A `userId` is the app's own stable internal account ID when it meets
+`user-id-validation-in-iterable` → `### User ID best practices`, otherwise a
+random UUID created once per account and stored with it. Never an email, phone
+number, username, or handle, nothing built from them, and nothing sequential.
+An app with no accounts can use a persisted per-install UUID (that doc lists
+random UUIDs), but every reinstall or new device becomes a new Iterable user;
+say so and confirm it. That doc's 128-character limit supersedes
+`identifying-the-user`'s "52 characters" and its "email recommended".
+
+### Decisions: read before recommending
+
+Before recommending an option for a decision below, open the named section and
+cite it in the option ("per `user-id-validation-in-iterable`"). If no shipped
+doc covers a decision, offer no recommendation and say so. Slugs are
+`reference/<slug>.md`.
+
+| Decision | Read |
+|---|---|
+| New integration or upgrade | `android-sdk` → `## Upgrading the SDK` (newest-first: read every entry newer than their version, after asking which one) |
+| Project type | `project-types-and-unique-identifiers` → `### Choosing a project type`, `#### Project type availability` |
+| Identity mode, and which app value supplies it | `project-types-and-unique-identifiers` → `### Comparing project types`; `user-id-validation-in-iterable` → `### User ID best practices`; `identifying-the-user` |
+| An existing client's identifier | `creating-users-with-apis` → `## Understanding user identification in API requests`; `updating-a-users-email-address` |
+| Unknown users | `configure-the-android-sdk` → `## Step 3`; `setting-up-unknown-user-activation`; `handling-anonymous-users` |
+| Data region | `android-sdk` → `#### Step 5.2`; `european-data-center` → `## Signing in to Iterable: region-specific URLs` |
+| Key type | `api-keys` → `### Selecting a key type`, `#### Mobile` |
+| JWT | `api-keys` → `#### JWT authentication`; `jwt-enabled-api-keys` |
+| Event creation | `api-keys` → `#### Event Creation` |
+| FCM type | `setting-up-android-push-notifications` → `#### Step 3.3` |
+| Push integration name | `android-sdk` → `#### Step 5.5` |
+| Notification permission | `setting-up-android-push-notifications` → `## Android 13: Push notification permissions` |
+| Existing push | `setting-up-android-push-notifications` → `#### Handling Firebase push messages and tokens` |
+| Deep links | `android-sdk` → `#### Step 5.3`; `android-app-links` |
+| Profile fields | `updating-user-profiles`; `user-profile-fields-used-by-iterable` → `## Other reserved field names` |
+| Events | `tracking-events-with-iterables-mobile-sdks` → `## Custom event names` |
+| Logout | `handling-anonymous-users` → `## Best practices for handling anonymous users`; `tracking-events-with-iterables-mobile-sdks` → `### Multiple users` |
+| Test identity | `project-types-and-unique-identifiers` → `### Checking the unique identifier for a project`; `setting-up-android-push-notifications` → `#### Step 3.4` |
 
 ## Definition of done — finish the agreed scope, don't stub it
 
@@ -168,8 +230,9 @@ done.
 > interactive question tool (in Claude Code, `AskUserQuestion`; in Cursor,
 > `AskQuestion`), use it so they get interactive choices instead of a plain-text
 > list they must answer by typing. Offer realistic options with a short
-> description each (e.g. identity: "Stable per-install UUID via `setUserId`" /
-> "Account email via `setEmail`"; region: "US" / "EU"). With those tools,
+> description each (e.g. identity: "The account's stable ID via `setUserId`,
+> per `user-id-validation-in-iterable`" / "Account email via `setEmail`";
+> region: "US" / "EU"). With those tools,
 > **offer at most 4 options per question** — they reject more than 4 and the
 > call fails with an "invalid parameters" error; if you have more than 4, group
 > them or split into a second question. If no such tool is available, ask in
@@ -180,9 +243,9 @@ done.
 |---|---|---|
 | **`google-services.json`** (real, from the developer's Firebase Console) | Any push / FCM work — the `com.google.gms.google-services` plugin **fails the build without it** | **Route into `iterable-provision`**, which downloads the real one for their project and package; if it isn't installed, STOP and ask. Either way you cannot generate it. Once you have it, check its `client[].client_info.android_client_info.package_name` against the module's `applicationId` **before building** — a mismatch fails the build with a message about the file, not about the mismatch. Also confirm it's gitignored or intended to be committed; it usually isn't ignored by default. |
 | **Mobile API key** | Always | Ask where it lives; expect `local.properties` (gitignored). Never hardcode. If the file **already** has a key, don't assume it's this project's — show the developer what you found and have them confirm it (pitfall #16). |
-| **Identity model** — `setEmail` vs `setUserId`, and where the value comes from | Always | Ask. Never guess (e.g. grabbing a license email). See rule 7. |
+| **Identity model** — `setEmail` vs `setUserId`, and where the value comes from | Always | [Project type first](#identity-project-type-first). Never guess (e.g. grabbing a license email). See rule 7. |
 | **JWT?** — is the mobile key JWT-protected? | Always | Ask, and **assume yes until told otherwise**: JWT is selected *by default* when a client-side key is created, and the setting can never be changed afterwards. If yes, an auth handler is mandatory (rule 1) **and the team needs a backend endpoint that mints the tokens** — if they don't have one, that is a blocker to raise, not something to work around (pitfall #22). |
-| **Data region** — US or EU | Always | Ask if their dashboard is `app.eu.iterable.com`. See pitfall #8. |
+| **Data region** — US or EU | Always | Ask if they sign in at `app.eu.iterable.com` (`european-data-center`). See pitfall #8. |
 | **Push integration name** | Push, if it differs from the package name | Ask. See pitfall #9. |
 | **Placement IDs** | Embedded messages | Ask — they're dashboard-assigned numbers. See pitfall #10. |
 
@@ -277,10 +340,8 @@ uploaded to it. That doc is *framed* as a migration, but `### Step 2.4`–`### S
 sandbox project to test in before touching production. Read those sections; skip
 the legacy-key migration narrative around them.
 
-Two things these docs do **not** settle, so keep asking the developer:
-**data region** (confirm it from their dashboard URL — `app.eu.iterable.com`
-means EU; see pitfall #8) and **`google-services.json`**, which comes from their
-Firebase Console and cannot be generated.
+These docs do **not** settle `google-services.json`: it comes from the
+developer's Firebase Console and cannot be generated.
 
 ---
 
@@ -390,7 +451,8 @@ app already had. Full explanations and the remaining ~15 traps are in
    #16). Confirm the key is a **mobile** key, not server-side — a server key in
    an app exposes the whole project.
 
-7. **Never assume how the app identifies a user — ask.** The identifier
+7. **Never assume how the app identifies a user — ask** the project type
+   first ([Step 0](#identity-project-type-first)). The identifier
    (`setEmail` vs `setUserId`) and its source are app-specific and cannot be
    inferred from the codebase. Do **not** wire identity to the first
    email-shaped field you find (e.g. a license/account email) — that often
@@ -401,6 +463,10 @@ app already had. Full explanations and the remaining ~15 traps are in
 
 8. **If the app already has its own `FirebaseMessagingService`, forward to
    Iterable from it — never replace, delete, or `tools:node="remove"` it.**
+   That is Step 0's **Keep both** answer, the default to recommend when their
+   push is transactional. For **Iterable only**, propose in the one confirmed
+   diff how their service and provider stop handling pushes, and touch nothing
+   until the developer confirms it.
    Before touching push, grep for `FirebaseMessagingService` and
    `com.google.firebase.MESSAGING_EVENT`. FCM delivers to **one** service, and
    the SDK registers `IterableFirebaseMessagingService` at
@@ -429,6 +495,12 @@ app already had. Full explanations and the remaining ~15 traps are in
    (`app/build/intermediates/merged_manifests/.../AndroidManifest.xml`) rather
    than assuming. See `setting-up-android-push-notifications` → `#### Handling
    Firebase push messages and tokens`, and pitfall #23.
+
+   If they kept their push, offer one optional check after
+   `iterable-android-verify` proves Iterable's push: they trigger one of the
+   app's own notifications and confirm it shows. Run it only if they ask.
+   Iterable's proof alone completes the integration; the verifier's `done`
+   summary carries the offer when it finds the app's own push path.
 
 ---
 
@@ -469,10 +541,9 @@ object IterableTracker {
         }
     }
 
-    // Account-less / local-first apps (common; the UUA doc is for
-    // anonymous→identified *upgrades*, not this): generate a stable per-install
-    // UUID once and persist it. Each reinstall = a new Iterable user — confirm
-    // that's acceptable with the developer.
+    // Account-less apps only (UUA is for anonymous→identified upgrades). A random UUID is
+    // a valid userId (user-id-validation-in-iterable), but each reinstall or new device is
+    // a new Iterable user: confirm that. Apps with accounts pass the account's stable ID.
     fun stableUserId(context: Context): String {
         val prefs = context.getSharedPreferences("iterable", Context.MODE_PRIVATE)
         return prefs.getString("user_id", null) ?: java.util.UUID.randomUUID().toString()
@@ -494,7 +565,7 @@ override fun onCreate() {
     IterableTracker.initialize(
         this,
         BuildConfig.ITERABLE_API_KEY,
-        IterableTracker.stableUserId(this),
+        IterableTracker.stableUserId(this), // account-less; signed-in apps: the Variant below
     )
 }
 ```
@@ -669,7 +740,6 @@ the version they're on.
 | If the user is asking about… | Slug |
 | ---------------------------- | ---- |
 | First-time setup, dependencies, gradle setup, `IterableApi.initializeInBackground`, `IterableConfig` builder | `android-sdk` (read `## Installing the SDK`; skip `## Upgrading the SDK`) |
-| Upgrading an existing integration from an older SDK version | `android-sdk` → `## Upgrading the SDK`. Entries run newest-first (`### Upgrading to 3.10.0` down to `3.2.0`); read every entry **newer than** the version they're on and stop there. Ask their current version first — don't guess it. |
 | `IterableConfig` options: `setDataRegion`, log level, handlers | `android-sdk` → `### Step 5: Set SDK configuration options` |
 | Allowed URL protocols (`setAllowedProtocols`) | `android-sdk` → `#### Step 5.3: Set allowed URL protocols` — then rule 5: only `https` is implicit |
 | Unknown User Activation configuration and consent | `configure-the-android-sdk` |
@@ -684,9 +754,8 @@ the version they're on.
 | Android App Links (verified domains, `assetlinks.json`, `handleAppLink`) | `android-app-links`, with the corrected names in [Deep links and App Links](#deep-links-and-app-links) |
 | Branch or AppsFlyer deep links | `deep-linking-with-partners` (links out to those integrations) |
 | `track`, `trackPurchase`, `updateCart`, custom event payloads | `tracking-events-with-iterables-mobile-sdks` |
-| `setEmail`, `setUserId`, login / logout flow, user identity | `identifying-the-user` |
+| `setEmail`, `setUserId`, login / logout flow, user identity | `identifying-the-user`; the rules behind it are in [Decisions](#decisions-read-before-recommending) |
 | `updateUser`, profile data fields, JSON merging | `updating-user-profiles` |
-| Unknown User Activation (anonymous → identified upgrade) | `setting-up-unknown-user-activation` |
 
 **Dashboard-side prerequisites** (`archetype: prerequisite`). These document
 Iterable's web app, not the SDK — reach for them when the developer owns the
@@ -695,8 +764,6 @@ See [If they don't have an input yet](#if-they-dont-have-an-input-yet).
 
 | If the user is asking about… | Slug |
 | ---------------------------- | ---- |
-| Creating a mobile API key, key types, client-side key security, key scope | `api-keys` |
-| Turning on JWT for a key, the shared secret, token claims and expiry | `jwt-enabled-api-keys` |
 | Creating a Firebase service account, FCM JSON private key, defining a mobile app in Iterable, configuring the push integration, sandbox projects | `fcm-http-v1-migration` (read `## Step 1`, `### Step 2.4`–`### Step 2.7`) |
 | Creating or finding a placement ID in the dashboard | `embedded-message-placements` |
 | Embedded message subscription channels and message types | `embedded-message-subscription-channels` |

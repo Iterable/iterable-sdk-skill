@@ -11,8 +11,9 @@ BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 usage() {
   cat <<'EOF'
 Usage:
-  ios-prepare-proof status [--workspace PATH]
-  ios-prepare-proof proof-status [--workspace PATH]
+  ios-prepare-proof status [--identity-candidate VALUE ...] [--workspace PATH]
+  ios-prepare-proof proof-status [--identity-candidate VALUE ...] [--workspace PATH]
+  ios-prepare-proof read-identity --confirm [--identity-candidate VALUE ...] [--workspace PATH]
   ios-prepare-proof answer [--field FIELD --value VALUE | --clear] [--workspace PATH]
   ios-prepare-proof proof-answer [--field FIELD --value VALUE | --clear] [--workspace PATH]
   ios-prepare-proof start --confirm [--workspace PATH]
@@ -25,6 +26,12 @@ answer only when the developer explicitly requests instrumented callback-level
 diagnostics with the debug-only runtime harness:
 
   ios-prepare-proof answer --field proof-mode --value instrumented
+
+On a Simulator, the identity screen offers an identity only after Iterable
+shows this Simulator's current APNs token on that user. --identity-candidate
+proposes one the agent read from the device; read-identity relaunches the app
+with -iterableProofIdentity YES so the integration's ITBL_PROOF marker logs it.
+Nothing is recorded until the developer chooses it.
 
 Credential capture remains explicit and separate:
 
@@ -42,6 +49,9 @@ case "$command" in
     ;;
   answer|proof-answer)
     exec "$BIN/ios-provision" proof-answer "$@"
+    ;;
+  read-identity)
+    exec "$BIN/ios-provision" proof-read-identity "$@"
     ;;
   start)
     exec "$BIN/ios-provision" record-proof --from-answers "$@"
