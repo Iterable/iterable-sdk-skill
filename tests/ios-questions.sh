@@ -314,7 +314,7 @@ if node -e '
   const use=q.options.find(option=>option.label==="Use the detected app target");
   process.exit(
     q.recommended==="Use the detected app target" &&
-    use?.commands[0].endsWith("record-target --bundle-id com.example.sampleshop --name Dog\\ Shelter --confirm") &&
+    use?.commands[0].endsWith("record-target --bundle-id com.example.sampleshop --name Sample\\ Shop --confirm") &&
     [q.prompt,...q.context].join("\n").includes("Product name: Sample Shop") &&
     q.free_text.command.includes("--bundle-id \u0027{{answer}}\u0027 --confirm") &&
     none.recommended===null &&
