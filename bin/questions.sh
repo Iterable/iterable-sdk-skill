@@ -122,6 +122,204 @@ q_opening() {
   printf ']}'
 }
 
+# ------------------------------------------------------------- Step 0: the scope
+#
+# Preflight returns `scope` until these are recorded in resolved.env, so neither provisioning
+# nor code starts on a scope or an identity the agent picked.
+
+# The ids iOS's choose_features records, so the React Native iOS phase takes them as --features.
+SCOPE_IDS="sdk-initialization push-notifications event-tracking user-profiles deep-linking in-app-messages mobile-inbox embedded-messaging"
+
+scope_union() { # <recorded> <added> — comma lists; rc 1 on an id not in SCOPE_IDS
+  local x out=sdk-initialization add
+  add="$(printf '%s' "$2" | tr 'A-Z' 'a-z')"
+  [[ "$add" == "initialization only" ]] && add=sdk-initialization
+  while IFS= read -r x; do
+    [[ -n "$x" ]] || continue
+    [[ " $SCOPE_IDS " == *" $x "* ]] || return 1
+    out+=$'\n'"$x"
+  done < <(printf '%s,%s\n' "$1" "$add" | tr ', ' '\n\n')
+  printf '%s\n' "$out" | sort -u | paste -sd, -
+}
+
+own_push() { # the app's own push handling, one "detail (file)" per line
+  node "$BIN/existing-push.js" scan android "${PROJECT_ROOT:-$(dirname "$WS")}" 2>/dev/null |
+    jqn '(Array.isArray(j) ? j : []).forEach(f => console.log(`${f.detail} (${f.file})`))' 2>/dev/null
+}
+
+# The first answer still missing. The push question exists only for an app with push of its own.
+scope_missing() {
+  if [[ -z "${SCOPE_FEATURES:-}" ]]; then echo features
+  elif [[ -z "${SCOPE_IDENTITY:-}" ]]; then echo identity
+  elif [[ -z "${SCOPE_PUSH:-}" && ",$SCOPE_FEATURES," == *,push-notifications,* && -n "$(own_push)" ]]; then
+    echo existing-push
+  fi
+}
+
+scope_json() { # <missing>
+  printf '{"features":%s,"identity":%s,"existing_push":%s,"missing":%s}' \
+    "$(jstr "${SCOPE_FEATURES:-}")" "$(jstr "${SCOPE_IDENTITY:-}")" "$(jstr "${SCOPE_PUSH:-}")" \
+    "$([[ -n "$1" ]] && jstr "$1" || printf null)"
+}
+
+q_scope() {
+  case "$(scope_missing)" in
+    features)      q_scope_features ;;
+    identity)      q_scope_identity ;;
+    existing-push) q_scope_push ;;
+    *)             q_scope_recorded ;;
+  esac
+}
+
+q_scope_features() {
+  printf '{"header":"Features","selection":"multiple","prompt":%s,' "$(jstr "Initializing the SDK and identifying the user are always included. So are in-app messages: once a user is identified the SDK shows them on its own, and none appear until someone creates an in-app campaign in Iterable.
+
+Pick every feature this integration should include. For initialize and identify only, answer: initialization only
+
+Which Iterable features should this integration include?")"
+  printf '"context":%s,' "$(q_arr <<'EOF'
+The answers are recorded in the workspace, which git ignores. No setup starts and no app code is written until these questions are answered.
+EOF
+)"
+  printf '"requires":[],"recommended":null,"options":['
+  q_opt "Push notifications" \
+    "Push from Iterable, with the notification permission the app has to ask for." \
+    "push-notifications added to SCOPE_FEATURES" "" \
+    "$BIN/agent scope feature push-notifications"
+  printf ','
+  q_opt "Events + user profiles" \
+    "Track the app's own events, and update fields on the user's Iterable profile." \
+    "event-tracking and user-profiles added to SCOPE_FEATURES" "" \
+    "$BIN/agent scope feature event-tracking,user-profiles"
+  printf ','
+  q_opt "Deep links" \
+    "Links that open the app, including from push and in-app messages: App Links, custom URL schemes, and universal links on iOS." \
+    "deep-linking added to SCOPE_FEATURES" "" \
+    "$BIN/agent scope feature deep-linking"
+  printf ','
+  q_opt "More: inbox, embedded" \
+    "Mobile Inbox, Embedded Messages, or custom in-app handling, on one follow-up screen." \
+    "nothing recorded; the follow-up screen is printed" "" \
+    "$BIN/agent question scope_more"
+  printf '],"free_text":%s}' "$(q_free_text \
+    "initialization only — initialize the SDK and identify the user, nothing else" \
+    "records the initialize-and-identify-only scope" \
+    "$BIN/agent scope feature {{answer}}")"
+}
+
+q_scope_more() {
+  printf '{"header":"More","selection":"multiple","prompt":%s,' "$(jstr "In-app messages already show by default. Pick custom in-app handling only to filter, defer or render them differently.
+
+Which additional features should this integration include?")"
+  printf '"context":%s,' "$(q_arr <<'EOF'
+Each pick is added to the features chosen on the previous screen.
+EOF
+)"
+  printf '"requires":[],"recommended":null,"options":['
+  q_opt "Mobile Inbox" \
+    "Messages the user can open later, in the SDK's inbox screen or one of the app's own." \
+    "mobile-inbox added to SCOPE_FEATURES" "" \
+    "$BIN/agent scope feature mobile-inbox"
+  printf ','
+  q_opt "Embedded Messages" \
+    "Messages shown inside the app's own screens, in placements created in Iterable." \
+    "embedded-messaging added to SCOPE_FEATURES" "" \
+    "$BIN/agent scope feature embedded-messaging"
+  printf ','
+  q_opt "Custom in-app handling" \
+    "Filter, defer or render in-app messages differently from the SDK's default." \
+    "in-app-messages added to SCOPE_FEATURES" "" \
+    "$BIN/agent scope feature in-app-messages"
+  printf ']}'
+}
+
+q_scope_identity() {
+  printf '{"header":"Identity","selection":"single","prompt":%s,' "$(jstr "The Iterable project's type comes first, because it decides which identifier Iterable accepts (project-types-and-unique-identifiers):
+· UserID-based: userId only.
+· Email-based: email only. Limited availability: some older US-hosted organizations.
+· Hybrid: email and userId both identify a user. Use the one every signed-in session holds, a session restored at launch included, and the one your backend or other SDKs already send to Iterable. Another value is another user.
+
+A project's type can't be changed once it exists. Not sure, or no project yet? Choose help me: the skill reads how this app signs users in and recommends a type and an identifier.
+
+What type is the Iterable project, and so how should this app identify users?")"
+  printf '"context":%s,' "$(q_arr <<'EOF'
+The answer decides the call the app makes, setUserId or setEmail, and what the Iterable test-identity step asks for.
+EOF
+)"
+  printf '"requires":[],"recommended":null,"options":['
+  q_opt "User ID — setUserId" \
+    "UserID-based or hybrid project. The app's own stable account ID, or a random UUID created once per account. Never an email, phone number or username (user-id-validation-in-iterable)." \
+    "SCOPE_IDENTITY=user-id recorded; the test-identity step asks for a user ID" "" \
+    "$BIN/agent scope identity user-id"
+  printf ','
+  q_opt "Email — setEmail" \
+    "Email-based or hybrid project, where every signed-in session holds the account email. An app that asks for an email only at sign-up has none to pass later." \
+    "SCOPE_IDENTITY=email recorded; the test-identity step asks for an email address" "" \
+    "$BIN/agent scope identity email"
+  printf ','
+  q_opt "No known user yet" \
+    "The app has no sign-in, or users stay anonymous until they sign in. Nothing is invented to stand in for a user." \
+    "SCOPE_IDENTITY=unknown-user recorded" "" \
+    "$BIN/agent scope identity unknown-user"
+  printf ','
+  q_opt "Not sure — help me" \
+    "The skill reads every way this app signs a user in, a restored session included, and what its other SDKs identify users with. It recommends a project type and identifier from the bundled docs, then asks again. With no project yet, it guides creating one." \
+    "nothing recorded; inspect the app's sign-in, recommend per the skill's Identity section, then ask this screen again" ""
+  printf ']}'
+}
+
+q_scope_push() {
+  printf '{"header":"Your push","selection":"single","prompt":%s,' "$(jstr "This app already handles push without Iterable:
+$(own_push | sed 's/^/· /')
+
+Often that is transactional push, like order updates or security codes, and it can matter more than the push being added.
+
+Keep your app's own notifications working alongside Iterable's, or use Iterable notifications only?")"
+  printf '"context":%s,' "$(q_arr <<'EOF'
+Found by reading the source of the app, so it can miss a provider or name one that is no longer used.
+EOF
+)"
+  printf '"requires":[],"recommended":null,"options":['
+  q_opt "Keep both" \
+    "The app's messaging service forwards only Iterable's pushes to Iterable, and your own notifications keep working." \
+    "SCOPE_PUSH=keep-both recorded" "" \
+    "$BIN/agent scope existing-push keep-both"
+  printf ','
+  q_opt "Iterable only" \
+    "The integration diff shows how your own service and provider stop handling pushes. Nothing changes until you confirm that diff." \
+    "SCOPE_PUSH=iterable-only recorded" "" \
+    "$BIN/agent scope existing-push iterable-only"
+  printf ','
+  q_opt "Not sure — help me decide" \
+    "The skill shows what each answer changes in this app, from the bundled push docs, then asks again." \
+    "nothing recorded; explain both answers per the skill's Existing push decision, then ask this screen again" ""
+  printf ']}'
+}
+
+q_scope_recorded() {
+  printf '{"header":"Scope","selection":"single","prompt":%s,' "$(jstr "Recorded for this app:
+· Features: ${SCOPE_FEATURES//,/, }
+· Identity: $SCOPE_IDENTITY
+· The app's own push: ${SCOPE_PUSH:-not asked, because none was found or push is not in scope}
+
+Keep these answers?")"
+  printf '"context":%s,' "$(q_arr <<'EOF'
+Changing them clears all three, and the questions are asked again from the first.
+EOF
+)"
+  printf '"requires":[],"recommended":%s,"options":[' "$(jstr "Keep these answers")"
+  q_opt "Keep these answers" \
+    "Nothing changes, and preflight names the next step." \
+    "nothing changed" "" \
+    "$BIN/agent preflight"
+  printf ','
+  q_opt "Change the answers" \
+    "Clears the recorded answers, and the features screen comes back." \
+    "SCOPE_FEATURES, SCOPE_IDENTITY and SCOPE_PUSH cleared" "" \
+    "$BIN/agent scope clear"
+  printf ']}'
+}
+
 # --------------------------------------------------------- the door: may I look
 #
 # The first thing this tool spends the developer's Google credentials on is a read: list
@@ -1018,6 +1216,8 @@ ask_question() {
 # asking permission to read a log.
 question_for() {
   case "${1:-}" in
+    scope)            q_scope ;;
+    scope_more)       q_scope_more ;;
     opening)          q_opening ;;
     # Two kinds, one fork. next_action reports `run_in_terminal` when the developer is
     # the driver and `approve_firebase` when the agent is, because the terminal path
