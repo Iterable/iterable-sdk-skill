@@ -198,7 +198,8 @@ codex plugin add iterable-sdk@iterable
 3. The workflow creates or selects the Firebase resources and service account.
 4. It guides you through the Iterable dashboard actions that do not have a
    public API: API keys, the mobile app, the Firebase push integration (with
-   FCM type **Data notifications**), and the test user's email address.
+   FCM type **Data notifications**), and the test user's email address or
+   user ID, whichever the app identifies users by.
 5. The integration skill adds the SDK configuration, and your coding assistant
    builds and installs the application using the project's existing toolchain.
 6. The workflow opens the selected application's launcher activity. You sign in

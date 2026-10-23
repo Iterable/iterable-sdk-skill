@@ -588,7 +588,8 @@ installed — the Google and Iterable halves are green (G0–G12) and
 `.iterable/artifacts/google-services.json` exists. Do not wait for `done`: that means a
 push reached the device, which cannot happen before the integration is written. Announce
 the transition in one line and continue into the platform skill — `iterable-android` or
-`iterable-react-native` — to write the integration. Do not ask whether to continue.
+`iterable-react-native` — at its *Start here*: `<root>/bin/agent preflight` names the
+commands that place the files, or the scope still to record. Do not ask whether to continue.
 
 The platform skill owns copying `.iterable/artifacts/google-services.json` into
 the app module (`app/google-services.json` for a standard Android project) and shows
