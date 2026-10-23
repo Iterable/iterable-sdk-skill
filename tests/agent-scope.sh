@@ -216,6 +216,23 @@ OUT="$(in_app "$V" preflight)"
   || bad "the scope flow called: $(tr '\n' ';' < "$TMP/calls")"
 
 echo
+echo "  The test-identity step follows the recorded identity"
+echo
+
+W="$TMP/ws"; mkdir -p "$W"
+s4() { ( cd "$TMP" && WS="$W" "$@" "$ROOT/bin/agent" question iterable_step 4 2>/dev/null ); }
+U="$(s4 env SCOPE_IDENTITY=user-id)"; EM="$(s4 env SCOPE_IDENTITY=email)"; G="$(s4 env)"
+[[ "$(field prompt <<< "$U")" == *"What user ID does your app pass to setUserId() for the test user?" \
+   && "$(field free_text.command <<< "$U")" == "$ROOT/bin/agent set ITBL_USER_ID={{answer}}" ]] \
+  && ok "a user-id scope makes step 4 ask for a user ID and record ITBL_USER_ID" \
+  || bad "step 4 with a user-id scope: $(field prompt <<< "$U" | tail -1) / $(field free_text.command <<< "$U")"
+[[ "$(field prompt <<< "$EM")" == *"What email address does your app sign the test user in with?" \
+   && "$(field free_text.command <<< "$EM")" == "$ROOT/bin/agent set ITBL_EMAIL={{answer}}" \
+   && "$(field free_text.command <<< "$G")" == "$ROOT/bin/agent set ITBL_IDENTITY={{answer}}" ]] \
+  && ok "an email scope asks for an email address, and with no scope the routed field is unchanged" \
+  || bad "step 4 with an email scope: $(field free_text.command <<< "$EM"), none: $(field free_text.command <<< "$G")"
+
+echo
 echo "  Every scope screen can be drawn"
 echo
 

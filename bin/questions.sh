@@ -1005,9 +1005,15 @@ q_iterable_step() {
        else
          prompt="Which key is on your clipboard?"
        fi ;;
-    4) [[ -n "$(itbl_identity)" ]] \
-         && prompt="The test identity is $(itbl_identity). Prove the whole thing now?" \
-         || prompt="What email or user ID does your app sign the test user in with?" ;;
+    4) if [[ -n "$(itbl_identity)" ]]; then
+         prompt="The test identity is $(itbl_identity). Prove the whole thing now?"
+       else
+         case "${SCOPE_IDENTITY:-}" in
+           email)   prompt="What email address does your app sign the test user in with?" ;;
+           user-id) prompt="What user ID does your app pass to setUserId() for the test user?" ;;
+           *)       prompt="What email or user ID does your app sign the test user in with?" ;;
+         esac
+       fi ;;
   esac
   prompt="$("$BIN/iterable-keys" --step "$n" --prompt 2>/dev/null)
 
@@ -1119,10 +1125,15 @@ $prompt"
   # identity, an email or a user ID, belongs in the open; a key put here would be a key
   # in the transcript, which is the one thing this walk is arranged to avoid.
   if ((n == 4)); then
-    printf ',"free_text":%s' "$(q_free_text \
-      "the email or user ID your app signs the test user in with" \
-      "records ITBL_EMAIL, or ITBL_USER_ID when it is not an email address, and re-runs the ladder" \
-      "$BIN/agent set ITBL_IDENTITY={{answer}}")"
+    local hint="the email or user ID your app signs the test user in with" key=ITBL_IDENTITY
+    local recorded="records ITBL_EMAIL, or ITBL_USER_ID when it is not an email address, and re-runs the ladder"
+    case "${SCOPE_IDENTITY:-}" in
+      email)   hint="the email address your app signs the test user in with"; key=ITBL_EMAIL
+               recorded="records ITBL_EMAIL, the identity the proof push is sent to" ;;
+      user-id) hint="the user ID your app passes to setUserId() for the test user"; key=ITBL_USER_ID
+               recorded="records ITBL_USER_ID, the identity the proof push is sent to" ;;
+    esac
+    printf ',"free_text":%s' "$(q_free_text "$hint" "$recorded" "$BIN/agent set $key={{answer}}")"
   fi
   # No recommendation on the steps that only the developer can judge: whether the click
   # landed is not something out here can know, and a tool nudging "done" from outside the
