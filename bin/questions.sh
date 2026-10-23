@@ -987,6 +987,8 @@ Start the four Iterable steps now?")"
 # never printing context, which left the developer a question with no steps above it.
 q_step_context() {
   echo "The step is in the prompt. Show it whole, with every value and line break. The exact strings matter. Shortening this step is the costliest mistake in setup."
+  echo ""
+  echo "No app code is written while these steps are open. The integration starts once they are proved."
   if (( $1 == 1 )); then
     echo ""
     echo "Don't ask for either key, and don't read the clipboard yourself. pbpaste and similar commands are off limits here. --take is what moves a key, and it is the only thing in this tool that ever holds one."

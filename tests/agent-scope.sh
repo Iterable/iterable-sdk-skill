@@ -144,6 +144,9 @@ OUT="$(in_app "$A" preflight)"
    && "$(field scope.identity <<< "$OUT")" == user-id ]] \
   && ok "with features and identity recorded, the next command is preflight, and it routes to provisioning" \
   || bad "the recorded scope did not hand on to provisioning: $o / $OUT"
+grep -qF "not even while the developer works in a dashboard" <<< "$(field next.summary <<< "$OUT")" \
+  && ok "and the provisioning summary forbids code while a dashboard step is open" \
+  || bad "the provision summary still allows code during the dashboard steps"
 
 R="$(in_app "$A" question scope)"
 [[ "$(field header <<< "$R")" == Scope ]] && grep -qF "Identity: user-id" <<< "$(field prompt <<< "$R")" \
@@ -231,6 +234,10 @@ U="$(s4 env SCOPE_IDENTITY=user-id)"; EM="$(s4 env SCOPE_IDENTITY=email)"; G="$(
    && "$(field free_text.command <<< "$G")" == "$ROOT/bin/agent set ITBL_IDENTITY={{answer}}" ]] \
   && ok "an email scope asks for an email address, and with no scope the routed field is unchanged" \
   || bad "step 4 with an email scope: $(field free_text.command <<< "$EM"), none: $(field free_text.command <<< "$G")"
+
+grep -qF "No app code is written while these steps are open" <<< "$(s4 env)" \
+  && ok "every dashboard step says no app code is written while it is open" \
+  || bad "the dashboard steps say nothing about writing code meanwhile"
 
 echo
 echo "  Every scope screen can be drawn"

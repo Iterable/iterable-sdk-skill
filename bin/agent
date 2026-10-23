@@ -108,7 +108,7 @@ if [[ "${1:-}" == preflight ]]; then
   if ((${#MISS[@]})) || [[ "$PROVEN" != true ]]; then
     KIND=provision OPEN="$PROVISION"; DO=("$BIN/agent question opening")
     LIST="$(IFS=,; printf '%s' "${MISS[*]+"${MISS[*]}"}")"
-    SUMMARY="Prerequisites are missing or not yet proven${LIST:+ (missing: ${LIST//,/, })}. Write no code and no placeholder. Open $PROVISION now, follow it, and run its first command: $BIN/agent question opening"
+    SUMMARY="Prerequisites are missing or not yet proven${LIST:+ (missing: ${LIST//,/, })}. Open $PROVISION now, follow it, and run its first command: $BIN/agent question opening. Write no code and no placeholder until it hands back, not even while the developer works in a dashboard."
   elif [[ "$GS_IN_APP" != true || "$APP_KEY" == false || "$SDK" != true ]]; then
     KIND=integrate OPEN=""
     if [[ "$GS_IN_APP" != true ]]; then
