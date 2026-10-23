@@ -79,13 +79,15 @@ step_identity() {
 
   $(bold "Step 4 of 4 — the test identity")
 
-    The address your app signs in with — the value it passes to
-    $(bold "setEmail()"). It is the join key: if the app and Iterable disagree, the
-    token is filed under one identity and the proof push goes to the other,
-    which reads exactly like a broken integration and is not one.
+    The identity your app signs the test user in with — the value it passes to
+    $(bold "setEmail()"), or to $(bold "setUserId()") when its users have no email. It is the join
+    key: if the app and Iterable disagree, the token is filed under one identity
+    and the proof push goes to the other, which reads exactly like a broken
+    integration and is not one.
 
-    Nobody signs in yet? Use something disposable and make the app use the same
-    value — it becomes a real user profile in this Iterable project.
+    Use what the app already sets; if it sets nothing yet, the integration's
+    identity decision settles it, not this step. Never change the app's identity,
+    or invent an email address, to fit this step: that changes it for every user.
 
 EOF
 }
@@ -93,7 +95,7 @@ EOF
 # The question-screen form: the identity text above is a paragraph a chat selector can't
 # hold, and the join-key point is the one thing in it that has to survive.
 step_identity_short() {
-  echo "Use the exact address your app passes to setEmail(). It is the join key: if the app and Iterable disagree, the token is filed under one identity and the proof push goes to the other."
+  echo "Use the exact email or user ID your app passes to setEmail() or setUserId(). It is the join key: if the app and Iterable disagree, the token is filed under one identity and the proof push goes to the other. Never change the app's identity, or invent an email address, to fit this step."
 }
 
 # A step as a question prompt: no heading or colour, and each numbered line or paragraph
@@ -136,8 +138,9 @@ where_identity() {
   Not a secret, so it can just be said out loud:
 
       $(bold "$(cmd_path agent) set ITBL_EMAIL=you@example.com")
+      $(bold "$(cmd_path agent) set ITBL_USER_ID=<the user's ID>")   # setUserId() apps
 
-    Or put it on $(bold ITBL_EMAIL) in $(wsd "$ITBL_ENV").
+    Or put it on $(bold ITBL_EMAIL) or $(bold ITBL_USER_ID) in $(wsd "$ITBL_ENV").
 
 EOF
 }
@@ -170,6 +173,8 @@ ensure_env() {
 ITBL_SERVER_KEY=
 ITBL_MOBILE_KEY=
 ITBL_EMAIL=
+# Apps that identify users with setUserId():
+# ITBL_USER_ID=
 # EU (EDC) projects only:
 # ITBL_BASE=https://api.eu.iterable.com
 EOF
@@ -409,14 +414,16 @@ if [[ -n "$SEEN" ]]; then
   printf '    %s\n' $SEEN
   echo
   DEFAULT="$(printf '%s\n' "$SEEN" | head -1)"
-  read -r -p "  Email the app signs in as [$DEFAULT]: " EMAIL < /dev/tty
-  EMAIL="${EMAIL:-$DEFAULT}"
+  read -r -p "  Email or user ID the app signs in as [$DEFAULT]: " WHO < /dev/tty
+  WHO="${WHO:-$DEFAULT}"
 else
-  read -r -p "  Email the app signs in as: " EMAIL < /dev/tty
+  read -r -p "  Email or user ID the app signs in as: " WHO < /dev/tty
 fi
-[[ -n "$EMAIL" ]] || { echo "  No email given."; exit 10; }
-save_env ITBL_EMAIL "$EMAIL"
-echo "  $(green ✓) test user: $EMAIL"
+[[ -n "$WHO" ]] || { echo "  No identity given."; exit 10; }
+KEY="$(identity_key "$WHO")"
+save_env "$KEY" "$WHO"
+save_env "$([[ "$KEY" == ITBL_EMAIL ]] && echo ITBL_USER_ID || echo ITBL_EMAIL)" ""
+echo "  $(green ✓) test user: $WHO"
 
 echo
 echo "  $(bold "Now proving it.")"

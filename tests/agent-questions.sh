@@ -345,7 +345,7 @@ step_has 2 "its URL" "https://app.iterable.com/integrations/mobileApps/create"
 step_has 2 "the package, character for character" "Package name com.sampleshop ← character for character"
 step_has 3 "the FCM type" 'Data notifications ← not "Notification messages"'
 step_has 3 "the absolute service-account key path" "Upload $W/artifacts/sa-key.json"
-step_has 4 "the setEmail join key" "passes to setEmail(). It is the join key"
+step_has 4 "the identity join key" "passes to setEmail() or setUserId(). It is the join key"
 for n in 1 2 3 4; do
   prm "$n" | node -e '
     let s=""; process.stdin.on("data",d=>s+=d).on("end",()=>{
@@ -399,7 +399,7 @@ rm -f "$W/.env"
 # Step 4 in both states it can be read in: with the identity recorded and without. The
 # second one is where a screen with no exit used to be — the app may sign nobody in yet,
 # and "I don't know" has to lead somewhere.
-for st in "ITBL_EMAIL=dev@example.com" ""; do
+for st in "ITBL_EMAIL=dev@example.com" "ITBL_USER_ID=u-0a1b2c" ""; do
   [[ -n "$st" ]] && printf '%s\n' "$st" > "$W/.env" || rm -f "$W/.env"
   s4="$(q iterable_step 4)"
   grep -qF "step 5" <<< "$s4" && bad "step 4 invents a fifth step" \
@@ -430,13 +430,13 @@ ok "every step leaves 'that did not work' as an answer that changes nothing"
 
 # The one thing no screen in this walk may have: somewhere to type a key. free_text is how
 # a typed answer reaches `agent set`, and a key typed there is a key in the transcript —
-# so the identity, which is an email address and not a secret, is the only value in part 2
+# so the identity, an email or a user ID and not a secret, is the only value in part 2
 # collected that way.
 for n in 1 2 3 4; do
   ft="$(q iterable_step "$n" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const q=JSON.parse(s);console.log(q.free_text?q.free_text.command:"")})')"
   case "$n" in
-    4) [[ "$ft" == *"set ITBL_EMAIL="* ]] \
-         && ok "step 4 takes the test identity as typed text — an address, not a secret" \
+    4) [[ "$ft" == *"set ITBL_IDENTITY="* ]] \
+         && ok "step 4 takes the test identity as typed text — an email or user ID, not a secret" \
          || bad "step 4 has no way to say what address the app signs in as: '$ft'" ;;
     *) [[ -z "$ft" ]] && ok "step $n has no typed-answer field at all" \
          || bad "step $n invites typed input, and the value in front of it is a key: $ft" ;;
@@ -801,7 +801,7 @@ grep -q '"commands":\["[^"]*/bin/agent"\]' <<< "$app" \
   || bad "no option re-reads the device — the developer has nothing to proceed with"
 # The mismatch that makes a working integration look broken: the token filed under one
 # address, the proof push sent to another.
-grep -qF 'set ITBL_EMAIL={{answer}}' <<< "$app" \
+grep -qF 'set ITBL_IDENTITY={{answer}}' <<< "$app" \
   && ok "and the address it actually signs in as can be corrected here" \
   || bad "no way to say which identity the app really uses"
 

@@ -291,7 +291,7 @@ gate G9 "Key actually works"         G8  tool   g9
 
 echo
 DEV="$(device_serial)" || DEV="no device"
-echo "  Iterable and device ladder — ${ITBL_BASE#https://}, user ${ITBL_EMAIL:-<none set>}, on $DEV"
+echo "  Iterable and device ladder — ${ITBL_BASE#https://}, user ${ITBL_EMAIL:-${ITBL_USER_ID:-<none set>}}, on $DEV"
 echo
 gate G10 "Iterable API keys work"     -       human  g10
 note G11 "Mobile app in Iterable"     "human step — no API read-back exists"

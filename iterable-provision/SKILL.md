@@ -571,11 +571,15 @@ Both are human steps, so they are the two most worth saying out loud:
 - **FCM type must be `Data notifications`**, not "Notification messages". With the
   wrong one the Firebase SDK swallows the push, Iterable's SDK never sees it, and
   everything looks configured while no push ever arrives.
-- **The test identity is a join key.** It has to be the exact address the app passes
-  to `setEmail()`. Any other address files the token under one identity and sends the
-  proof to another, which reads precisely like a broken integration. If the app has
-  already run, `<root>/bin/iterable-keys` reads what it actually registered out of the SDK's
-  own request log and offers that — prefer it over anyone's memory.
+- **The test identity is a join key.** It has to be the exact value the app passes
+  to `setEmail()`, or to `setUserId()` when its users have no email; step 4 takes either.
+  Any other value files the token under one identity and sends the proof to another,
+  which reads precisely like a broken integration. If the app has already run,
+  `<root>/bin/iterable-keys` reads what it actually registered out of the SDK's own
+  request log and offers that — prefer it over anyone's memory.
+- **Never change the app's identity to fit the proof**, and never invent an email
+  address (such as `<id>@<app>.local`) for a user who has none. That changes the identity
+  of every real user. A userId-only app records `ITBL_USER_ID`.
 
 ## Where this goes next
 
