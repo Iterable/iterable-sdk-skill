@@ -150,12 +150,11 @@ in to Cursor and update it to the latest version. <!-- verify in UI -->
 5. On the plugin's page, select **Install**. If Cursor asks for a scope, choose
    the project or user scope.
 
-The plugin installs the skills, the scripts they run, and the Context7 MCP
-server. To confirm the install, open **Customize** and check that:
+The plugin installs the skills and the scripts they run. To confirm the
+install, open **Customize** and check that:
 
 - **Plugins** lists **iterable-sdk**.
 - **Skills** lists the six `iterable-*` skills.
-- **MCPs** lists `context7`.
 
 Then start a new Agent chat.
 
@@ -169,9 +168,6 @@ Who can import depends on your plan:
   default.
 - **Enterprise:** community plugin import is off by default. Ask an admin to
   allow it, or to add the repository as a team marketplace. <!-- verify in UI -->
-
-If your organization blocks the Context7 MCP server, the plugin still installs,
-but its documentation lookups can't run.
 
 If you installed the plugin in Claude Code, Cursor also loads that copy while
 **Include Third-Party Plugins, Skills, and Other Configs** is on, in
@@ -211,7 +207,7 @@ precedence over the local copy. On Enterprise, an admin must turn on
 #### Fallback: link the skill directories
 
 If you can't install plugins, clone the repository and link the skill
-directories. This installs the skills without the Context7 MCP server:
+directories:
 
 ```bash
 git clone --depth 1 https://github.com/Iterable/iterable-sdk-skill.git ~/iterable-skills
@@ -291,8 +287,7 @@ notifications afterwards is optional.
 - Push proof creates or updates one proof template in your Iterable project and
   sends it only to the test user. The test identity becomes a real user profile
   in that project.
-- The plugin also adds the Context7 MCP server (no API key) for documentation
-  lookups and, in Claude Code, five helper subagents.
+- In Claude Code, the plugin also adds five helper subagents.
 - You authenticate in your own browser or `gcloud` session. The scripts do not
   collect account passwords or attempt to bypass sign-in, CAPTCHA, or
   terms-of-service screens.

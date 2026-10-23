@@ -1,11 +1,11 @@
 /**
- * Validates Cursor/Claude plugin manifests and MCP config files.
+ * Validates Cursor/Claude plugin manifests.
  *
  * Checks:
  *   - `.cursor-plugin/plugin.json` and `.cursor-plugin/marketplace.json` parse
  *     and have required fields.
  *   - `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` parse.
- *   - `mcp.json` and `.mcp.json` exist and have identical `mcpServers` content.
+ *   - No manifest declares MCP servers; the skills read the docs they ship.
  *   - Declared skill paths exist on disk.
  *   - Every manifest declares the same, valid version.
  *
@@ -93,7 +93,7 @@ function validateCursorPlugin(): void {
   if ("mcpServers" in manifest) {
     fail(
       file,
-      "omit `mcpServers` — Cursor auto-discovers `mcp.json` at the plugin root",
+      "omit `mcpServers` — the plugin bundles no MCP server",
     );
   }
 }
@@ -148,39 +148,6 @@ function validateClaudeMarketplace(): void {
 
   if (!Array.isArray(manifest.plugins) || manifest.plugins.length === 0) {
     fail(file, "`plugins` must be a non-empty array");
-  }
-}
-
-function validateMcpConfigs(): void {
-  const cursorMcp = readJson("mcp.json");
-  const claudeMcp = readJson(".mcp.json");
-  if (!isRecord(cursorMcp) || !isRecord(claudeMcp)) return;
-
-  const cursorServers = cursorMcp.mcpServers;
-  const claudeServers = claudeMcp.mcpServers;
-
-  if (!isRecord(cursorServers)) {
-    fail("mcp.json", "`mcpServers` must be an object");
-    return;
-  }
-  if (!isRecord(claudeServers)) {
-    fail(".mcp.json", "`mcpServers` must be an object");
-    return;
-  }
-
-  const cursorJson = JSON.stringify(cursorServers);
-  const claudeJson = JSON.stringify(claudeServers);
-  if (cursorJson !== claudeJson) {
-    fail("mcp.json", "`mcpServers` must match `.mcp.json` exactly");
-  }
-
-  const context7 = cursorServers.context7;
-  if (!isRecord(context7)) {
-    fail("mcp.json", "`mcpServers.context7` is required");
-    return;
-  }
-  if (context7.url !== "https://mcp.context7.com/mcp") {
-    fail("mcp.json", "`mcpServers.context7.url` must point at Context7");
   }
 }
 
@@ -240,7 +207,6 @@ function main(): void {
   validateCursorMarketplace();
   validateClaudePlugin();
   validateClaudeMarketplace();
-  validateMcpConfigs();
   validateVersions();
 
   if (issues.length === 0) {

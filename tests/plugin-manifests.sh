@@ -139,17 +139,6 @@ want="$(tr ' ' '\n' <<< "$SHIPPED" | sort | tr '\n' ' ')"
   && ok "$(printf '%-48s %s' "only client-facing agents are shipped" "$(wc -w <<< "$want" | tr -d ' ') of them")" \
   || bad "agents/ has changed" "shipped='${have% }' expected='${want% }' — build roles belong in tools/agents/"
 
-# ------------------------------------------------------------------- the MCP files
-# Two names for one file because the hosts look in different places. They drifted
-# once; a client on one host would then get doc fetching the other host's client does not.
-if [[ -f mcp.json && -f .mcp.json ]]; then
-  cmp -s mcp.json .mcp.json \
-    && ok "mcp.json and .mcp.json are identical" \
-    || bad "the two MCP files have drifted" "one host would get different servers"
-else
-  bad "an MCP file is missing" "mcp.json and .mcp.json must both exist"
-fi
-
 # ---------------------------------------------------------------- the host's paths
 # Everything below is read verbatim by a client's agent. An absolute path from this
 # machine in it is an instruction to use a directory the client does not have — and it
