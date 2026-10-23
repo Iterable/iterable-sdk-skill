@@ -135,16 +135,66 @@ select **iterable**, and select **Enable auto-update**.
 
 ### Cursor
 
-Cursor requires version 3.9 or later. Install the skills as a plugin:
+Cursor installs plugins from a marketplace, so you first add this repository
+as a marketplace and then install the plugin from it. Before you start, sign
+in to Cursor and update it to the latest version. <!-- verify in UI -->
 
-1. Open **Customize** in the sidebar.
+1. Open **Customize** in the sidebar, then open **Plugins**.
 2. Select **+ Add**, then **From GitHub Repository**.
-3. Enter `https://github.com/Iterable/iterable-sdk-skill`.
-4. Find **iterable-sdk**, select **Install**, and choose the project or user
-   scope.
+3. In **Import Marketplace**, enter
+   `https://github.com/Iterable/iterable-sdk-skill` under **Repository**. Leave
+   **Scope** set to **User**, then select **Import**.
+4. Cursor switches to the marketplace browser. Select **Personal** or
+   **Iterable**, whichever the marketplace is listed under, to see its plugins.
+   Then open **iterable-sdk**.
+5. On the plugin's page, select **Install**. If Cursor asks for a scope, choose
+   the project or user scope.
 
 The plugin installs the skills, the scripts they run, and the Context7 MCP
-server. Team admins can also add the repository as a team marketplace.
+server. To confirm the install, open **Customize** and check that:
+
+- **Plugins** lists **iterable-sdk**.
+- **Skills** lists the six `iterable-*` skills.
+- **MCPs** lists `context7`.
+
+Then start a new Agent chat.
+
+If **From GitHub Repository** is missing, open the marketplace from
+**Customize**, select **Add Marketplace**, then **Import from GitHub**. <!-- verify in UI -->
+
+Who can import depends on your plan:
+
+- **Free and Pro:** follow the steps above.
+- **Teams:** the steps above work, because community plugin import is on by
+  default.
+- **Enterprise:** community plugin import is off by default. Ask an admin to
+  allow it, or to add the repository as a team marketplace. <!-- verify in UI -->
+
+If your organization blocks the Context7 MCP server, the plugin still installs,
+but its documentation lookups can't run.
+
+If you installed the plugin in Claude Code, Cursor also loads that copy while
+**Include Third-Party Plugins, Skills, and Other Configs** is on, in
+**Cursor Settings → Agents → Third-Party Imports**. That copy updates through
+Claude Code. <!-- verify in UI -->
+
+#### Team marketplace
+
+On Teams and Enterprise, an admin can share the plugin with the whole team:
+
+1. Go to **Dashboard → Plugins & MCPs**.
+2. In **Team Marketplaces**, click **Add Marketplace**, choose
+   **Import from Repo**, and paste the repository URL.
+3. Add **iterable-sdk** with **Add to Marketplace**.
+4. Under **Marketplace Settings**, set **Marketplace Access**, then save.
+5. Choose how the plugin is distributed: **Default Off**, **Default On**, or
+   **Required**.
+
+Teammates then find the plugin in **Customize**. The Teams plan allows one
+imported team marketplace. Auto Refresh needs the Cursor GitHub App on the
+repository, so select **Refresh** to pick up a new version.
+
+#### Local checkout
 
 To test a local checkout, clone it into Cursor's local plugin folder:
 
@@ -153,8 +203,10 @@ git clone https://github.com/Iterable/iterable-sdk-skill.git ~/.cursor/plugins/l
 ```
 
 Run **Developer: Reload Window**, then confirm the skills in **Customize**.
-Cursor skips a symlink in that folder that points to a clone elsewhere. On
-Teams and Enterprise plans, an admin must allow local plugin imports.
+Cursor skips a symlink in that folder that points to a clone elsewhere. If
+**iterable-sdk** is also installed from a marketplace, that install takes
+precedence over the local copy. On Enterprise, an admin must turn on
+**Allow Local Plugin Imports**.
 
 #### Fallback: link the skill directories
 
@@ -295,9 +347,12 @@ codex plugin marketplace upgrade iterable
 
 Then start a new Codex session.
 
-For Cursor, manage the installed plugin from **Customize**. For a local
-plugin checkout, run `git pull` in `~/.cursor/plugins/local/iterable-sdk` and
-reload the window. For the clone-and-link fallback:
+For Cursor, the plugin is indexed when you import the repository. To get a
+newer version, refresh the marketplace from **Customize**, or remove it and
+import it again. <!-- verify in UI --> For a team marketplace, an admin
+selects **Refresh** in **Dashboard → Plugins & MCPs**. For a local plugin
+checkout, run `git pull` in `~/.cursor/plugins/local/iterable-sdk` and reload
+the window. For the clone-and-link fallback:
 
 ```bash
 cd ~/iterable-skills
@@ -319,8 +374,10 @@ codex plugin remove iterable-sdk@iterable
 codex plugin marketplace remove iterable
 ```
 
-For Cursor, uninstall the plugin from **Customize**, or delete
-`~/.cursor/plugins/local/iterable-sdk` for a local checkout. For the
+For Cursor, open **iterable-sdk** in **Customize** and select **Uninstall**.
+You can then remove the marketplace. That removes it from your Cursor account
+and leaves the repository unchanged. <!-- verify in UI --> For a local
+checkout, delete `~/.cursor/plugins/local/iterable-sdk`. For the
 clone-and-link fallback, delete the links in `~/.cursor/skills/` and the
 `~/iterable-skills` clone.
 
