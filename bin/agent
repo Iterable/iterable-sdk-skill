@@ -129,7 +129,9 @@ if [[ "${1:-}" == preflight ]]; then
   else
     KIND=done OPEN=""
     SUMMARY="A push reached the Android device."
-    [[ "$FW" == android ]] || { DO=("$BIN/ios-provision status"); SUMMARY="$SUMMARY Android is finished. If iOS is in scope, start it with the command below and the --features from Step 0."; }
+    [[ "$FW" == android ]] || {
+      DO=("$BIN/ios-provision status${SCOPE_FEATURES:+ --features $SCOPE_FEATURES}${SCOPE_IDENTITY:+ --identity $SCOPE_IDENTITY}")
+      SUMMARY="$SUMMARY Android is finished. If iOS is in scope, start it with the command below$([[ -n "${SCOPE_FEATURES:-}" ]] && printf ', which carries the recorded Step 0 answers' || printf ' and the --features from Step 0')."; }
   fi
   # Ahead of both: provisioning asks for the test identity, and code is built on the scope.
   SCOPE_MISSING="$(scope_missing)"

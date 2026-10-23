@@ -215,6 +215,18 @@ OUT="$(in_app "$V" preflight)"
   && ok "an app already integrated goes to verify, ungated, and preflight reports the scope as unrecorded" \
   || bad "the integrated app: $OUT"
 
+printf 'G16\tgreen\ttool\tPush arrives on device\t\n' >> "$V/.iterable/state.tsv"
+recorded "$V" deep-linking,push-notifications,sdk-initialization email
+IOS="$(in_app "$V" preflight | field next.commands.0)"
+[[ "$IOS" == "$ROOT/bin/ios-provision status --features deep-linking,push-notifications,sdk-initialization --identity email" ]] \
+  && ok "a finished React Native Android hands iOS the recorded scope as --features and --identity" \
+  || bad "the iOS command lacks the recorded scope: $IOS"
+printf '#!/bin/sh\necho "Xcode 18.0"\n' > "$STUB/xcodebuild"; chmod +x "$STUB/xcodebuild"
+O="$(cd "$V" && IOS_WORKSPACE="$V/.iterable/ios" eval "$IOS" 2>/dev/null)"
+[[ "$(field next.command <<< "$O")" == *"question --kind import_android --features deep-linking,push-notifications,sdk-initialization --identity email" ]] \
+  && ok "and ios-provision takes that command as is, proposing the scope on its first screen" \
+  || bad "ios-provision did not carry the recorded scope: $(field next <<< "$O")"
+
 [[ ! -s "$TMP/calls" ]] && ok "and nothing in the scope flow called gcloud, curl, adb or firebase" \
   || bad "the scope flow called: $(tr '\n' ';' < "$TMP/calls")"
 
@@ -250,7 +262,6 @@ draw "more features" scope_more
 in_app "$SA" scope feature push-notifications >/dev/null; draw "identity" scope
 in_app "$SA" scope identity user-id >/dev/null;          draw "the app's own push" scope
 in_app "$SA" scope existing-push iterable-only >/dev/null; draw "recorded answers" scope
-
 
 echo
 ((FAILED)) && { echo "  FAILED"; exit 1; }
