@@ -247,9 +247,15 @@ U="$(s4 env SCOPE_IDENTITY=user-id)"; EM="$(s4 env SCOPE_IDENTITY=email)"; G="$(
   && ok "an email scope asks for an email address, and with no scope the routed field is unchanged" \
   || bad "step 4 with an email scope: $(field free_text.command <<< "$EM"), none: $(field free_text.command <<< "$G")"
 
-grep -qF "No app code is written while these steps are open" <<< "$(s4 env)" \
-  && ok "every dashboard step says no app code is written while it is open" \
-  || bad "the dashboard steps say nothing about writing code meanwhile"
+# In the prompt, because that is the part the agent has to relay whole.
+NOCODE=""
+for n in 1 2 3 4; do
+  [[ "$( (cd "$TMP" && WS="$W" "$ROOT/bin/agent" question iterable_step "$n" 2>/dev/null) | field prompt)" \
+     == *"No app code is written while these steps are open"* ]] || NOCODE="$NOCODE $n"
+done
+[[ -z "$NOCODE" ]] \
+  && ok "every dashboard step's prompt says no app code is written while it is open" \
+  || bad "the prompt says nothing about writing code meanwhile on step(s):$NOCODE"
 
 echo
 echo "  Every scope screen can be drawn"

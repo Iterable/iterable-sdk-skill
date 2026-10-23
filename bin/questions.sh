@@ -234,7 +234,10 @@ EOF
 }
 
 q_scope_identity() {
-  printf '{"header":"Identity","selection":"single","prompt":%s,' "$(jstr "The Iterable project's type comes first, because it decides which identifier Iterable accepts (project-types-and-unique-identifiers):
+  # Each picked feature records through its own command, so show what landed before moving on.
+  printf '{"header":"Identity","selection":"single","prompt":%s,' "$(jstr "Features recorded: ${SCOPE_FEATURES//,/, }. If one you picked is missing, say so before answering.
+
+The Iterable project's type comes first, because it decides which identifier Iterable accepts (project-types-and-unique-identifiers):
 · UserID-based: userId only.
 · Email-based: email only. Limited availability: some older US-hosted organizations.
 · Hybrid: email and userId both identify a user. Use the one every signed-in session holds, a session restored at launch included, and the one your backend or other SDKs already send to Iterable. Another value is another user.
@@ -987,8 +990,6 @@ Start the four Iterable steps now?")"
 # never printing context, which left the developer a question with no steps above it.
 q_step_context() {
   echo "The step is in the prompt. Show it whole, with every value and line break. The exact strings matter. Shortening this step is the costliest mistake in setup."
-  echo ""
-  echo "No app code is written while these steps are open. The integration starts once they are proved."
   if (( $1 == 1 )); then
     echo ""
     echo "Don't ask for either key, and don't read the clipboard yourself. pbpaste and similar commands are off limits here. --take is what moves a key, and it is the only thing in this tool that ever holds one."
@@ -1018,6 +1019,8 @@ q_iterable_step() {
        fi ;;
   esac
   prompt="$("$BIN/iterable-keys" --step "$n" --prompt 2>/dev/null)
+
+No app code is written while these steps are open. The integration starts once they are proved.
 
 $prompt"
   printf '{"header":%s,"prompt":%s,' "$(jstr "Step $n of 4")" "$(jstr "$prompt")"
