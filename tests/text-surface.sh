@@ -18,7 +18,7 @@
 set -uo pipefail
 # Step 0 is recorded: these checks are about the setup screens, which the scope gate
 # holds back until it is (tests/agent-scope.sh covers that gate).
-export SCOPE_FEATURES=push-notifications,sdk-initialization SCOPE_IDENTITY=email SCOPE_PUSH=keep-both
+export SCOPE_FEATURES=push-notifications,sdk-initialization SCOPE_IDENTITY=email SCOPE_PUSH=keep-both SCOPE_REGION=US SCOPE_JWT=false
 cd "$(dirname "$0")/.."
 
 FAILED=0

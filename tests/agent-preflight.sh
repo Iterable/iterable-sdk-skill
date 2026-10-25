@@ -35,7 +35,10 @@ echo "  bin/agent preflight — local files only, before any consent"
 echo
 
 # The Step 0 answers, as `agent scope` records them; tests/agent-scope.sh covers that gate.
-scoped() { mkdir -p "$1/.iterable"; printf 'SCOPE_FEATURES=push-notifications,sdk-initialization\nSCOPE_IDENTITY=email\n' >> "$1/.iterable/resolved.env"; }
+scoped() {
+  mkdir -p "$1/.iterable"
+  printf 'SCOPE_FEATURES=push-notifications,sdk-initialization\nSCOPE_IDENTITY=email\nSCOPE_REGION=US\nSCOPE_JWT=false\n' >> "$1/.iterable/resolved.env"
+}
 
 A="$TMP/fresh"; new_app "$A"
 OUT="$(pf "$A")"
