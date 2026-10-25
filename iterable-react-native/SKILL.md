@@ -72,9 +72,10 @@ when the app already handles push itself whether to keep it, the Iterable
 project region (US or EU), and whether the Mobile key requires JWT (same
 screens as native iOS provisioning). Each option's command records its answer
 in `.iterable/resolved.env`; EU also records `ITBL_BASE` in `.iterable/.env`.
-Preflight's `scope` field reports them, and `question scope` offers to change
-them once all are in. Never pick an option for the developer. Prerequisites are
-preflight's to find: never ask for a key in the chat.
+Preflight's `scope` field reports them. When every field is in, `question scope` shows
+the **Scope** summary; **Keep these answers** runs `agent scope confirm` before
+provisioning. Any change clears confirmation and asks again. Never pick an option for
+the developer. Prerequisites are preflight's to find: never ask for a key in the chat.
 
 **Detect the workflow from the project, do not ask which docs to use.**
 

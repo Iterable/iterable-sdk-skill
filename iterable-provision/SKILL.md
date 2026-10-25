@@ -178,12 +178,14 @@ credentials, reads nothing, and writes nothing — not even a workspace director
 is safe to be the first thing that happens. Render it exactly as *Rendering a tool screen* says:
 `context` printed above the selector, verbatim, then `prompt` whole and the options.
 
-**Step 0 comes first.** Until the developer's scope is recorded, that command prints a
-scope screen (**Features**, then **Identity**) instead of the setup question, and a
-status read reports `next.kind: scope`. Put each one to the developer, run the commands
-of the options they pick, and follow each `next.command` until it names `preflight`.
-Then run `<root>/bin/agent question opening` again: with the scope recorded it is the
-setup question. Never record a scope answer the developer did not pick.
+**Step 0 comes first.** Until the developer has confirmed the whole scope, that command
+prints a scope screen (**Features**, **Identity**, region, JWT, then the **Scope**
+summary) instead of the setup question, and a status read reports `next.kind: scope`.
+Put each one to the developer, run the commands of the options they pick, and follow each
+`next.command` until **Keep these answers** records it (`agent scope confirm`) and
+preflight names provisioning. Then run `<root>/bin/agent question opening` again: with
+the scope confirmed it is the setup question. Never record a scope answer the developer
+did not pick.
 
 This ordering is the point and it is easy to get wrong. A status read runs the whole
 eighteen-gate ladder against their Firebase projects, so a question carried in its output

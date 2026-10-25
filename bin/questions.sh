@@ -159,6 +159,14 @@ scope_missing() {
   fi
 }
 
+# What still blocks provisioning and code: a missing answer, or the whole-scope yes.
+scope_gate() {
+  local m
+  m="$(scope_missing)"
+  [[ -n "$m" ]] && { printf '%s' "$m"; return; }
+  [[ "${SCOPE_CONFIRMED:-}" == true ]] || printf confirm
+}
+
 scope_jwt_keys_url() {
   if [[ "${SCOPE_REGION:-}" == EU ]]; then
     printf 'https://app.eu.iterable.com/settings/apiKeys'
@@ -416,9 +424,9 @@ EOF
 )"
   printf '"requires":[],"recommended":%s,"options":[' "$(jstr "Keep these answers")"
   q_opt "Keep these answers" \
-    "Nothing changes, and preflight names the next step." \
-    "nothing changed" "" \
-    "$BIN/agent preflight"
+    "Records the whole scope, then preflight names the next step." \
+    "SCOPE_CONFIRMED recorded" "" \
+    "$BIN/agent scope confirm"
   printf ','
   q_opt "Change the answers" \
     "Clears the recorded answers, and the features screen comes back." \
@@ -1340,7 +1348,7 @@ question_for() {
     scope_more)       q_scope_more ;;
     # Provisioning asks for the test identity the scope decides, so the scope comes first
     # even when an agent enters here instead of through the platform skill's preflight.
-    opening)          if [[ -n "$(scope_missing)" ]]; then q_scope; else q_opening; fi ;;
+    opening)          if [[ -n "$(scope_gate)" ]]; then q_scope; else q_opening; fi ;;
     # Two kinds, one fork. next_action reports `run_in_terminal` when the developer is
     # the driver and `approve_firebase` when the agent is, because the terminal path
     # asks for consent in person and needs no agent to collect it. Asked in a chat
@@ -1354,7 +1362,7 @@ question_for() {
     # The fork itself, reported while it is still unanswered. Same screen as the opening
     # one because it is the same question — a second, smaller version of it would be a
     # second wording to keep true, and the one that goes stale is whichever they read.
-    choose_driver)    if [[ -n "$(scope_missing)" ]]; then q_scope; else q_opening; fi ;;
+    choose_driver)    if [[ -n "$(scope_gate)" ]]; then q_scope; else q_opening; fi ;;
     sign_in|authenticate) q_sign_in ;;
     # The door, then the picker, and they are different questions: one asks whether the
     # listing may happen, the other shows what came back. next_action calls both

@@ -134,10 +134,14 @@ if [[ "${1:-}" == preflight ]]; then
       SUMMARY="$SUMMARY Android is finished. If iOS is in scope, start it with the command below$([[ -n "${SCOPE_FEATURES:-}" ]] && printf ', which carries the recorded Step 0 answers' || printf ' and the --features from Step 0')."; }
   fi
   # Ahead of both: provisioning asks for the test identity, and code is built on the scope.
-  SCOPE_MISSING="$(scope_missing)"
+  SCOPE_MISSING="$(scope_gate)"
   if [[ -n "$SCOPE_MISSING" && ( "$KIND" == provision || "$KIND" == integrate ) ]]; then
     KIND=scope OPEN=""; DO=("$BIN/agent question scope")
-    SUMMARY="Step 0 is not recorded yet. Write no code and start no setup. Put each screen to the developer, run the commands of the options they pick, then the command each one names next, until preflight returns another kind."
+    if [[ "$SCOPE_MISSING" == confirm ]]; then
+      SUMMARY="Step 0 answers are on disk but not confirmed. Put the Scope summary to the developer; Keep records the whole scope, then run preflight again. Write no code and start no setup until preflight returns another kind."
+    else
+      SUMMARY="Step 0 is not recorded yet. Write no code and start no setup. Put each screen to the developer, run the commands of the options they pick, then the command each one names next, until preflight returns another kind."
+    fi
   fi
   printf '{"tool":"iterable-onboard","command":"preflight","local_only":true,"app_root":%s,"framework":%s,' "$(jstr "$APP")" "$(jstr "$FW")"
   printf '"present":{"google_services_json":%s,"google_services_json_in_app":%s,"mobile_key":%s,"server_key":%s,"app_key_file":%s,"provisioning_proven":%s,"sdk_dependency":%s,"push_proven":%s},' \
@@ -241,8 +245,13 @@ case "${1:-status}" in
       jwt-check-clear)
         keys=SCOPE_JWT_CHECK v="" ;;
       clear)
-        keys="SCOPE_FEATURES SCOPE_IDENTITY SCOPE_PUSH SCOPE_REGION SCOPE_JWT SCOPE_JWT_CHECK" v="" ;;
-      *) printf '{"error":%s}\n' "$(jstr "usage: agent scope feature <ids> | identity email|user-id|unknown-user | existing-push keep-both|iterable-only | region US|EU | jwt true|false | jwt-check | jwt-check-clear | clear")"; exit 30 ;;
+        keys="SCOPE_FEATURES SCOPE_IDENTITY SCOPE_PUSH SCOPE_REGION SCOPE_JWT SCOPE_JWT_CHECK SCOPE_CONFIRMED" v="" ;;
+      confirm)
+        if [[ -n "$(scope_missing)" ]]; then
+          printf '{"error":%s}\n' "$(jstr "scope is not complete yet — finish the scope screens before confirming")"; exit 30
+        fi
+        keys=SCOPE_CONFIRMED v=true ;;
+      *) printf '{"error":%s}\n' "$(jstr "usage: agent scope feature <ids> | identity email|user-id|unknown-user | existing-push keep-both|iterable-only | region US|EU | jwt true|false | jwt-check | jwt-check-clear | confirm | clear")"; exit 30 ;;
     esac
     for k in $keys; do
       kv="$v"
@@ -261,9 +270,17 @@ case "${1:-status}" in
       fi
       printf -v "$ek" '%s' "$ev"
     fi
-    M="$(scope_missing)"
-    printf '{"recorded":%s,"file":%s,"next":{"command":%s}}\n' "$(scope_json "$M")" "$(jstr "$WS/resolved.env")" \
-      "$(jstr "$BIN/agent $([[ -n "$M" ]] && printf 'question scope' || printf preflight)")"
+    if [[ "${1:-}" != confirm ]]; then
+      save_resolved SCOPE_CONFIRMED "" && SCOPE_CONFIRMED=""
+    fi
+    G="$(scope_gate)"
+    if [[ "${1:-}" == confirm ]]; then
+      printf '{"recorded":%s,"confirmed":true,"file":%s,"next":{"command":%s}}\n' \
+        "$(scope_json "")" "$(jstr "$WS/resolved.env")" "$(jstr "$BIN/agent preflight")"
+    else
+      printf '{"recorded":%s,"file":%s,"next":{"command":%s}}\n' "$(scope_json "$G")" "$(jstr "$WS/resolved.env")" \
+        "$(jstr "$BIN/agent $([[ -n "$G" ]] && printf 'question scope' || printf preflight)")"
+    fi
     exit 0
     ;;
   set)
@@ -403,9 +420,9 @@ IFS="$NEXT_SEP" read -r NEXT_OWNER NEXT_KIND NEXT_GATE NEXT_CMD NEXT_SUMMARY <<<
 # because by then the code exists and the scope was asked before it was written.
 case "$NEXT_KIND" in
   choose_driver|run_in_terminal|authenticate|choose_target|project_unreachable|approve_firebase|register_app|provision|iterable_keys)
-    if [[ -n "$(scope_missing)" ]]; then
+    if [[ -n "$(scope_gate)" ]]; then
       NEXT_OWNER=human NEXT_KIND=scope NEXT_CMD="$BIN/agent question scope"
-      NEXT_SUMMARY="Step 0 is not recorded yet. Put the scope screens to the developer before any setup starts; then run $BIN/agent question opening again."
+      NEXT_SUMMARY="Step 0 is not finished yet. Put the scope screens to the developer before any setup starts; confirm the whole scope, then run $BIN/agent question opening again."
     fi ;;
 esac
 
