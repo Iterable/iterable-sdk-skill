@@ -106,8 +106,8 @@ send again, not to doubt the check.
 
 The other honest answers, in order of how often they are the real one: the app
 was never launched after install, so no token exists; the app signs in as a
-different address than `target.email`, so the token is filed under one identity
-and the proof went to another; the push integration is set to **Notification
+different user than `target.email` (or `target.user_id`), so the token is filed
+under one identity and the proof went to another; the push integration is set to **Notification
 messages** instead of **Data notifications**, so the Firebase SDK swallows it
 before Iterable's SDK sees it; notification permission was denied (the verdict
 distinguishes "denied" from "never asked").

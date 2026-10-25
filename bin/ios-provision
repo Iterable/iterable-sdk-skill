@@ -3703,12 +3703,13 @@ import_from_android() {
   android_setup_present ||
     die "no Android setup with a Mobile key was found at $(android_env_path)"
   require_ios_next "import-from-android" import_android
-  local mobile server base email region delivery existing server_lines="" android_env
+  local mobile server base email user_id region delivery existing server_lines="" android_env
   android_env="$(android_env_path)"
   mobile="$(android_env_value ITBL_MOBILE_KEY)"
   server="$(android_env_value ITBL_SERVER_KEY)"
   base="$(android_env_value ITBL_BASE)"
   email="$(android_env_value ITBL_EMAIL)"
+  user_id="$(android_env_value ITBL_USER_ID)"
   region=US
   [[ "$base" != https://api.eu.iterable.com ]] || region=EU
   [[ "$mobile" =~ ^[A-Za-z0-9._~+/=-]{20,}$ ]] ||
@@ -3739,15 +3740,16 @@ import_from_android() {
   (
     umask 077
     node -e '
-      const [path, current, region, email, source] = process.argv.slice(1);
+      const [path, current, region, email, source, userId] = process.argv.slice(1);
       const value = JSON.parse(current);
       value.android_import = "imported";
       value.android_import_path = source;
       value.data_region = region;
       value.jwt_enabled = false;
       if (email && !value.identity_mode) value.identity_mode = "email";
+      else if (userId && !value.identity_mode) value.identity_mode = "user-id";
       require("fs").writeFileSync(path, JSON.stringify(value, null, 2) + "\n", { mode: 0o600 });
-    ' "$DISCOVERY_META" "$current" "$region" "$email" "$android_env"
+    ' "$DISCOVERY_META" "$current" "$region" "$email" "$android_env" "$user_id"
   )
   chmod 600 "$DISCOVERY_META"
   printf 'Reused the Android setup from %s: the Mobile%s key, region %s, and No JWT. Both keys are validated again for iOS later; nothing was printed.\n' \
@@ -3790,6 +3792,7 @@ android_import_summary() {
   [[ "$(android_env_value ITBL_BASE)" != https://api.eu.iterable.com ]] || region=EU
   [[ -z "$(android_env_value ITBL_SERVER_KEY)" ]] || server=yes
   email="$(android_env_value ITBL_EMAIL)"
+  [[ -n "$email" ]] || email="$(android_env_value ITBL_USER_ID)"
   printf 'Android workspace: %s\nRegion: %s\nMobile key: recorded\nServer-side key: %s\nTest identity: %s' \
     "$(dirname "$(android_env_path)")" "$region" \
     "$([[ "$server" == yes ]] && printf recorded || printf 'not recorded; iOS asks for it later')" \

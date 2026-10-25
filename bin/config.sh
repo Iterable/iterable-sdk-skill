@@ -503,14 +503,22 @@ advice_for() {
     G14) if [[ -z "$ITBL_MOBILE_KEY" ]]; then
            echo "finish the Iterable steps first — the app needs a mobile key before it can register anything"
          elif [[ "$(gate_detail G14)" == *"never called registerDeviceToken"* ]]; then
-           echo "identify a user in the app — IterableApi.getInstance().setEmail(\"${ITBL_EMAIL:-your test user}\") — then relaunch it; the SDK registers no token until it knows who it is for"
+           if [[ "$(itbl_identity_kind)" == user-id ]]; then
+             echo "identify a user in the app — IterableApi.getInstance().setUserId(\"$ITBL_USER_ID\") — then relaunch it; the SDK registers no token until it knows who it is for"
+           else
+             echo "identify a user in the app — IterableApi.getInstance().setEmail(\"${ITBL_EMAIL:-your test user}\") — then relaunch it; the SDK registers no token until it knows who it is for"
+           fi
          else
            echo "launch the app, so the SDK registers a token"
          fi ;;
     # Naming the address is the point. This is the join key between the app and
     # Iterable, and a test user who signs in as anyone else looks exactly like a
     # broken integration from here.
-    G15) echo "sign in to the app as ${ITBL_EMAIL:-your test user} — that exact address, or no token is ever filed under it" ;;
+    G15) if [[ "$(itbl_identity_kind)" == user-id ]]; then
+           echo "sign in to the app as the user whose ID is $ITBL_USER_ID — that exact ID passed to setUserId(), or no token is ever filed under it"
+         else
+           echo "sign in to the app as ${ITBL_EMAIL:-your test user} — that exact address, or no token is ever filed under it"
+         fi ;;
     G16) echo "send the proof push" ;;
     G17) echo "set ITBL_CAMPAIGN_ID and send through a campaign, for server-side corroboration" ;;
   esac
@@ -1522,6 +1530,40 @@ load_env_file "$ITBL_ENV"
 : "${ITBL_SERVER_KEY:=}"
 : "${ITBL_MOBILE_KEY:=}"
 : "${ITBL_EMAIL:=}"
+# For an app that identifies users with setUserId() and has no email to give. ITBL_EMAIL
+# wins when both are set, so a workspace that has only ever had an email reads as before.
+: "${ITBL_USER_ID:=}"
+itbl_identity() { printf '%s' "${ITBL_EMAIL:-$ITBL_USER_ID}"; }
+itbl_identity_kind() {
+  if [[ -n "$ITBL_EMAIL" ]]; then printf email
+  elif [[ -n "$ITBL_USER_ID" ]]; then printf user-id
+  fi
+}
+# Which of the two a typed or logged value belongs on. The User ID rules say a userId
+# never holds an email address, so anything shaped like one is an email.
+identity_key() {
+  if [[ "$1" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[A-Za-z]{2,}$ ]]; then printf ITBL_EMAIL
+  else printf ITBL_USER_ID
+  fi
+}
+itbl_user_path() {
+  if [[ -n "$ITBL_EMAIL" ]]; then printf '/api/users/getByEmail?email=%s' "$(urlenc "$ITBL_EMAIL")"
+  else printf '/api/users/byUserId/%s' "$(urlenc "$ITBL_USER_ID")"
+  fi
+}
+itbl_events_path() {
+  if [[ -n "$ITBL_EMAIL" ]]; then printf '/api/events/%s?limit=50' "$(urlenc "$ITBL_EMAIL")"
+  else printf '/api/events/byUserId/%s?limit=50' "$(urlenc "$ITBL_USER_ID")"
+  fi
+}
+itbl_recipient_field() { [[ -n "$ITBL_EMAIL" ]] && printf recipientEmail || printf recipientUserId; }
+# Iterable answers an unknown user with a 400; the userId lookups can word it "not found".
+itbl_no_user() {
+  [[ "$1" == 400 ]] || return 1
+  if [[ -n "$ITBL_EMAIL" ]]; then grep -qi 'no user exists' <<< "$2"
+  else grep -qiE 'no user exists|not found' <<< "$2"
+  fi
+}
 # Set only when the proof push was sent through a campaign. A proof send raises no
 # pushSend event, so G17 can corroborate nothing without this — see the plan.
 : "${ITBL_CAMPAIGN_ID:=}"
@@ -1640,8 +1682,8 @@ logcat_for_package() {
 # Which identity the app actually registered, straight out of the SDK's own request
 # body in logcat. The developer cannot reliably answer this from memory — the app
 # decides it in code, and a wrong answer looks exactly like a broken Iterable
-# project — so ask the device instead of asking them. Prints one address per line,
-# most recent first; empty if the buffer has rotated or the app never registered.
+# project — so ask the device instead of asking them. Prints one email or userId per
+# line, most recent first; empty if the buffer has rotated or the app never registered.
 #
 # Silent unless the read can be attributed to the chosen package. A confident wrong
 # join key is worse than no suggestion: this offered an address belonging to a
@@ -1651,8 +1693,9 @@ app_identity() {
   out="$(logcat_for_package "$d")" || return 0
   printf '%s\n' "$out" \
     | grep -F 'IterableRequest' \
-    | grep -oE '"email": *"[^"]+"' \
-    | grep -oE '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}' \
+    | grep -oE '"(email|userId)": *"[^"]+"' \
+    | awk '/^"email"/ { if (match($0, /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z][A-Za-z]+/)) print substr($0, RSTART, RLENGTH); next }
+           { v = $0; sub(/^"userId": *"/, "", v); sub(/"$/, "", v); if (length(v) <= 128 && v !~ /[[:space:]\047]/) print v }' \
     | tail -r | awk '!seen[$0]++'
 }
 

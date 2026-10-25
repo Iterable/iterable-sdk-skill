@@ -602,8 +602,10 @@ q_run_app_context() {
   echo ""
   if [[ -n "${ITBL_EMAIL:-}" ]]; then
     echo "  1. Sign in as $ITBL_EMAIL  ← that exact address"
+  elif [[ -n "${ITBL_USER_ID:-}" ]]; then
+    echo "  1. Sign in as the user whose ID is $ITBL_USER_ID  ← the exact ID the app passes to setUserId()"
   else
-    echo "  1. Sign in, then tell the skill which address you used. The token is stored under that address."
+    echo "  1. Sign in, then tell the skill which email or user ID you used. The token is stored under it."
   fi
   echo "  2. Allow notifications when Android asks"
   echo ""
@@ -613,7 +615,8 @@ q_run_app_context() {
 }
 
 q_run_app() {
-  local who="Sign in, then tell the skill which address you used"
+  local who="Sign in, then tell the skill which email or user ID you used"
+  [[ -z "${ITBL_USER_ID:-}" ]] || who="Sign in as the user whose ID is $ITBL_USER_ID, the exact ID the app passes to setUserId()"
   [[ -z "${ITBL_EMAIL:-}" ]] || who="Sign in as $ITBL_EMAIL, that exact address"
   printf '{"header":"Your app","prompt":%s,' \
     "$(jstr "In your app on ${TARGET_DEVICE:-the device}:
@@ -634,7 +637,7 @@ Signed in on ${TARGET_DEVICE:-the device}, with notifications allowed?")"
     "$BIN/agent"
   printf ','
   q_opt "It has no sign-in yet" \
-    "Then the app never calls setEmail, and no token can exist for any address. That is code in your app, not a setting. The app's integration code is what calls setEmail." \
+    "Then the app never calls setEmail or setUserId, and no token can exist for any user. That is code in your app, not a setting. The app's integration code is what identifies the user." \
     "nothing changed; no identity for a token to be filed under" ""
   printf ','
   q_opt "Android never asked about notifications" \
@@ -644,9 +647,9 @@ Signed in on ${TARGET_DEVICE:-the device}, with notifications allowed?")"
   # The identity, because a mismatch here is the most common way a working integration
   # looks broken: the token is filed under one address and the proof push goes to another.
   printf '"free_text":%s}' "$(q_free_text \
-    "the address your app actually signs in as" \
-    "records ITBL_EMAIL — the identity the proof push is sent to" \
-    "$BIN/agent set ITBL_EMAIL={{answer}}")"
+    "the email or user ID your app actually signs in as" \
+    "records ITBL_EMAIL, or ITBL_USER_ID when it is not an email address — the identity the proof push is sent to" \
+    "$BIN/agent set ITBL_IDENTITY={{answer}}")"
 }
 
 # ------------------------------------------------------- part 1: the Google consent
@@ -804,9 +807,9 @@ q_iterable_step() {
        else
          prompt="Which key is on your clipboard?"
        fi ;;
-    4) [[ -n "$ITBL_EMAIL" ]] \
-         && prompt="The test identity is $ITBL_EMAIL. Prove the whole thing now?" \
-         || prompt="What address does your app sign in as?" ;;
+    4) [[ -n "$(itbl_identity)" ]] \
+         && prompt="The test identity is $(itbl_identity). Prove the whole thing now?" \
+         || prompt="What email or user ID does your app sign the test user in with?" ;;
   esac
   prompt="$("$BIN/iterable-keys" --step "$n" --prompt 2>/dev/null)
 
@@ -870,30 +873,32 @@ $prompt"
     # app has run and identified anybody, and offering that is how a mismatch between the
     # two gets caught here rather than three gates later.
     local seen; seen="$(app_identity 2>/dev/null | head -1)"
-    if [[ -n "$ITBL_EMAIL" ]]; then
+    local what=address call='setEmail()' key=ITBL_EMAIL
+    [[ "$(itbl_identity_kind)" != user-id ]] || { what='user ID'; call='setUserId()'; key=ITBL_USER_ID; }
+    if [[ -n "$(itbl_identity)" ]]; then
       rec="Done — now prove it"
       q_opt "$rec" \
-        "Both keys are used in a real Iterable call, and $ITBL_EMAIL is looked up by name. Nothing in the last four steps is taken on trust." \
+        "Both keys are used in a real Iterable call, and $(itbl_identity) is looked up by name. Nothing in the last four steps is taken on trust." \
         "walk complete; ladder re-run to verify all four steps" "" \
         "$BIN/onboard"
       printf ','
-      q_opt "That is the wrong address" \
-        "Type the right address below. It has to match the value the app passes to setEmail(), character for character. If they differ, the token is stored for one user and the push goes to another." \
-        "ITBL_EMAIL stays as it is until you give another" ""
+      q_opt "That is the wrong $what" \
+        "Type the right one below. It has to match the value the app passes to $call, character for character. If they differ, the token is stored for one user and the push goes to another." \
+        "$key stays as it is until you give another" ""
     elif [[ -n "$seen" ]]; then
       rec="Use $seen"
       q_opt "$rec" \
-        "This is the address the app on the device registered. It comes from the app's own registerDeviceToken call, so it matches that registration." \
-        "ITBL_EMAIL recorded as $seen" "" \
-        "$BIN/agent set ITBL_EMAIL=$seen" "$BIN/onboard"
+        "This is the identity the app on the device registered. It comes from the app's own registerDeviceToken call, so it matches that registration." \
+        "$(identity_key "$seen") recorded as $seen" "" \
+        "$BIN/agent set $(identity_key "$seen")=$seen" "$BIN/onboard"
       printf ','
       q_opt "Show step 4 again" \
-        "The step is shown again, including any addresses the device has registered." \
+        "The step is shown again, including any identity the device has registered." \
         "step 4 still open" "" \
         "$BIN/agent question iterable_step 4"
     else
       q_opt "Show step 4 again" \
-        "The step is shown again, unchanged. Enter the address below, or set ITBL_EMAIL in the 0600 file." \
+        "The step is shown again, unchanged. Enter the email or user ID below, or set ITBL_EMAIL or ITBL_USER_ID in the 0600 file." \
         "step 4 still open" "" \
         "$BIN/agent question iterable_step 4"
       printf ','
@@ -902,7 +907,7 @@ $prompt"
       # what is missing, which is a better place to be stuck than on a screen with no exit.
       q_opt "I don't know it yet — read the ladder" \
         "Runs the checks for what's done. The keys are still used in a real call. The test-identity row stays open and says what's missing, instead of this screen blocking the rest." \
-        "ITBL_EMAIL left unset; ladder re-read" "" \
+        "test identity left unset; ladder re-read" "" \
         "$BIN/onboard"
     fi
   fi
@@ -913,13 +918,13 @@ $prompt"
     "$(cmd_path iterable-keys)"
   printf ']'
   # Only where the answer is a value the developer types, and never for a key. The
-  # identity is an email address and belongs in the open; a key put here would be a key
+  # identity, an email or a user ID, belongs in the open; a key put here would be a key
   # in the transcript, which is the one thing this walk is arranged to avoid.
   if ((n == 4)); then
     printf ',"free_text":%s' "$(q_free_text \
-      "the address your app signs in with, e.g. you@example.com" \
-      "records ITBL_EMAIL and re-runs the ladder" \
-      "$BIN/agent set ITBL_EMAIL={{answer}}")"
+      "the email or user ID your app signs the test user in with" \
+      "records ITBL_EMAIL, or ITBL_USER_ID when it is not an email address, and re-runs the ladder" \
+      "$BIN/agent set ITBL_IDENTITY={{answer}}")"
   fi
   # No recommendation on the steps that only the developer can judge: whether the click
   # landed is not something out here can know, and a tool nudging "done" from outside the

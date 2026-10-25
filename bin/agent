@@ -212,6 +212,8 @@ case "${1:-status}" in
       # free-text option, so the developer pastes a project id and the agent relays it
       # here. Untrusted input, and the one place to say so — the format check is what
       # makes "paste it" a safe option to offer at all.
+      # The identity screens have one typed field for an email or a userId.
+      [[ "$k" == ITBL_IDENTITY ]] && k="$(identity_key "$v")"
       case "$k" in
         PID)
           [[ -z "$v" || "$v" =~ ^[a-z][a-z0-9-]{4,28}[a-z0-9]$ ]] || {
@@ -241,6 +243,12 @@ case "${1:-status}" in
           [[ -z "$v" || "$v" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[A-Za-z]{2,}$ ]] || {
             printf '{"error":%s}\n' "$(jstr "not an email address: '$v'. This is the value the app passes to setEmail(), and it has to match character for character.")"
             exit 30; } ;;
+        # The User ID rules allow up to 128 printable characters. Whitespace and quotes are
+        # refused as well, because the value lands in a line-based file that strips quotes.
+        ITBL_USER_ID)
+          [[ -z "$v" || ( ${#v} -le 128 && "$v" =~ ^[^[:space:][:cntrl:]\"\']+$ ) ]] || {
+            printf '{"error":%s}\n' "$(jstr "not a user ID this tool can record: '$v'. It is the value the app passes to setUserId(): up to 128 characters, no spaces or quotes.")"
+            exit 30; } ;;
         # An allowlist, not a format check, because this is where the server-side key gets
         # spent: a hostname accepted from a chat is a hostname somebody's credential can be
         # sent to. Iterable has two data centres and no third answer.
@@ -254,7 +262,11 @@ case "${1:-status}" in
       # writes and the last one config.sh reads. Recorded in resolved.env instead, an
       # answer given here would silently lose to an older one given in the terminal.
       case "$k" in
-        ITBL_EMAIL|ITBL_BASE) DEST="$ITBL_ENV"; save_env "$k" "$v" ;;
+        ITBL_BASE) DEST="$ITBL_ENV"; save_env "$k" "$v" ;;
+        # The app identifies its user one way, so recording one identity drops the other.
+        ITBL_EMAIL|ITBL_USER_ID)
+          DEST="$ITBL_ENV"; save_env "$k" "$v" &&
+            { [[ -z "$v" ]] || save_env "$([[ "$k" == ITBL_EMAIL ]] && echo ITBL_USER_ID || echo ITBL_EMAIL)" ""; } ;;
         *) DEST="$WS/resolved.env"; save_resolved "$k" "$v" ;;
       esac || {
         printf '{"error":%s}\n' "$(jstr "$k was not saved: could not write to $WS")"
@@ -330,9 +342,9 @@ printf '"workspace":%s,' "$(jstr "$WS")"
 printf '"missing_tools":['
 sep=""; while read -r t; do [[ -n "$t" ]] || continue; printf '%s%s' "$sep" "$(jstr "$t")"; sep=","; done <<< "$MISSING"
 printf '],'
-printf '"target":{"project":%s,"package":%s,"device":%s,"email":%s,"iterable_base":%s},' \
+printf '"target":{"project":%s,"package":%s,"device":%s,"email":%s,"user_id":%s,"iterable_base":%s},' \
   "$(jstr "$PID")" "$(jstr "$PACKAGE")" "$(jstr "${TARGET_DEVICE:-}")" \
-  "$(jstr "$ITBL_EMAIL")" "$(jstr "$ITBL_BASE")"
+  "$(jstr "$ITBL_EMAIL")" "$(jstr "$ITBL_USER_ID")" "$(jstr "$ITBL_BASE")"
 # Paths, never values. The keys exist on disk at 0600 and that is the only place
 # they are ever named — a credential in a JSON report is a credential in a log.
 printf '"artifacts":{'
