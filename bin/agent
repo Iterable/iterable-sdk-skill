@@ -365,6 +365,17 @@ esac
 NEXT="$(next_action)"
 IFS="$NEXT_SEP" read -r NEXT_OWNER NEXT_KIND NEXT_GATE NEXT_CMD NEXT_SUMMARY <<< "$NEXT"
 
+# Same gate as preflight's, for an agent that entered through provisioning: nothing in the
+# Google or Iterable half starts until Step 0 is recorded. Device steps are not gated,
+# because by then the code exists and the scope was asked before it was written.
+case "$NEXT_KIND" in
+  choose_driver|run_in_terminal|authenticate|choose_target|project_unreachable|approve_firebase|register_app|provision|iterable_keys)
+    if [[ -n "$(scope_missing)" ]]; then
+      NEXT_OWNER=human NEXT_KIND=scope NEXT_CMD="$BIN/agent question scope"
+      NEXT_SUMMARY="Step 0 is not recorded yet. Put the scope screens to the developer before any setup starts; then run $BIN/agent question opening again."
+    fi ;;
+esac
+
 # The same step, in words a developer who has never read this repo can use. `gate`
 # stays because the state file and our own vocabulary are keyed on it, but an agent
 # that has only an id to quote says "G13" to somebody it means nothing to.

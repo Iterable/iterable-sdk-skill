@@ -12,6 +12,9 @@
 # No network, no credentials, no project.
 
 set -uo pipefail
+# Step 0 is recorded: these checks are about the setup screens, which the scope gate
+# holds back until it is (tests/agent-scope.sh covers that gate).
+export SCOPE_FEATURES=push-notifications,sdk-initialization SCOPE_IDENTITY=email SCOPE_PUSH=keep-both
 cd "$(dirname "$0")/.."
 
 FAILED=0
@@ -433,7 +436,7 @@ ok "every step leaves 'that did not work' as an answer that changes nothing"
 # so the identity, an email or a user ID and not a secret, is the only value in part 2
 # collected that way.
 for n in 1 2 3 4; do
-  ft="$(q iterable_step "$n" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const q=JSON.parse(s);console.log(q.free_text?q.free_text.command:"")})')"
+  ft="$(SCOPE_IDENTITY= q iterable_step "$n" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const q=JSON.parse(s);console.log(q.free_text?q.free_text.command:"")})')"
   case "$n" in
     4) [[ "$ft" == *"set ITBL_IDENTITY="* ]] \
          && ok "step 4 takes the test identity as typed text — an email or user ID, not a secret" \

@@ -258,6 +258,35 @@ done
   || bad "the prompt says nothing about writing code meanwhile on step(s):$NOCODE"
 
 echo
+echo "  Entering through provisioning still asks the scope first"
+echo
+
+P="$TMP/provision-first"; native_app "$P"
+O="$(in_app "$P" question opening)"
+[[ "$(field header <<< "$O")" == Features && ! -d "$P/.iterable" ]] \
+  && ok "with no scope, the provisioning skill's first question is the features screen, and nothing is written" \
+  || bad "question opening with no scope: header $(field header <<< "$O")"
+[[ "$(in_app "$P" question choose_driver | field header)" == Features ]] \
+  && ok "the setup fork is held behind the scope too" || bad "choose_driver asked before the scope"
+recorded "$P" push-notifications,sdk-initialization email
+in_app "$P" scope existing-push keep-both >/dev/null
+O="$(in_app "$P" question opening)"
+[[ "$(field header <<< "$O")" != Features && "$(field header <<< "$O")" != Identity && -n "$(field header <<< "$O")" ]] \
+  && ok "with the scope recorded, the same command is the setup question" \
+  || bad "question opening with a scope: header $(field header <<< "$O")"
+
+S="$TMP/status-first"; native_app "$S"
+O="$(in_app "$S")"
+[[ "$(field next.kind <<< "$O")" == scope && "$(field next.command <<< "$O")" == "$ROOT/bin/agent question scope" \
+   && "$(field next.question.header <<< "$O")" == Features ]] \
+  && ok "a status read before the scope reports scope, with the features screen as its question" \
+  || bad "status with no scope: $(field next.kind <<< "$O") / $(field next.command <<< "$O")"
+recorded "$S" push-notifications,sdk-initialization email
+in_app "$S" scope existing-push keep-both >/dev/null
+[[ "$(in_app "$S" | field next.kind)" != scope ]] \
+  && ok "with the scope recorded, a status read routes to setup again" || bad "status still gated after the scope"
+
+echo
 echo "  Every scope screen can be drawn"
 echo
 
