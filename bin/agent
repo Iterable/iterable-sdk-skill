@@ -207,6 +207,7 @@ case "${1:-status}" in
   # Only the scope screens' options carry these, one answer per call.
   scope)
     shift
+    extra_env=""
     case "${1:-}" in
       feature)
         keys=SCOPE_FEATURES
@@ -221,13 +222,45 @@ case "${1:-status}" in
         keys=SCOPE_PUSH v="${2:-}"
         [[ "$v" == keep-both || "$v" == iterable-only ]] || {
           printf '{"error":%s}\n' "$(jstr "the app's own push is keep-both or iterable-only; got: '$v'")"; exit 30; } ;;
-      clear) keys="SCOPE_FEATURES SCOPE_IDENTITY SCOPE_PUSH" v="" ;;
-      *) printf '{"error":%s}\n' "$(jstr "usage: agent scope feature <ids> | identity email|user-id|unknown-user | existing-push keep-both|iterable-only | clear")"; exit 30 ;;
+      region)
+        keys=SCOPE_REGION v="${2:-}"
+        [[ "$v" == US || "$v" == EU ]] || {
+          printf '{"error":%s}\n' "$(jstr "the region is US or EU; got: '$v'")"; exit 30; }
+        if [[ "$v" == EU ]]; then extra_env="ITBL_BASE=https://api.eu.iterable.com"
+        else extra_env="ITBL_BASE="; fi ;;
+      jwt)
+        keys="SCOPE_JWT SCOPE_JWT_CHECK" v="${2:-}"
+        [[ "$v" == true || "$v" == false ]] || {
+          printf '{"error":%s}\n' "$(jstr "JWT is true or false; got: '$v'")"; exit 30; }
+        # jwt-check is only a waypoint; a recorded answer clears it.
+        [[ "$v" == true ]] && v_jwt=true || v_jwt=false
+        v="$v_jwt"
+        v_check="" ;;
+      jwt-check)
+        keys="SCOPE_JWT_CHECK SCOPE_JWT" v_check=true v="" ;;
+      jwt-check-clear)
+        keys=SCOPE_JWT_CHECK v="" ;;
+      clear)
+        keys="SCOPE_FEATURES SCOPE_IDENTITY SCOPE_PUSH SCOPE_REGION SCOPE_JWT SCOPE_JWT_CHECK" v="" ;;
+      *) printf '{"error":%s}\n' "$(jstr "usage: agent scope feature <ids> | identity email|user-id|unknown-user | existing-push keep-both|iterable-only | region US|EU | jwt true|false | jwt-check | jwt-check-clear | clear")"; exit 30 ;;
     esac
     for k in $keys; do
-      save_resolved "$k" "$v" && printf -v "$k" '%s' "$v" ||
+      kv="$v"
+      [[ "$k" == SCOPE_JWT_CHECK ]] && kv="${v_check-}"
+      save_resolved "$k" "$kv" && printf -v "$k" '%s' "$kv" ||
         { printf '{"error":%s}\n' "$(jstr "the scope was not saved: could not write to $WS")"; exit 30; }
     done
+    if [[ -n "$extra_env" ]]; then
+      ek="${extra_env%%=*}"; ev="${extra_env#*=}"
+      if [[ -n "$ev" ]]; then
+        save_env "$ek" "$ev" || {
+          printf '{"error":%s}\n' "$(jstr "the region was not saved: could not write to $ITBL_ENV")"; exit 30; }
+      elif [[ -f "$ITBL_ENV" ]]; then
+        grep -v "^${ek}=" "$ITBL_ENV" > "$ITBL_ENV.tmp" 2>/dev/null || true
+        mv "$ITBL_ENV.tmp" "$ITBL_ENV"
+      fi
+      printf -v "$ek" '%s' "$ev"
+    fi
     M="$(scope_missing)"
     printf '{"recorded":%s,"file":%s,"next":{"command":%s}}\n' "$(scope_json "$M")" "$(jstr "$WS/resolved.env")" \
       "$(jstr "$BIN/agent $([[ -n "$M" ]] && printf 'question scope' || printf preflight)")"

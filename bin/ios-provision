@@ -3704,7 +3704,9 @@ import_from_android() {
     die "no Android setup with a Mobile key was found at $(android_env_path)"
   require_ios_next "import-from-android" import_android
   local mobile server base email user_id region delivery existing server_lines="" android_env
+  local android_ws jwt_enabled=false scope_jwt="" scope_region=""
   android_env="$(android_env_path)"
+  android_ws="$(dirname "$android_env")"
   mobile="$(android_env_value ITBL_MOBILE_KEY)"
   server="$(android_env_value ITBL_SERVER_KEY)"
   base="$(android_env_value ITBL_BASE)"
@@ -3712,6 +3714,12 @@ import_from_android() {
   user_id="$(android_env_value ITBL_USER_ID)"
   region=US
   [[ "$base" != https://api.eu.iterable.com ]] || region=EU
+  if [[ -f "$android_ws/resolved.env" ]]; then
+    scope_region="$(grep '^SCOPE_REGION=' "$android_ws/resolved.env" 2>/dev/null | tail -1 | cut -d= -f2-)"
+    scope_jwt="$(grep '^SCOPE_JWT=' "$android_ws/resolved.env" 2>/dev/null | tail -1 | cut -d= -f2-)"
+    [[ "$scope_region" == US || "$scope_region" == EU ]] && region="$scope_region"
+    [[ "$scope_jwt" == true ]] && jwt_enabled=true
+  fi
   [[ "$mobile" =~ ^[A-Za-z0-9._~+/=-]{20,}$ ]] ||
     die "the Android Mobile key in $(android_env_path) does not look like an Iterable API key"
   if [[ -n "$server" && ! "$server" =~ ^[A-Za-z0-9._~+/=-]{20,}$ ]]; then
@@ -3728,7 +3736,7 @@ import_from_android() {
   [[ "$delivery" != expo-env ]] || expo_env_ignored "$(app_root)" || deliver=later
   [[ -z "$server" ]] ||
     server_lines="$(printf '# Read-only verification credential; never linked into the app.\nITERABLE_SERVER_KEY=%s' "$server")"
-  write_mobile_env "$mobile" "$region" false "$delivery" "$server_lines" import-from-android "$deliver"
+  write_mobile_env "$mobile" "$region" "$jwt_enabled" "$delivery" "$server_lines" import-from-android "$deliver"
   printf 'ITERABLE_IMPORTED_FROM=%s\n' "$android_env" >> "$MOBILE_ENV"
   rm -f "$MOBILE_VALIDATION" "$SERVER_VALIDATION"
   unset mobile server server_lines
@@ -3740,20 +3748,21 @@ import_from_android() {
   (
     umask 077
     node -e '
-      const [path, current, region, email, source, userId] = process.argv.slice(1);
+      const [path, current, region, jwtEnabled, email, source, userId] = process.argv.slice(1);
       const value = JSON.parse(current);
       value.android_import = "imported";
       value.android_import_path = source;
       value.data_region = region;
-      value.jwt_enabled = false;
+      value.jwt_enabled = jwtEnabled === "true";
       if (email && !value.identity_mode) value.identity_mode = "email";
       else if (userId && !value.identity_mode) value.identity_mode = "user-id";
       require("fs").writeFileSync(path, JSON.stringify(value, null, 2) + "\n", { mode: 0o600 });
-    ' "$DISCOVERY_META" "$current" "$region" "$email" "$android_env" "$user_id"
+    ' "$DISCOVERY_META" "$current" "$region" "$jwt_enabled" "$email" "$android_env" "$user_id"
   )
   chmod 600 "$DISCOVERY_META"
-  printf 'Reused the Android setup from %s: the Mobile%s key, region %s, and No JWT. Both keys are validated again for iOS later; nothing was printed.\n' \
-    "$android_env" "$([[ -n "$(env_value ITERABLE_SERVER_KEY)" ]] && printf ' and Server-side')" "$region" >&2
+  printf 'Reused the Android setup from %s: the Mobile%s key, region %s, and JWT %s. Both keys are validated again for iOS later; nothing was printed.\n' \
+    "$android_env" "$([[ -n "$(env_value ITERABLE_SERVER_KEY)" ]] && printf ' and Server-side')" "$region" \
+    "$([[ "$jwt_enabled" == true ]] && printf required || printf 'not required')" >&2
   [[ -z "$carried" ]] ||
     printf 'Proposed the feature scope confirmed in the %s: %s. It is recorded only after the confirmation screen.\n' \
       "$(ios_q_step0_skill "$(step0_source)")" "$carried" >&2

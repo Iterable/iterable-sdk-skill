@@ -49,11 +49,13 @@ human readers but omit several silent-failure traps documented in
 `<root>/bin/agent preflight` returns `scope`, ahead of provisioning and code,
 until the developer has answered these. `<root>/bin/agent question scope` asks
 them one screen at a time: the features, the identity (project type first),
-and, when the app already handles push itself, whether to keep it. Each
-option's command records its answer in `.iterable/resolved.env`; preflight's
-`scope` field reports them, and `question scope` offers to change them once all
-are in. Never pick an option for the developer. Prerequisites are preflight's
-to find: never ask for a key in the chat.
+when the app already handles push itself whether to keep it, the Iterable
+project region (US or EU), and whether the Mobile key requires JWT (same
+screens as native iOS provisioning). Each option's command records its answer
+in `.iterable/resolved.env`; EU also records `ITBL_BASE` in `.iterable/.env`.
+Preflight's `scope` field reports them, and `question scope` offers to change
+them once all are in. Never pick an option for the developer. Prerequisites are
+preflight's to find: never ask for a key in the chat.
 
 Do **not** assume the developer wants every feature, and do **not** start
 implementing on a guessed scope.

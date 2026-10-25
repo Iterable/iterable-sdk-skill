@@ -153,12 +153,24 @@ scope_missing() {
   elif [[ -z "${SCOPE_IDENTITY:-}" ]]; then echo identity
   elif [[ -z "${SCOPE_PUSH:-}" && ",$SCOPE_FEATURES," == *,push-notifications,* && -n "$(own_push)" ]]; then
     echo existing-push
+  elif [[ -z "${SCOPE_REGION:-}" ]]; then echo region
+  elif [[ -z "${SCOPE_JWT:-}" && "${SCOPE_JWT_CHECK:-}" == true ]]; then echo jwt-check
+  elif [[ -z "${SCOPE_JWT:-}" ]]; then echo jwt
+  fi
+}
+
+scope_jwt_keys_url() {
+  if [[ "${SCOPE_REGION:-}" == EU ]]; then
+    printf 'https://app.eu.iterable.com/settings/apiKeys'
+  else
+    printf 'https://app.iterable.com/settings/apiKeys'
   fi
 }
 
 scope_json() { # <missing>
-  printf '{"features":%s,"identity":%s,"existing_push":%s,"missing":%s}' \
+  printf '{"features":%s,"identity":%s,"existing_push":%s,"region":%s,"jwt":%s,"missing":%s}' \
     "$(jstr "${SCOPE_FEATURES:-}")" "$(jstr "${SCOPE_IDENTITY:-}")" "$(jstr "${SCOPE_PUSH:-}")" \
+    "$(jstr "${SCOPE_REGION:-}")" "$(jstr "${SCOPE_JWT:-}")" \
     "$([[ -n "$1" ]] && jstr "$1" || printf null)"
 }
 
@@ -167,6 +179,9 @@ q_scope() {
     features)      q_scope_features ;;
     identity)      q_scope_identity ;;
     existing-push) q_scope_push ;;
+    region)        q_scope_region ;;
+    jwt)           q_scope_jwt ;;
+    jwt-check)     q_scope_jwt_check ;;
     *)             q_scope_recorded ;;
   esac
 }
@@ -299,15 +314,104 @@ EOF
   printf ']}'
 }
 
+q_scope_region() {
+  printf '{"header":"Region","selection":"single","prompt":%s,' "$(jstr "Which Iterable project region does this app use?")"
+  printf '"context":%s,' "$(q_arr <<'EOF'
+The Mobile API key and SDK data region must match the selected Iterable project. A US key cannot be treated as an EU key, or the reverse.
+EOF
+)"
+  printf '"requires":[],"recommended":null,"options":['
+  q_opt "US project" \
+    "Use the standard Iterable US API endpoints." \
+    "SCOPE_REGION=US recorded" "" \
+    "$BIN/agent scope region US"
+  printf ','
+  q_opt "EU project" \
+    "Use the EU Iterable API host for server-side calls and the EU project key." \
+    "SCOPE_REGION=EU recorded; ITBL_BASE set to api.eu.iterable.com" "" \
+    "$BIN/agent scope region EU"
+  printf ','
+  q_opt "Not sure — help me find out" \
+    "Shows how to read the region from the project address, and what to do with no project yet." \
+    "nothing recorded; open european-data-center and android-sdk Step 5.2 in the skill, then ask this screen again" ""
+  printf ']}'
+}
+
+q_scope_jwt() {
+  printf '{"header":"JWT","selection":"single","prompt":%s,' "$(jstr "Unless your app already has a backend that issues user-specific Iterable JWTs, choose No JWT. Should the Mobile key you create or pick in a later step require JWT?")"
+  printf '"context":%s,' "$(q_arr <<'EOF'
+You do not need a Mobile API key yet. A later step creates one in Iterable, or picks the one you already have, and its Require JWT setting must match this answer.
+
+Choose JWT only when the app already runs a backend that issues user-specific Iterable JWTs. The app then asks that backend for each token and never mints one itself. A new app without such a backend should choose No JWT.
+EOF
+)"
+  printf '"requires":[],"recommended":%s,"options":[' "$(jstr "No JWT — new app or no JWT backend")"
+  q_opt "No JWT — new app or no JWT backend" \
+    "Records No JWT, right for an app without a JWT backend. The Iterable walk creates the Mobile key with Require JWT Off." \
+    "SCOPE_JWT=false recorded" "" \
+    "$BIN/agent scope jwt false"
+  printf ','
+  q_opt "I already have a Mobile key — check its setting" \
+    "Shows where to read the existing key's Require JWT setting, then you answer from what it shows." \
+    "opens the JWT check screen; nothing recorded yet" "" \
+    "$BIN/agent scope jwt-check"
+  printf ','
+  q_opt "Not sure — help me decide" \
+    "Explains the one fact that decides it; for most apps the answer is No JWT." \
+    "nothing recorded; open jwt-enabled-api-keys in the skill, then ask this screen again" ""
+  printf ','
+  q_opt "JWT required — we run a JWT backend" \
+    "Only when a backend already issues user-specific Iterable JWTs; the integration adds an auth handler that calls it." \
+    "SCOPE_JWT=true recorded" "" \
+    "$BIN/agent scope jwt true"
+  printf ']}'
+}
+
+q_scope_jwt_check() {
+  local url; url="$(scope_jwt_keys_url)"
+  printf '{"header":"JWT check","selection":"single","prompt":%s,' "$(jstr "Read the setting on the Mobile key this app will use:
+1. Open $url (or go to Integrations > API Keys).
+2. Find the key whose type is Mobile. If there are several, use the one this app will ship with.
+3. Read its JWT column, or open the key and read Require JWT.
+4. Answer below with what it shows.
+
+In Iterable → Integrations → API Keys, read your Mobile key's Require JWT setting — is it on or off?")"
+  printf '"context":%s,' "$(q_arr <<'EOF'
+Nothing is copied here; the key itself is captured securely in a later step. If there is no Mobile key, go back and choose for the new one.
+EOF
+)"
+  printf '"requires":[],"recommended":null,"options":['
+  q_opt "Require JWT is off" \
+    "The existing Mobile key does not require JWT." \
+    "SCOPE_JWT=false recorded" "" \
+    "$BIN/agent scope jwt false"
+  printf ','
+  q_opt "Require JWT is on" \
+    "The existing Mobile key requires JWT; the integration must add an IterableAuthHandler backed by your backend." \
+    "SCOPE_JWT=true recorded" "" \
+    "$BIN/agent scope jwt true"
+  printf ','
+  q_opt "Show the JWT question again" \
+    "Returns to the JWT screen without recording an answer yet." \
+    "SCOPE_JWT_CHECK cleared" "" \
+    "$BIN/agent scope jwt-check-clear"
+  printf ']}'
+}
+
 q_scope_recorded() {
+  local jwt_label="not recorded"
+  [[ "${SCOPE_JWT:-}" == true ]] && jwt_label="required"
+  [[ "${SCOPE_JWT:-}" == false ]] && jwt_label="not required"
   printf '{"header":"Scope","selection":"single","prompt":%s,' "$(jstr "Recorded for this app:
 · Features: ${SCOPE_FEATURES//,/, }
 · Identity: $SCOPE_IDENTITY
 · The app's own push: ${SCOPE_PUSH:-not asked, because none was found or push is not in scope}
+· Region: ${SCOPE_REGION:-not recorded}
+· JWT: $jwt_label
 
 Keep these answers?")"
   printf '"context":%s,' "$(q_arr <<'EOF'
-Changing them clears all three, and the questions are asked again from the first.
+Changing them clears every recorded scope answer, and the questions are asked again from the first.
 EOF
 )"
   printf '"requires":[],"recommended":%s,"options":[' "$(jstr "Keep these answers")"
@@ -318,7 +422,7 @@ EOF
   printf ','
   q_opt "Change the answers" \
     "Clears the recorded answers, and the features screen comes back." \
-    "SCOPE_FEATURES, SCOPE_IDENTITY and SCOPE_PUSH cleared" "" \
+    "all scope fields cleared" "" \
     "$BIN/agent scope clear"
   printf ']}'
 }

@@ -47,9 +47,14 @@ proven() { # <dir> — provisioning proven, nothing placed in the app yet
   printf 'ITBL_MOBILE_KEY=%s\nITBL_SERVER_KEY=%s\n' "$MOBILE" "$SERVER" > "$1/.iterable/.env"
   printf 'G10\tgreen\thuman\tIterable API keys work\t\nG12\tunverifiable\thuman\tPush integration configured\t\nG13\tpending\thuman\tApp installed with the SDK\t\n' > "$1/.iterable/state.tsv"
 }
-recorded() { # <dir> <features> <identity>
+recorded() { # <dir> <features> <identity> [existing-push]
   mkdir -p "$1/.iterable"
-  printf 'SCOPE_FEATURES=%s\nSCOPE_IDENTITY=%s\n' "$2" "$3" >> "$1/.iterable/resolved.env"
+  printf 'SCOPE_FEATURES=%s\nSCOPE_IDENTITY=%s\nSCOPE_REGION=US\nSCOPE_JWT=false\n' "$2" "$3" >> "$1/.iterable/resolved.env"
+  [[ -n "${4:-}" ]] && printf 'SCOPE_PUSH=%s\n' "$4" >> "$1/.iterable/resolved.env"
+}
+finish_scope() { # <dir> — region and JWT after features, identity, and optional push
+  in_app "$1" scope region US >/dev/null
+  in_app "$1" scope jwt false >/dev/null
 }
 in_app() { local d="$1"; shift; ( cd "$d" && "$ROOT/bin/agent" "$@" 2>/dev/null ); }
 field() { node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{const j=JSON.parse(d);const v=process.argv[1].split(".").reduce((o,k)=>o?.[k],j);process.stdout.write(typeof v==="object"?JSON.stringify(v):String(v))})' "$1"; }
@@ -138,6 +143,11 @@ E2="$(in_app "$A" scope feature inbox)"; rc2=$?
   || bad "an unoffered value: rc $rc '$E', rc $rc2 '$E2'"
 
 o="$(in_app "$A" scope identity user-id)"
+[[ "$(field recorded.missing <<< "$o")" == region && "$(field header <<< "$(in_app "$A" question scope)")" == Region ]] \
+  && ok "after identity, region is asked before JWT or provisioning" \
+  || bad "region was not next after identity: $o"
+finish_scope "$A"
+o="$(in_app "$A" scope jwt false)"
 OUT="$(in_app "$A" preflight)"
 [[ "$(field next.command <<< "$o")" == "$ROOT/bin/agent preflight" && "$(field next.kind <<< "$OUT")" == provision \
    && "$(field next.commands.0 <<< "$OUT")" == "$ROOT/bin/agent question opening" \
@@ -150,12 +160,14 @@ grep -qF "not even while the developer works in a dashboard" <<< "$(field next.s
 
 R="$(in_app "$A" question scope)"
 [[ "$(field header <<< "$R")" == Scope ]] && grep -qF "Identity: user-id" <<< "$(field prompt <<< "$R")" \
+  && grep -qF "Region: US" <<< "$(field prompt <<< "$R")" && grep -qF "JWT: not required" <<< "$(field prompt <<< "$R")" \
   && grep -qF "$ROOT/bin/agent scope clear" <<< "$(cmds <<< "$R")" \
   && ok "once recorded, the scope screen shows the answers and offers to change them" \
   || bad "no way to see or change the recorded answers: $R"
 in_app "$A" scope clear >/dev/null
-[[ -z "$(rec "$A" SCOPE_FEATURES)$(rec "$A" SCOPE_IDENTITY)" && "$(in_app "$A" preflight | field next.kind)" == scope ]] \
-  && ok "changing them clears all three and routes back to scope" || bad "clear left: $(cat "$A/.iterable/resolved.env")"
+[[ -z "$(rec "$A" SCOPE_FEATURES)$(rec "$A" SCOPE_IDENTITY)$(rec "$A" SCOPE_REGION)$(rec "$A" SCOPE_JWT)" \
+   && "$(in_app "$A" preflight | field next.kind)" == scope ]] \
+  && ok "changing them clears every scope field and routes back to scope" || bad "clear left: $(cat "$A/.iterable/resolved.env")"
 
 ft="$(field free_text.command <<< "$Q")"
 ( cd "$A" && eval "${ft//\{\{answer\}\}/initialization only}" >/dev/null 2>&1 )
@@ -187,14 +199,40 @@ X="$(in_app "$N" question scope)"
 XC="$(cmds <<< "$X")"
 grep -qF "scope existing-push keep-both" <<< "$XC" && grep -qF "scope existing-push iterable-only" <<< "$XC" \
   && in_app "$N" scope existing-push keep-both >/dev/null && [[ "$(rec "$N" SCOPE_PUSH)" == keep-both ]] \
-  && [[ "$(in_app "$N" preflight | field next.kind)" == provision ]] \
-  && ok "keep both or Iterable only is recorded, and then provisioning comes next" \
+  && finish_scope "$N" && [[ "$(in_app "$N" preflight | field next.kind)" == provision ]] \
+  && ok "keep both or Iterable only is recorded, then region and JWT, and provisioning comes next" \
   || bad "the push answer did not record or route: $XC"
 
 N2="$TMP/native-no-push-scope"; native_app "$N2"
 in_app "$N2" scope feature event-tracking,user-profiles >/dev/null
-[[ "$(in_app "$N2" scope identity email | field recorded.missing)" == null ]] \
-  && ok "with push out of scope the app's own push is not asked about" || bad "push asked about while out of scope"
+[[ "$(in_app "$N2" scope identity email | field recorded.missing)" == region ]] \
+  && ok "with push out of scope the app's own push is skipped and region is asked next" \
+  || bad "push asked about while out of scope or region skipped"
+
+echo
+echo "  Region and JWT — same order as native iOS"
+echo
+
+in_app "$A" scope feature push-notifications >/dev/null
+in_app "$A" scope identity email >/dev/null
+RG="$(in_app "$A" question scope)"
+[[ "$(field header <<< "$RG")" == Region ]] \
+  && grep -qF "scope region US" <<< "$(cmds <<< "$RG")" && grep -qF "scope region EU" <<< "$(cmds <<< "$RG")" \
+  && ok "the region screen offers US and EU" || bad "region screen: $RG"
+in_app "$A" scope region EU >/dev/null
+grep -qF 'ITBL_BASE=https://api.eu.iterable.com' "$A/.iterable/.env" \
+  && [[ "$(rec "$A" SCOPE_REGION)" == EU ]] \
+  && ok "EU records SCOPE_REGION and ITBL_BASE in the workspace env" \
+  || bad "EU region did not land: $(cat "$A/.iterable/.env" 2>/dev/null) $(rec "$A" SCOPE_REGION)"
+JW="$(in_app "$A" question scope)"
+[[ "$(field header <<< "$JW")" == JWT ]] \
+  && grep -qF "scope jwt false" <<< "$(cmds <<< "$JW")" && grep -qF "scope jwt true" <<< "$(cmds <<< "$JW")" \
+  && grep -qF "scope jwt-check" <<< "$(cmds <<< "$JW")" \
+  && ok "the JWT screen matches iOS: no JWT, check existing key, unsure, JWT backend" \
+  || bad "JWT screen: $JW"
+in_app "$A" scope jwt false >/dev/null
+[[ "$(rec "$A" SCOPE_JWT)" == false && -z "$(rec "$A" SCOPE_JWT_CHECK)" ]] \
+  && ok "No JWT is recorded and the jwt-check waypoint is cleared" || bad "JWT record: $(rec "$A" SCOPE_JWT) check=$(rec "$A" SCOPE_JWT_CHECK)"
 
 echo
 echo "  The other routes"
@@ -268,8 +306,7 @@ O="$(in_app "$P" question opening)"
   || bad "question opening with no scope: header $(field header <<< "$O")"
 [[ "$(in_app "$P" question choose_driver | field header)" == Features ]] \
   && ok "the setup fork is held behind the scope too" || bad "choose_driver asked before the scope"
-recorded "$P" push-notifications,sdk-initialization email
-in_app "$P" scope existing-push keep-both >/dev/null
+recorded "$P" push-notifications,sdk-initialization email keep-both
 O="$(in_app "$P" question opening)"
 [[ "$(field header <<< "$O")" != Features && "$(field header <<< "$O")" != Identity && -n "$(field header <<< "$O")" ]] \
   && ok "with the scope recorded, the same command is the setup question" \
@@ -281,8 +318,7 @@ O="$(in_app "$S")"
    && "$(field next.question.header <<< "$O")" == Features ]] \
   && ok "a status read before the scope reports scope, with the features screen as its question" \
   || bad "status with no scope: $(field next.kind <<< "$O") / $(field next.command <<< "$O")"
-recorded "$S" push-notifications,sdk-initialization email
-in_app "$S" scope existing-push keep-both >/dev/null
+recorded "$S" push-notifications,sdk-initialization email keep-both
 [[ "$(in_app "$S" | field next.kind)" != scope ]] \
   && ok "with the scope recorded, a status read routes to setup again" || bad "status still gated after the scope"
 
@@ -296,7 +332,9 @@ draw "features" scope
 draw "more features" scope_more
 in_app "$SA" scope feature push-notifications >/dev/null; draw "identity" scope
 in_app "$SA" scope identity user-id >/dev/null;          draw "the app's own push" scope
-in_app "$SA" scope existing-push iterable-only >/dev/null; draw "recorded answers" scope
+in_app "$SA" scope existing-push iterable-only >/dev/null; draw "region" scope
+in_app "$SA" scope region US >/dev/null;                 draw "JWT" scope
+in_app "$SA" scope jwt false >/dev/null;                 draw "recorded answers" scope
 
 echo
 ((FAILED)) && { echo "  FAILED"; exit 1; }

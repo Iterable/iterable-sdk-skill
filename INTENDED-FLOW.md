@@ -26,7 +26,8 @@ Numbered because the auditor reports divergence by waypoint.
 **W1 — Scope.** First prompt, the agent establishes what the developer wants integrated and
 confirms it. On Android it is recorded, not remembered: `agent preflight` returns `scope`
 ahead of provisioning and code until `agent question scope` has put the features, the
-identity and any existing-push choice to the developer and their picks are on disk.
+identity, any existing-push choice, the data region, and the JWT policy to the developer
+and their picks are on disk (the same region and JWT questions native iOS asks).
 An agent that enters through provisioning meets the same gate: `agent question opening`
 prints the scope screen, and a status read reports `scope`, until those picks are on disk.
 
