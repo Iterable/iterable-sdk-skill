@@ -24,7 +24,9 @@ words, the developer supplies the answers, the agent carries them in both direct
 Numbered because the auditor reports divergence by waypoint.
 
 **W1 — Scope.** First prompt, the agent establishes what the developer wants integrated and
-confirms it. *Verified working; do not redesign it.*
+confirms it. On Android it is recorded, not remembered: `agent preflight` returns `scope`
+ahead of provisioning and code until `agent question scope` has put the features, the
+identity and any existing-push choice to the developer and their picks are on disk.
 
 **W2 — The Android work.** The agent writes config, init and identity, guided by the skill
 and `PITFALLS.md`. It never fakes an input to make a build pass: no placeholder
@@ -160,8 +162,9 @@ A React Native app runs the Android path and then the iOS path, one after the
 other, under the `iterable-react-native` skill:
 
 1. Confirm the scope once, in the skill's Step 0 — features and identity mode.
-   The Android ladder records none of it. The iOS path receives those answers
-   as `--features` / `--identity`, marks their origin (`scope_source` /
+   The Android tool records them before provisioning starts (W1). The iOS path
+   receives those answers as `--features` / `--identity` on the command
+   preflight's `done` names, marks their origin (`scope_source` /
    `identity_source` = `react-native-step0`), and shows them again before
    recording them. Region and JWT policy come from the Android setup.
 2. **Android first.** The Android ladder provisions Firebase and Iterable,
@@ -206,6 +209,9 @@ human has not acted is the tool working, and reporting it as a defect is its own
 
 A waypoint defended only by this file is defended by nothing. What holds each one:
 
+- **W1, the scope** — `tests/agent-scope.sh`: preflight routes to `scope` until every
+  answer is recorded, the screens record only their own options' values, and the recorded
+  identity decides what the test-identity step asks for.
 - **W4, the offer** — `tests/agent-next-action.sh`: every ladder state routes to one owner
   and one kind, and the fork is reported while it is unanswered rather than one of its
   answers.

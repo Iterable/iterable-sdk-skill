@@ -34,20 +34,28 @@ echo
 echo "  bin/agent preflight — local files only, before any consent"
 echo
 
+# The Step 0 answers, as `agent scope` records them; tests/agent-scope.sh covers that gate.
+scoped() { mkdir -p "$1/.iterable"; printf 'SCOPE_FEATURES=push-notifications,sdk-initialization\nSCOPE_IDENTITY=email\n' >> "$1/.iterable/resolved.env"; }
+
 A="$TMP/fresh"; new_app "$A"
 OUT="$(pf "$A")"
+[[ "$(field next.kind <<< "$OUT")" == scope ]] \
+  && ok "nothing present routes to the Step 0 scope first" || bad "fresh app got: $OUT"
+[[ ! -e "$A/.iterable" ]] && ok "and writes no workspace" || bad "preflight created $A/.iterable"
+scoped "$A"
+OUT="$(pf "$A")"
 [[ "$(field next.kind <<< "$OUT")" == provision ]] \
-  && ok "nothing present routes to provision" || bad "fresh app got: $OUT"
+  && ok "with the scope recorded, nothing present routes to provision" || bad "scoped fresh app got: $OUT"
 [[ "$(field next.commands.0 <<< "$OUT")" == "$ROOT/bin/agent question opening" \
    && "$(field next.open <<< "$OUT")" == "$ROOT/iterable-provision/SKILL.md" ]] \
   && ok "and names the provisioning skill and its first command" || bad "next lacks the opening command: $OUT"
-[[ ! -e "$A/.iterable" ]] && ok "and writes no workspace" || bad "preflight created $A/.iterable"
 
 B="$TMP/ready"; new_app "$B"
 mkdir -p "$B/.iterable/artifacts"
 printf '{"project_info":{"project_id":"real-project"}}\n' > "$B/.iterable/artifacts/google-services.json"
 printf 'ITBL_MOBILE_KEY=%s\nITBL_SERVER_KEY=%s\n' "$MOBILE" "$SERVER" > "$B/.iterable/.env"
 printf 'G10\tgreen\thuman\tIterable API keys work\t\nG12\tunverifiable\thuman\tPush integration configured\t\nG13\tpending\thuman\tApp installed with the SDK\t\n' > "$B/.iterable/state.tsv"
+scoped "$B"
 OUT="$(pf "$B")"
 [[ "$(field next.kind <<< "$OUT")" == integrate ]] \
   && ok "proven prerequisites route to integrate" || bad "ready app got: $OUT"

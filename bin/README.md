@@ -296,7 +296,7 @@ itself, and can contain live credentials.
 | `.env` | Iterable API keys, test identity, and related API settings, mode `0600` |
 | `ASK.md` | Current developer action requested by the program |
 | `state.tsv` | Gate results and resume state |
-| `resolved.env` | Non-secret choices such as project, package, app ID, device, and proof marker |
+| `resolved.env` | Non-secret choices such as the Step 0 scope, project, package, app ID, device, and proof marker |
 | `artifacts/` | `google-services.json`, service-account key, and other generated artifacts |
 | `runs/<timestamp>/` | Reports and diagnostic output |
 | `onboard`, `agent`, `gates`, and related files | One-line entry-point stubs for the installed workflow |

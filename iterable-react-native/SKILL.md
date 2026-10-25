@@ -26,11 +26,12 @@ description: >-
 1. Find `<root>`: from the real path of this `SKILL.md` (`cd -P "$(dirname <this file>)" && pwd -P`), walk up to the first folder that contains `bin/agent`.
 2. From the app root, run `<root>/bin/agent preflight` before you ask anything or edit anything. It reads local files only.
 3. Do what its `next` says: open `next.open` if it is set, then run `next.commands` in order.
-   - `provision`: open `<root>/iterable-provision/SKILL.md` now and follow it. Its first command is `<root>/bin/agent question opening`. Write no code until it hands back.
-   - `integrate`: run `next.commands`, then do Step 0 and write the Android integration.
+   - `scope`: Step 0 is not recorded. Put each screen to the developer with your question tool: `prompt` whole, the options as listed, several picks when `selection` is `multiple`. Run the commands of the options they pick: each prints another screen to put to them, or a `next.command` to run. An option with no commands says in `effect` what to do. Write no code until preflight returns another kind.
+   - `provision`: open `<root>/iterable-provision/SKILL.md` now and follow it. Its first command is `<root>/bin/agent question opening`. Write no code until it hands back, not even while the developer works in a dashboard.
+   - `integrate`: run `next.commands`, then write the Android integration for preflight's recorded `scope` (Step 0).
    - `verify`: open `<root>/iterable-android-verify/SKILL.md` and follow it.
 4. Never write a placeholder, dummy, `.example` or hard-coded key, or a fake `google-services.json`. A missing input comes from provisioning, or you stop and say so.
-5. Android first. Make no iOS edit until `iterable-android-verify` is green. Then, for iOS, run `<root>/bin/ios-provision status --features <Step 0 ids>` and follow `iterable-provision`'s iOS path until its `next.kind` is `integrate_app`.
+5. Android first. Make no iOS edit until `iterable-android-verify` is green. Then run preflight again: `done` names the iOS command, with the recorded scope in it. Run it and follow `iterable-provision`'s iOS path until its `next.kind` is `integrate_app`.
 
 You are working with the **Iterable React Native SDK** —
 [`@iterable/react-native-sdk`](https://www.npmjs.com/package/@iterable/react-native-sdk).
@@ -64,19 +65,14 @@ cost the developer a permission prompt.
 
 ## Step 0 — Agree on scope BEFORE writing code
 
-Do this **first**, before Preflight and before any edits.
-
-**Prerequisites question — ask it in the first round, with the scope.** "Do you
-already have the Iterable Mobile key, the Iterable mobile app with its push
-integration, and a Firebase project with this app's `google-services.json`?"
-
-- **Not yet — set them up** (recommended): open `<root>/iterable-provision/SKILL.md`
-  now and run `<root>/bin/agent question opening`.
-- **Yes, I have them**: still open `iterable-provision`; it finds, reuses and
-  proves what exists. Never ask for a key in the chat.
-
-When `<root>/bin/agent preflight` already returned `integrate` or `verify`, the
-files exist: say so and only confirm.
+`<root>/bin/agent preflight` returns `scope`, ahead of provisioning and code,
+until the developer has answered these. `<root>/bin/agent question scope` asks
+them one screen at a time: the features, the identity (project type first),
+and, when the app already handles push itself, whether to keep it. Each
+option's command records its answer in `.iterable/resolved.env`; preflight's
+`scope` field reports them, and `question scope` offers to change them once all
+are in. Never pick an option for the developer. Prerequisites are preflight's
+to find: never ask for a key in the chat.
 
 **Detect the workflow from the project, do not ask which docs to use.**
 
@@ -90,31 +86,10 @@ files exist: say so and only confirm.
   `reference/installing.md` and the feature slugs (especially
   `push-notifications`). Do not introduce `@iterable/expo-plugin`.
 
-Then ask which features they want. If your host exposes an interactive
-multi-select question tool (in Claude Code, `AskUserQuestion` with
-`multiSelect: true`; in Cursor, `AskQuestion` with `allow_multiple: true`),
-use it and offer **at most 4 options**; otherwise ask in plain text:
+The recorded features are the ids the iOS phase takes as `--features`.
 
-- Push notifications (FCM / APNs)
-- Event tracking + user profiles (identifying the user is always included)
-- Deep links: iOS universal links, Android App Links, and custom URL schemes
-- Other (inbox, embedded) — describe in the option
-
-Each confirmed answer maps to one entry in `iterable-provision`'s feature ids,
-which the iOS phase takes as `--features` (comma-separated):
-
-| Step 0 answer | `--features` ids |
-|---|---|
-| Push notifications | `push-notifications` |
-| Event tracking + user profiles | `event-tracking,user-profiles` |
-| Deep links | `deep-linking` |
-| Other: Mobile Inbox | `mobile-inbox` |
-| Other: Embedded Messages | `embedded-messaging` |
-| Other: custom in-app handling | `in-app-messages` |
-| None of these (initialize and identify only) | `sdk-initialization` |
-
-**In-app messages are absent from that list on purpose.** By default the SDK
-displays every in-app message it receives and tracks the interactions
+**In-app messages are absent from the features screen on purpose.** By default
+the SDK displays every in-app message it receives and tracks the interactions
 (`in-app-messages`), so an initialized, identified app has them whether or not
 anybody asked. Say so when you hand over — they support in-app already, and will
 see nothing until an in-app campaign exists in Iterable — rather than offering it
@@ -127,21 +102,17 @@ project already depends on `@iterable/react-native-sdk` (and, on Expo,
 out of the upgrade, then follow the upgrade row in the
 [decisions table](#decisions-read-before-recommending).
 
-**And check whether the app already sends push without Iterable.** Look for
-`@react-native-firebase/messaging` or another push SDK in `package.json`, and
-for `FirebaseMessagingService` / `com.google.firebase.MESSAGING_EVENT` under
-`android/`. If any is present, say what you found and ask: "Keep your app's own
-notifications working alongside Iterable's, or use Iterable notifications
-only?" **Keep both:** forward only Iterable payloads (rule 8). **Iterable
-only:** propose, in the one diff they confirm, how the old provider stops
-receiving or showing pushes. Don't delete the provider's code unless they
-confirm that diff.
-
-Confirm the scope, *then* run Preflight, *then* build.
+**When the app already sends push without Iterable**
+(`@react-native-firebase/messaging` or another push SDK in `package.json`, a
+`FirebaseMessagingService` or `com.google.firebase.MESSAGING_EVENT` under
+`android/`), the scope screens ask whether to keep it. **Keep both:** forward
+only Iterable payloads (rule 8). **Iterable only:** propose, in the one diff
+they confirm, how the old provider stops receiving or showing pushes. Don't
+delete the provider's code unless they confirm that diff.
 
 ### Identity: project type first
 
-Ask which kind of Iterable project the app sends to, per
+The identity screen asks which kind of Iterable project the app sends to, per
 `project-types-and-unique-identifiers`:
 
 - **Hybrid**: `email` and `userId` are both unique identifiers.
@@ -154,11 +125,12 @@ For an existing project, also ask which identifier their backend, CRM, or other
 SDKs already send to Iterable, and reuse exactly that value: another value is
 another user. Decide from what a signed-in session holds, not what sign-up asks
 for: an app that asks for an email only at sign-up has none to pass later.
-**Help me** means inspect, then recommend: what identifier exists after *every*
-sign-in path, a session restored at launch included, and what the app's other
-SDKs already identify the user with. Recommend a project type and identity mode
-from that, citing the docs in the table below. With no project yet, guide
-creating one and warn that its type can't be changed later.
+**Help me** records nothing. It means inspect, then recommend: what identifier
+exists after *every* sign-in path, a session restored at launch included, and
+what the app's other SDKs already identify the user with. Recommend a project
+type and identity mode from that, citing the docs in the table below, then ask
+the identity screen again. With no project yet, guide creating one and warn
+that its type can't be changed later.
 
 A `userId` is the app's own stable internal account ID when it meets
 `user-id-validation-in-iterable` → `### User ID best practices`, otherwise a
@@ -209,11 +181,11 @@ When the scope covers both platforms, finish one before starting the other:
    The key import runs no Apple step, so it is not iOS work.
 2. **iOS:** `iterable-provision`'s iOS path already holds what that import
    copied — both Iterable keys (Mobile and Server-side), the region, No JWT,
-   and the test email. Pass the scope confirmed in Step 0 as
-   `--features <ids>` from the table above, first to `ios-provision status`:
-   it comes back as one `carry_scope` screen whose **Use these answers**
-   records it. If the import never ran, the `import_android` screen names the
-   scope instead and its recommended option carries it into
+   and the test email. Preflight's `done` command is the first
+   `ios-provision status`, with the recorded Step 0 scope as `--features` and
+   `--identity`: it comes back as one `carry_scope` screen whose **Use these
+   answers** records it. If the import never ran, the `import_android` screen
+   names the scope instead and its recommended option carries it into
    `import-from-android`. The final scope screen shows it again before
    anything is confirmed. Pass only what the developer confirmed; without
    `--features` the scope is asked again. The path then adds the Apple/APNs

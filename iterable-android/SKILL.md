@@ -24,8 +24,9 @@ description: >-
 1. Find `<root>`: from the real path of this `SKILL.md` (`cd -P "$(dirname <this file>)" && pwd -P`), walk up to the first folder that contains `bin/agent`.
 2. From the app root, run `<root>/bin/agent preflight` before you ask anything or edit anything. It reads local files only.
 3. Do what its `next` says: open `next.open` if it is set, then run `next.commands` in order.
-   - `provision`: open `<root>/iterable-provision/SKILL.md` now and follow it. Its first command is `<root>/bin/agent question opening`. Write no code until it hands back.
-   - `integrate`: run `next.commands`, then do Step 0 and write the integration.
+   - `scope`: Step 0 is not recorded. Put each screen to the developer with your question tool: `prompt` whole, the options as listed, several picks when `selection` is `multiple`. Run the commands of the options they pick: each prints another screen to put to them, or a `next.command` to run. An option with no commands says in `effect` what to do. Write no code until preflight returns another kind.
+   - `provision`: open `<root>/iterable-provision/SKILL.md` now and follow it. Its first command is `<root>/bin/agent question opening`. Write no code until it hands back, not even while the developer works in a dashboard.
+   - `integrate`: run `next.commands`, then write the integration for preflight's recorded `scope` (Step 0).
    - `verify`: open `<root>/iterable-android-verify/SKILL.md` and follow it.
 4. Never write a placeholder, dummy, `.example` or hard-coded key, or a fake `google-services.json`. A missing input comes from provisioning, or you stop and say so.
 
@@ -45,75 +46,54 @@ human readers but omit several silent-failure traps documented in
 
 ## Step 0 — Agree on scope BEFORE writing code
 
-**Prerequisites question — ask it in the first round, with the scope.** "Do you
-already have the Iterable Mobile key, the Iterable mobile app with its push
-integration, and a Firebase project with this app's `google-services.json`?"
+`<root>/bin/agent preflight` returns `scope`, ahead of provisioning and code,
+until the developer has answered these. `<root>/bin/agent question scope` asks
+them one screen at a time: the features, the identity (project type first),
+and, when the app already handles push itself, whether to keep it. Each
+option's command records its answer in `.iterable/resolved.env`; preflight's
+`scope` field reports them, and `question scope` offers to change them once all
+are in. Never pick an option for the developer. Prerequisites are preflight's
+to find: never ask for a key in the chat.
 
-- **Not yet — set them up** (recommended): open `<root>/iterable-provision/SKILL.md`
-  now and run `<root>/bin/agent question opening`.
-- **Yes, I have them**: still open `iterable-provision`; it finds, reuses and
-  proves what exists. Never ask for a key in the chat.
+Do **not** assume the developer wants every feature, and do **not** start
+implementing on a guessed scope.
 
-When `<root>/bin/agent preflight` already returned `integrate` or `verify`, the
-files exist: say so and only confirm.
-
-Do this **first**, before Preflight and before any edits. The SDK covers many
-features — push, in-app, mobile inbox, embedded, deep links, event tracking,
-user profiles. Do **not** assume the developer wants all of them, and do **not**
-start implementing on a guessed scope. Ask which features they want. If your
-host exposes an interactive multi-select question tool (in Claude Code,
-`AskUserQuestion` with `multiSelect: true`; in Cursor, `AskQuestion` with
-`allow_multiple: true`), use it and offer **at most 4 options** (those tools
-reject more than 4 per question); otherwise ask in plain text. Either way, group
-the long tail under one bucket, e.g.:
-
-- Push notifications (FCM)
-- Event tracking + user profiles
-- Deep links: App Links and custom URL schemes
-- Other (inbox, embedded) — describe in the option
-
-(If they just want the basics, that's the "init + identify only" path — let
-them say so via the free-form "Other" the tool always provides.)
-
-**In-app messages are not on that list because they are not a choice.** Once the
-SDK is initialized and the user is identified, it fetches in-app messages and
-displays them in the foreground on its own — "there is no need to write any code
-to get this default behavior" (`in-app-messages-on-android`). So don't ask
+**In-app messages are not on the features screen because they are not a
+choice.** Once the SDK is initialized and the user is identified, it fetches
+in-app messages and displays them in the foreground on its own — "there is no
+need to write any code to get this default behavior"
+(`in-app-messages-on-android`). So don't ask
 whether they want it; tell them they have it, in one line, when you hand over:
 they support in-app messages already, and will see nothing until somebody creates
 an in-app campaign in Iterable. Only *changing* that default is scope —
 `InAppHandler` to filter or defer messages, display intervals, custom rendering —
 and that is a question to ask if they raise it, not up front.
 
-**First check whether this is an upgrade, not a new integration.** If the
-project already depends on `com.iterable:iterableapi`, the scope question above
-is the wrong one — they have working code and a version to move off. Ask which
+**Check whether this is an upgrade, not a new integration.** If the project
+already depends on `com.iterable:iterableapi`, the features screen is not the
+whole question — they have working code and a version to move off. Ask which
 version they're on and what they want out of the upgrade, then follow the
 upgrade row in the [decisions table](#decisions-read-before-recommending). The
 always-on rules still apply (existing integrations frequently violate rules 2
 and 3), but don't re-derive their integration from scratch.
 
-**And check whether the app already sends push without Iterable.** Grep for
-`FirebaseMessagingService` and `com.google.firebase.MESSAGING_EVENT` before
-scoping push work. If either is present the app has a push channel of its own —
-often transactional (order status, shipping, security codes) and more important
-to the business than the marketing push being added. Say what you found and
-ask: "Keep your app's own notifications working alongside Iterable's, or use
-Iterable notifications only?" **Keep both** (recommend it when their push is
-transactional): their service forwards only Iterable payloads to Iterable
-(rule 8). **Iterable only:** propose, in the one diff they confirm, how their
-service and provider stop handling pushes, and touch nothing until they
-confirm it.
+**When the app already sends push without Iterable** (a
+`FirebaseMessagingService` of its own, `com.google.firebase.MESSAGING_EVENT`,
+another push SDK), the scope screens ask whether to keep it. That channel is often
+transactional (order status, shipping, security codes) and more important to
+the business than the marketing push being added. **Keep both** (recommend it
+when their push is transactional): their service forwards only Iterable
+payloads to Iterable (rule 8). **Iterable only:** propose, in the one diff they
+confirm, how their service and provider stop handling pushes, and touch nothing
+until they confirm it.
 
-Confirm the scope, *then* run Preflight for the inputs that scope needs, *then*
-build. "Finish, don't stub" (below) applies to **the scope you agreed on** —
-it is not licence to implement every feature unprompted. After delivering the
-agreed scope, it's fine to offer next steps — but the initial scope is a
-question, not an assumption.
+"Finish, don't stub" (below) applies to **the recorded scope** — it is not
+licence to implement every feature unprompted. After delivering it, it's fine
+to offer next steps.
 
 ### Identity: project type first
 
-Ask which kind of Iterable project the app sends to, per
+The identity screen asks which kind of Iterable project the app sends to, per
 `project-types-and-unique-identifiers`:
 
 - **Hybrid**: `email` and `userId` are both unique identifiers.
@@ -126,11 +106,12 @@ For an existing project, also ask which identifier their backend, CRM, or other
 SDKs already send to Iterable, and reuse exactly that value: another value is
 another user. Decide from what a signed-in session holds, not what sign-up asks
 for: an app that asks for an email only at sign-up has none to pass later.
-**Help me** means inspect, then recommend: what identifier exists after *every*
-sign-in path, a restored session included, and what the app's other SDKs
-already identify the user with. Recommend a project type and identity mode from
-that, citing the docs in the table below. With no project yet, guide creating
-one and warn that its type can't be changed later.
+**Help me** records nothing. It means inspect, then recommend: what identifier
+exists after *every* sign-in path, a restored session included, and what the
+app's other SDKs already identify the user with. Recommend a project type and
+identity mode from that, citing the docs in the table below, then ask the
+identity screen again. With no project yet, guide creating one and warn that
+its type can't be changed later.
 
 A `userId` is the app's own stable internal account ID when it meets
 `user-id-validation-in-iterable` → `### User ID best practices`, otherwise a

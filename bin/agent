@@ -9,7 +9,8 @@
 #   bin/agent approve firebase   record the developer's yes to changing their project
 #   bin/agent set DRIVER=agent   they asked you to run the setup instead of the wizard
 #   bin/agent question K [N]     one question to put to the developer, as data
-#   bin/agent preflight          local files only: what exists, and provision/integrate/verify
+#   bin/agent scope ...          record a Step 0 answer picked on a `question scope` screen
+#   bin/agent preflight          local files only: what exists, and scope/provision/integrate/verify
 #
 # `next.question` is how the wizard's screens reach a chat: the context to show, and the
 # two to four answers with the commands that enact each one. The words are the tool's
@@ -48,7 +49,7 @@ NOW_MS="$(now_ms || echo 0)"
 if [[ "${1:-}" == question ]]; then
   shift
   q="$(question_for "${1:-}" "${2:-}")" || {
-    printf '{"error":%s}\n' "$(jstr "no question for '${1:-}'; questions exist for opening, authenticate, choose_target, pick_project, pick_app, register_app, keep_target, pick_device, approve_firebase, iterable_keys, iterable_step 1-4 — and some refuse until there is something to ask about: pick_project needs a listing (run discover), pick_app and register_app need a project, keep_target needs both")"
+    printf '{"error":%s}\n' "$(jstr "no question for '${1:-}'; questions exist for scope, scope_more, opening, authenticate, choose_target, pick_project, pick_app, register_app, keep_target, pick_device, approve_firebase, iterable_keys, iterable_step 1-4 — and some refuse until there is something to ask about: pick_project needs a listing (run discover), pick_app and register_app need a project, keep_target needs both")"
     exit 30; }
   printf '%s\n' "$q"
   # The screen is up as of here, not as of whenever inside the render its token was
@@ -107,7 +108,7 @@ if [[ "${1:-}" == preflight ]]; then
   if ((${#MISS[@]})) || [[ "$PROVEN" != true ]]; then
     KIND=provision OPEN="$PROVISION"; DO=("$BIN/agent question opening")
     LIST="$(IFS=,; printf '%s' "${MISS[*]+"${MISS[*]}"}")"
-    SUMMARY="Prerequisites are missing or not yet proven${LIST:+ (missing: ${LIST//,/, })}. Write no code and no placeholder. Open $PROVISION now, follow it, and run its first command: $BIN/agent question opening"
+    SUMMARY="Prerequisites are missing or not yet proven${LIST:+ (missing: ${LIST//,/, })}. Open $PROVISION now, follow it, and run its first command: $BIN/agent question opening. Write no code and no placeholder until it hands back, not even while the developer works in a dashboard."
   elif [[ "$GS_IN_APP" != true || "$APP_KEY" == false || "$SDK" != true ]]; then
     KIND=integrate OPEN=""
     if [[ "$GS_IN_APP" != true ]]; then
@@ -120,7 +121,7 @@ if [[ "${1:-}" == preflight ]]; then
       [[ "$FW" == expo ]] && ! git -C "$APP" check-ignore -q .env.local 2>/dev/null && DO+=("printf '.env*.local\\n' >> .gitignore")
       DO+=("$BIN/ios-provision import-from-android --confirm")
     fi
-    SUMMARY="Prerequisites are proven. Run these commands from the app root, then write the Android integration from the skill you came from."
+    SUMMARY="Prerequisites are proven. Run these commands from the app root, then write the Android integration for the recorded scope from the skill you came from."
     [[ "$FW" == expo ]] && SUMMARY="$SUMMARY Point expo.android.googleServicesFile at a copy of $GS_JSON."
   elif [[ "$PUSH" != true ]]; then
     KIND=verify OPEN="$TOOL_ROOT/iterable-android-verify/SKILL.md"; DO=("$BIN/agent")
@@ -128,13 +129,21 @@ if [[ "${1:-}" == preflight ]]; then
   else
     KIND=done OPEN=""
     SUMMARY="A push reached the Android device."
-    [[ "$FW" == android ]] || { DO=("$BIN/ios-provision status"); SUMMARY="$SUMMARY Android is finished. If iOS is in scope, start it with the command below and the --features from Step 0."; }
+    [[ "$FW" == android ]] || {
+      DO=("$BIN/ios-provision status${SCOPE_FEATURES:+ --features $SCOPE_FEATURES}${SCOPE_IDENTITY:+ --identity $SCOPE_IDENTITY}")
+      SUMMARY="$SUMMARY Android is finished. If iOS is in scope, start it with the command below$([[ -n "${SCOPE_FEATURES:-}" ]] && printf ', which carries the recorded Step 0 answers' || printf ' and the --features from Step 0')."; }
+  fi
+  # Ahead of both: provisioning asks for the test identity, and code is built on the scope.
+  SCOPE_MISSING="$(scope_missing)"
+  if [[ -n "$SCOPE_MISSING" && ( "$KIND" == provision || "$KIND" == integrate ) ]]; then
+    KIND=scope OPEN=""; DO=("$BIN/agent question scope")
+    SUMMARY="Step 0 is not recorded yet. Write no code and start no setup. Put each screen to the developer, run the commands of the options they pick, then the command each one names next, until preflight returns another kind."
   fi
   printf '{"tool":"iterable-onboard","command":"preflight","local_only":true,"app_root":%s,"framework":%s,' "$(jstr "$APP")" "$(jstr "$FW")"
   printf '"present":{"google_services_json":%s,"google_services_json_in_app":%s,"mobile_key":%s,"server_key":%s,"app_key_file":%s,"provisioning_proven":%s,"sdk_dependency":%s,"push_proven":%s},' \
     "$( ((${#GS_FOUND[@]})) && echo true || echo false)" "$GS_IN_APP" "$MOBILE" "$SERVER" "$APP_KEY" "$PROVEN" "$SDK" "$PUSH"
-  printf '"app_key_file":%s,"missing":%s,"placeholders":%s,' "$(jstr "$APP_KEY_PATH")" \
-    "$(jarr "${MISS[@]+"${MISS[@]}"}")" "$(jarr "${FAKES[@]+"${FAKES[@]}"}")"
+  printf '"app_key_file":%s,"missing":%s,"placeholders":%s,"scope":%s,' "$(jstr "$APP_KEY_PATH")" \
+    "$(jarr "${MISS[@]+"${MISS[@]}"}")" "$(jarr "${FAKES[@]+"${FAKES[@]}"}")" "$(scope_json "$SCOPE_MISSING")"
   printf '"next":{"kind":%s,"open":%s,"commands":%s,"summary":%s}}\n' "$(jstr "$KIND")" \
     "$([[ -n "$OPEN" ]] && jstr "$OPEN" || echo null)" "$(jarr "${DO[@]+"${DO[@]}"}")" "$(jstr "$SUMMARY")"
   exit 0
@@ -193,6 +202,35 @@ case "${1:-status}" in
     approve "$SCOPE" || { printf '{"error":%s}\n' "$(jstr "could not record the approval in $WS")"; exit 30; }
     printf '{"approved":true,"scope":%s,"recorded_in":%s}\n' \
       "$(jstr "$(approval_scope "$SCOPE")")" "$(jstr "$APPROVALS")"
+    exit 0
+    ;;
+  # Only the scope screens' options carry these, one answer per call.
+  scope)
+    shift
+    case "${1:-}" in
+      feature)
+        keys=SCOPE_FEATURES
+        [[ -n "${2:-}" ]] && v="$(scope_union "${SCOPE_FEATURES:-}" "${*:2}")" || {
+          printf '{"error":%s}\n' "$(jstr "not a feature the scope records: '${*:2}'. Use the ids on the scope screens (${SCOPE_IDS// /, }), or: initialization only")"
+          exit 30; } ;;
+      identity)
+        keys=SCOPE_IDENTITY v="${2:-}"
+        [[ "$v" == email || "$v" == user-id || "$v" == unknown-user ]] || {
+          printf '{"error":%s}\n' "$(jstr "the identity is email, user-id or unknown-user; got: '$v'")"; exit 30; } ;;
+      existing-push)
+        keys=SCOPE_PUSH v="${2:-}"
+        [[ "$v" == keep-both || "$v" == iterable-only ]] || {
+          printf '{"error":%s}\n' "$(jstr "the app's own push is keep-both or iterable-only; got: '$v'")"; exit 30; } ;;
+      clear) keys="SCOPE_FEATURES SCOPE_IDENTITY SCOPE_PUSH" v="" ;;
+      *) printf '{"error":%s}\n' "$(jstr "usage: agent scope feature <ids> | identity email|user-id|unknown-user | existing-push keep-both|iterable-only | clear")"; exit 30 ;;
+    esac
+    for k in $keys; do
+      save_resolved "$k" "$v" && printf -v "$k" '%s' "$v" ||
+        { printf '{"error":%s}\n' "$(jstr "the scope was not saved: could not write to $WS")"; exit 30; }
+    done
+    M="$(scope_missing)"
+    printf '{"recorded":%s,"file":%s,"next":{"command":%s}}\n' "$(scope_json "$M")" "$(jstr "$WS/resolved.env")" \
+      "$(jstr "$BIN/agent $([[ -n "$M" ]] && printf 'question scope' || printf preflight)")"
     exit 0
     ;;
   set)
