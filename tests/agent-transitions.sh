@@ -23,6 +23,9 @@
 # project "looked at" and the screens branch on whether it has been.
 
 set -uo pipefail
+# Step 0 is recorded: these checks are about the setup screens, which the scope gate
+# holds back until it is (tests/agent-scope.sh covers that gate).
+export SCOPE_FEATURES=push-notifications,sdk-initialization SCOPE_IDENTITY=email SCOPE_PUSH=keep-both
 cd "$(dirname "$0")/.."
 
 FAILED=0

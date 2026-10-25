@@ -27,6 +27,8 @@ Numbered because the auditor reports divergence by waypoint.
 confirms it. On Android it is recorded, not remembered: `agent preflight` returns `scope`
 ahead of provisioning and code until `agent question scope` has put the features, the
 identity and any existing-push choice to the developer and their picks are on disk.
+An agent that enters through provisioning meets the same gate: `agent question opening`
+prints the scope screen, and a status read reports `scope`, until those picks are on disk.
 
 **W2 — The Android work.** The agent writes config, init and identity, guided by the skill
 and `PITFALLS.md`. It never fakes an input to make a build pass: no placeholder

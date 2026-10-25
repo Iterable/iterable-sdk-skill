@@ -178,6 +178,13 @@ credentials, reads nothing, and writes nothing — not even a workspace director
 is safe to be the first thing that happens. Render it exactly as *Rendering a tool screen* says:
 `context` printed above the selector, verbatim, then `prompt` whole and the options.
 
+**Step 0 comes first.** Until the developer's scope is recorded, that command prints a
+scope screen (**Features**, then **Identity**) instead of the setup question, and a
+status read reports `next.kind: scope`. Put each one to the developer, run the commands
+of the options they pick, and follow each `next.command` until it names `preflight`.
+Then run `<root>/bin/agent question opening` again: with the scope recorded it is the
+setup question. Never record a scope answer the developer did not pick.
+
 This ordering is the point and it is easy to get wrong. A status read runs the whole
 eighteen-gate ladder against their Firebase projects, so a question carried in its output
 arrives *after* the work it was asking about. The usual mistake is to decide provisioning
@@ -339,6 +346,7 @@ relay the block, do not look for a flag that gets you past it, and never set
 
 | `next.kind` | What you do |
 |---|---|
+| `scope` | Step 0 is not recorded. Put `next.question` to the developer, run the commands of the option they pick, and follow each `next.command` until it names `preflight`. Then ask `agent question opening`. |
 | `choose_driver` | Nobody has said who runs the Google half yet. Ask `next.question` (`agent question opening`) and wait for their pick. **Do not relay a terminal block here** — that is one of the two answers. |
 | `run_in_terminal` | They chose their own terminal. Relay the handoff block verbatim, say you'll wait, stop. |
 | `install_tools` | Report exactly which binaries are missing (`missing_tools`) and what each unlocks: `gcloud` the Google half, `adb` the device half, `node` the JSON parsing. Do not install them. |
