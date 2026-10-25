@@ -49,13 +49,14 @@ proven() { # <dir> — provisioning proven, nothing placed in the app yet
 }
 recorded() { # <dir> <features> <identity> [existing-push]
   mkdir -p "$1/.iterable"
-  printf 'SCOPE_FEATURES=%s\nSCOPE_IDENTITY=%s\nSCOPE_REGION=US\nSCOPE_JWT=false\n' "$2" "$3" >> "$1/.iterable/resolved.env"
+  printf 'SCOPE_FEATURES=%s\nSCOPE_IDENTITY=%s\nSCOPE_REGION=US\nSCOPE_JWT=false\nSCOPE_CONFIRMED=true\n' "$2" "$3" >> "$1/.iterable/resolved.env"
   [[ -n "${4:-}" ]] && printf 'SCOPE_PUSH=%s\n' "$4" >> "$1/.iterable/resolved.env"
 }
 finish_scope() { # <dir> — region and JWT after features, identity, and optional push
   in_app "$1" scope region US >/dev/null
   in_app "$1" scope jwt false >/dev/null
 }
+confirm_scope() { in_app "$1" scope confirm >/dev/null; }
 in_app() { local d="$1"; shift; ( cd "$d" && "$ROOT/bin/agent" "$@" 2>/dev/null ); }
 field() { node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{const j=JSON.parse(d);const v=process.argv[1].split(".").reduce((o,k)=>o?.[k],j);process.stdout.write(typeof v==="object"?JSON.stringify(v):String(v))})' "$1"; }
 cmds() { node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{for(const o of JSON.parse(d).options)console.log(o.label+"\t"+o.commands.join(" ; "))})'; }
@@ -148,12 +149,20 @@ o="$(in_app "$A" scope identity user-id)"
   || bad "region was not next after identity: $o"
 finish_scope "$A"
 o="$(in_app "$A" scope jwt false)"
+[[ "$(field next.command <<< "$o")" == "$ROOT/bin/agent question scope" \
+   && "$(field recorded.missing <<< "$o")" == confirm ]] \
+  && ok "after the last scope answer, the next screen is the whole-scope summary" \
+  || bad "the last scope answer did not route to the summary: $o"
+[[ "$(field header <<< "$(in_app "$A" question scope)")" == Scope ]] \
+  && ok "preflight stays on scope until the summary is confirmed" \
+  || bad "preflight allowed setup before scope confirmation"
+confirm_scope "$A"
 OUT="$(in_app "$A" preflight)"
-[[ "$(field next.command <<< "$o")" == "$ROOT/bin/agent preflight" && "$(field next.kind <<< "$OUT")" == provision \
+[[ "$(field next.kind <<< "$OUT")" == provision \
    && "$(field next.commands.0 <<< "$OUT")" == "$ROOT/bin/agent question opening" \
    && "$(field scope.identity <<< "$OUT")" == user-id ]] \
-  && ok "with features and identity recorded, the next command is preflight, and it routes to provisioning" \
-  || bad "the recorded scope did not hand on to provisioning: $o / $OUT"
+  && ok "after Keep, preflight routes to provisioning" \
+  || bad "the confirmed scope did not hand on to provisioning: $OUT"
 grep -qF "not even while the developer works in a dashboard" <<< "$(field next.summary <<< "$OUT")" \
   && ok "and the provisioning summary forbids code while a dashboard step is open" \
   || bad "the provision summary still allows code during the dashboard steps"
@@ -162,10 +171,11 @@ R="$(in_app "$A" question scope)"
 [[ "$(field header <<< "$R")" == Scope ]] && grep -qF "Identity: user-id" <<< "$(field prompt <<< "$R")" \
   && grep -qF "Region: US" <<< "$(field prompt <<< "$R")" && grep -qF "JWT: not required" <<< "$(field prompt <<< "$R")" \
   && grep -qF "$ROOT/bin/agent scope clear" <<< "$(cmds <<< "$R")" \
+  && grep -qF "$ROOT/bin/agent scope confirm" <<< "$(cmds <<< "$R")" \
   && ok "once recorded, the scope screen shows the answers and offers to change them" \
   || bad "no way to see or change the recorded answers: $R"
 in_app "$A" scope clear >/dev/null
-[[ -z "$(rec "$A" SCOPE_FEATURES)$(rec "$A" SCOPE_IDENTITY)$(rec "$A" SCOPE_REGION)$(rec "$A" SCOPE_JWT)" \
+[[ -z "$(rec "$A" SCOPE_FEATURES)$(rec "$A" SCOPE_IDENTITY)$(rec "$A" SCOPE_REGION)$(rec "$A" SCOPE_JWT)$(rec "$A" SCOPE_CONFIRMED)" \
    && "$(in_app "$A" preflight | field next.kind)" == scope ]] \
   && ok "changing them clears every scope field and routes back to scope" || bad "clear left: $(cat "$A/.iterable/resolved.env")"
 
@@ -199,8 +209,8 @@ X="$(in_app "$N" question scope)"
 XC="$(cmds <<< "$X")"
 grep -qF "scope existing-push keep-both" <<< "$XC" && grep -qF "scope existing-push iterable-only" <<< "$XC" \
   && in_app "$N" scope existing-push keep-both >/dev/null && [[ "$(rec "$N" SCOPE_PUSH)" == keep-both ]] \
-  && finish_scope "$N" && [[ "$(in_app "$N" preflight | field next.kind)" == provision ]] \
-  && ok "keep both or Iterable only is recorded, then region and JWT, and provisioning comes next" \
+  && finish_scope "$N" && confirm_scope "$N" && [[ "$(in_app "$N" preflight | field next.kind)" == provision ]] \
+  && ok "keep both or Iterable only is recorded, then region and JWT, confirm, and provisioning comes next" \
   || bad "the push answer did not record or route: $XC"
 
 N2="$TMP/native-no-push-scope"; native_app "$N2"
