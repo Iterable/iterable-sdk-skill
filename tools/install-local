@@ -249,15 +249,13 @@ for s in iterable-provision iterable-android iterable-android-verify iterable-io
   check "$s/SKILL.md"
 done
 check .claude-plugin/plugin.json
-check mcp.json
-check .mcp.json
 check agents/ios-provisioner.md
 for c in onboard wizard gates agent provision teardown discover iterable-keys proof-push handoff config.sh ios-provision ios-prepare-proof ios-install ios-launch ios-observe ios-send ios-deliver ios-verify; do
   [[ -x "$DEST/bin/$c" || "$c" == config.sh ]] || MISSING="$MISSING bin/$c(not executable)"
   check "bin/$c"
 done
 [[ -z "$MISSING" ]] || die "the build is missing:$MISSING"
-say "six skills, the iOS specialist, both MCP files, and every entry point present and executable"
+say "six skills, the iOS specialist, and every entry point present and executable"
 
 INSTALLED_NAME="$(node -e 'process.stdout.write(require(process.argv[1]).name)' "$MKT_DIR/.claude-plugin/marketplace.json")"
 [[ "$INSTALLED_NAME" == "$MKT" ]] || die "the marketplace still calls itself '$INSTALLED_NAME'"
