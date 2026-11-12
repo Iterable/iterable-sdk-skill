@@ -299,9 +299,8 @@ the Xcode 27 guidance — the generated `reference/` corpus does not carry it.
     app may still pin **20.1.0** until its repo updates — consumer apps need
     **20.2.0+** for Xcode 27. See [cli#2806](https://github.com/react-native-community/cli/pull/2806).
   - **Expo:** Use **Expo SDK 58**, whose CLI knows Device Hub. Apps still on
-    SDK **55** may fail at launch on Xcode 27; short-term,
-    `npx expo@latest run:ios`, or upgrade the Expo SDK — do not hand-edit
-    `ios/` for this (pitfall #8).
+    SDK **55** may fail at launch on Xcode 27. Upgrade the Expo SDK. Do not
+    hand-edit `ios/` for this (pitfall #8).
   - Run `xcode-select -p` and confirm it points at the Xcode you build with
     when several are installed.
 
