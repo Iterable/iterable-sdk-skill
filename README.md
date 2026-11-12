@@ -287,7 +287,8 @@ notifications afterwards is optional.
 - Push proof creates or updates one proof template in your Iterable project and
   sends it only to the test user. The test identity becomes a real user profile
   in that project.
-- In Claude Code, the plugin also adds five helper subagents.
+- In Claude Code, the plugin also adds four helper subagents.
+- Supported workflows do not download Playwright or Fastlane and do not operate a browser. You complete Iterable, Google, and Apple dashboard steps yourself.
 - You authenticate in your own browser or `gcloud` session. The scripts do not
   collect account passwords or attempt to bypass sign-in, CAPTCHA, or
   terms-of-service screens.
