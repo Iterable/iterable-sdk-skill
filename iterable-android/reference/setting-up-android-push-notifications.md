@@ -8,9 +8,9 @@ title: Setting up Android Push Notifications
 source_url: https://support.iterable.com/hc/articles/115000331943
 source_repo: Iterable/iterable-docs
 source_path: docs/developer-and-api-docs/push-notifications/setting-up-android-push-notifications/index.md
-source_ref: 16ae7f4a908f84d6eb15fe6f5390f07cc5afe20d
-source_sha: 45fa32087746810e08046766184fd4c2eb1acc94
-fetched_at: 2026-05-25T15:11:43.429Z
+source_ref: 381bc113a2a8e38fd5ff8a388978166ea7042809
+source_sha: b0e81ecb4a34edbfa38787db10d6251f92b22375
+fetched_at: 2026-11-12T22:06:06.816Z
 summary: This guide describes the technical setup necessary to use Iterable to
   send push notifications to Android devices.
 ---
@@ -71,8 +71,9 @@ To create a push integration:
 
 1. Create a service account in Firebase.
 2. Create a JSON private key that Iterable can use to authenticate with Firebase.
-3. Configure the push integration in Iterable.
-4. Send a test push notification.
+3. Ensure the Firebase Cloud Messaging API is enabled.
+4. Configure the push integration in Iterable.
+5. Send a test push notification.
 
 > [!WARNING]
 > Firebase Cloud Messaging (FCM) has [deprecated their legacy HTTP APIs](https://firebase.google.com/docs/cloud-messaging/migrate-v1) 
@@ -92,8 +93,9 @@ on your behalf.
 
 To create and configure a service account:
 
-1. Sign in your Firebase account. Open the Firebase project that contains the
-   app to which you'll send push notifications.
+1. Sign in to the [Firebase Console](https://console.firebase.google.com).
+   Open the Firebase project that contains the app to which you'll send push
+   notifications.
 
    ![Choosing an app in Firebase](https://support.iterable.com/hc/article_attachments/26154748820628/firebase-mobile-app-tile.png "Choosing an app in Firebase")
 
@@ -150,7 +152,32 @@ authenticate with FCM when sending push notifications.
 
 3. Click **Create**. This downloads the JSON private key to your machine.
 
-#### Step 3.3: Configure the push integration in Iterable
+#### Step 3.3: Ensure the Firebase Cloud Messaging API is enabled
+
+Before configuring the push integration in Iterable, verify that the
+**Firebase Cloud Messaging API** (`fcm.googleapis.com`) is enabled in your
+Google Cloud project. Iterable uses this API to deliver push notifications via
+the FCM HTTP v1 API.
+
+> [!NOTE]
+> Not every Google Cloud project has the Firebase Cloud Messaging API enabled. If
+> this API is disabled in your project, enable it manually using the steps in 
+> this section.
+
+To enable the Firebase Cloud Messaging API:
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com) and select
+   your Firebase project from the project dropdown.
+
+2. Navigate to **APIs & Services > Library**.
+
+3. Search for **Firebase Cloud Messaging API** and click the tile.
+
+   ![Searching for the Firebase Cloud Messaging API in Google Cloud Console](https://support.iterable.com/hc/article_attachments/55599000099348 "Searching for the Firebase Cloud Messaging API in Google Cloud Console")
+
+4. If the API is not already enabled, click **Enable**.
+
+#### Step 3.4: Configure the push integration in Iterable
 
 Back in Iterable, configure your mobile app's push integration:
 
@@ -179,7 +206,7 @@ Back in Iterable, configure your mobile app's push integration:
 5. Click **Save**. As soon as you do, Iterable starts using these new credentials
    to send push notifications to your Android app.
 
-#### Step 3.4: Send a test push notification
+#### Step 3.5: Send a test push notification
 
 Finally, a **Test Firebase integration** window appears. Send a test push 
 notification to make sure that everything works as expected (assuming that you've
