@@ -18,17 +18,18 @@ anything listed there ships to every customer who installs the plugin.
 Jira's GitHub integration links a PR to every Jira key it finds in the PR title, branch
 name, description, and commit messages, and status automation can then move every linked
 ticket. Matching ignores case, and backticks, slashes, and URLs do not stop it: `dre-378`,
-`` `DRE-378` ``, and `.../browse/DRE-378` all link. This repo is public, so Jira URLs also
-expose an internal host.
+`` `DRE-378` ``, and `.../browse/DRE-378` all link.
 
 - **Title.** Recent merged PRs use plain imperative titles with no key, for example
   `Require whole-scope confirmation before Android provisioning`. Add a `[KEY-123] ` prefix
   only when the user gives you the PR's ticket. Never infer a key from anywhere else.
 - **Branch.** The branch name may contain the PR's own key and no other.
-- **Body.** The body may mention only the PR's own key, as plain text. Never include a Jira
-  URL, not even for that key. No other Jira keys in any case or format, including epics,
-  parent tickets, and related or follow-up tickets, and including inside code spans, URLs,
-  and quoted text. Describe related work in words instead.
+- **Body.** When the PR has a ticket, start `## Anything reviewers should know` with
+  `Ticket: [KEY-123](https://iterable.atlassian.net/browse/KEY-123)`, using the PR's own key.
+  That is the only Jira key and the only Jira link the body may contain. No other Jira keys
+  in any case or format, including epics, parent tickets, and related or follow-up tickets,
+  and including inside code spans, URLs, and quoted text. Describe related work in words
+  instead.
 - **Commits.** Commit messages on the branch follow the same rule as the body.
 - **Other links.** Include links to related PRs, docs, or dashboards only when a reviewer
   needs them to review or test this PR. Link another PR as a bare URL or `#number`, without
