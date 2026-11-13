@@ -122,6 +122,15 @@ done
 [[ -z "$unlisted" ]] && ok "no skill is written but unshipped" \
                      || bad "has a SKILL.md and is not listed:$unlisted" "it would ship nothing"
 
+# .agents/skills/ holds maintainer-only skills such as create-pr. Listing one would ship
+# repo-maintenance instructions to every client.
+internal=""
+for s in $LISTED $CLISTED; do
+  [[ "$s" == .agents/* ]] && internal="$internal $s"
+done
+[[ -z "$internal" ]] && ok "no maintainer-only skill is shipped" \
+                     || bad "a .agents/ skill is listed:$internal" "it would ship to every client"
+
 # --------------------------------------------------------------------- the agents
 # A host discovers agents/ by convention, so every file in it is loaded into every
 # client session — a build role put there costs a client tokens for something they
