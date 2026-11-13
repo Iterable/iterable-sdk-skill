@@ -8,9 +8,9 @@ title: Events for In-App Messages and Mobile Inbox
 source_url: https://support.iterable.com/hc/articles/360038939972
 source_repo: Iterable/iterable-docs
 source_path: docs/sending-messages-by-channel/in-app/events-for-in-app-messages-and-mobile-inbox/index.md
-source_ref: 9875968f907df280d7023b1f8f45ba0293940498
-source_sha: a98014b1a78b52b28e0bb8e075750240f2de44e8
-fetched_at: 2026-10-06T10:32:47.805Z
+source_ref: b9b424a22d99d4f67bef3497c7bd6ef6f8977aba
+source_sha: dcf201963cc59a6792eb3c049ccf3c8839f6b57d
+fetched_at: 2026-11-13T20:19:22.364Z
 summary: "As users interact with in-app messages and your app's mobile inbox,
   Iterable can capture various events that describe the actions they're taking.
   You can use these events to:"
@@ -328,7 +328,8 @@ Fields:
 - `eventType` — `inAppSendSkip` (string)
 - `messageId` — The ID of the message associated with the event (string)
 - `reason` — A string that describes why Iterable did not send the message to the
-  intended recipient; for example, `DuplicateMarketingMessage` (string)
+  intended recipient; see [Reasons for Send Skip Events](https://support.iterable.com/hc/articles/360021169631)
+  for examples.
 
 ### Inbox message impression
 
