@@ -1,9 +1,5 @@
 # Iterable SDK skills
 
-> **Private beta.** Use of these skills is subject to Iterable's
-> [Beta Terms](https://iterable.com/legal/beta-terms/). This documentation may
-> contain inaccuracies and may change during the beta.
-
 Use these skills with Claude Code, Cursor, or Codex to integrate Iterable's
 native Android, native iOS, or React Native SDK. The workflows gather and prove
 the required external prerequisites before calling an integration complete.
@@ -394,3 +390,33 @@ Engineering references:
 - [`bin/README.md`](bin/README.md) — onboarding program architecture.
 - [`INTENDED-FLOW.md`](INTENDED-FLOW.md) — authoritative onboarding sequence.
 - [`REVIEW.md`](REVIEW.md) — how to review refreshed SDK reference docs.
+
+## License
+
+This plugin is licensed under the MIT License. See [LICENSE](LICENSE.txt) for
+details.
+
+## Iterable and Third-Party Services
+
+The MIT License covers only the files in this repository. It does not grant any
+right to use the Iterable platform or any third-party service.
+
+Your use of the Iterable platform is governed by your agreement with Iterable,
+Inc. Your use of third-party services, including your AI coding agent, its model
+provider, and any Google, Firebase, or Apple services, is governed by your
+agreements with those providers. Iterable is not responsible for third-party
+services.
+
+AI-generated output may be incomplete or incorrect. You are responsible for
+reviewing and testing all changes before use, and for securing any credentials.
+This plugin is a development tool and should not be given production end-user
+data.
+
+## Trademarks
+
+"Iterable" and the Iterable logos are trademarks of Iterable, Inc. The MIT
+License does not grant any right to use Iterable's names, logos, or trademarks,
+except as needed to describe the origin of the plugin and to reproduce the
+copyright notice. You may not use them to suggest that Iterable sponsors,
+endorses, or is affiliated with your product without Iterable's prior written
+permission.
