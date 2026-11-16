@@ -17,10 +17,9 @@ import { resolve } from "node:path";
 import { REPO_ROOT } from "./platforms.ts";
 
 /**
- * Prerelease suffix on every version while the skill is in private beta, so a
- * developer can see what they installed is not GA. Set to "" to ship without
- * one — `26.9.5-beta` → `26.9.6` is an upgrade under semver precedence, and
- * both the writer and the validator follow this constant.
+ * Optional prerelease suffix on every version. Empty means versions ship as
+ * plain CalVer, e.g. `26.11.1`. Both the writer and the validator follow this
+ * constant, so changing it re-labels every manifest on the next bump.
  *
  * Prereleases do not affect update detection, which compares version strings
  * for distinctness. They are excluded from *dependency* semver ranges unless a
@@ -29,7 +28,7 @@ import { REPO_ROOT } from "./platforms.ts";
  */
 // Typed as `string`, not inferred as the literal, so the `=== ""` branches that
 // handle dropping the suffix stay reachable to the compiler.
-export const PRERELEASE: string = "beta";
+export const PRERELEASE: string = "";
 
 /**
  * MAJOR.MINOR.PATCH with an optional prerelease, no build metadata. Numeric
@@ -87,7 +86,7 @@ export function writeVersion(file: string, path: string[], version: string): voi
   if (updated !== source) writeFileSync(absolute, updated, "utf8");
 }
 
-/** Strips any prerelease suffix, so "26.9.3-beta" parses as "26.9.3". */
+/** Strips any prerelease suffix, so "26.9.3-rc.1" parses as "26.9.3". */
 function core(version: unknown): string {
   return typeof version === "string" ? version.split("-")[0]! : "";
 }

@@ -47,8 +47,8 @@ The program prefers the most deterministic available interface:
 3. **Developer authentication or policy action:** Google and Iterable sign-in,
    terms acceptance, CAPTCHA, or organization-policy resolution.
 
-The shell program does not drive a browser. Agent-level browser access, where
-available, is separately restricted by the `web-operator` definition.
+The shell program does not drive a browser. The developer completes dashboard
+steps in their own browser.
 
 ## Entry points
 
@@ -348,7 +348,6 @@ Runtime agent definitions live under `agents/`:
 - `ios-provisioner`: bounded read-only Apple/APNs prerequisite investigation;
   the main session owns the interactive iOS provisioning flow.
 - `iterable-api-client`: Iterable API interaction and verification.
-- `web-operator`: browser interaction restricted to approved console origins.
 - `gate-auditor`: read-only re-derivation of gate results.
 
 Build-only roles live under `tools/agents/` so they are not discovered in every

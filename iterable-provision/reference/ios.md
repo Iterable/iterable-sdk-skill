@@ -19,8 +19,7 @@ With an App Store Connect Team API key, the tool calls the App Store Connect
 API itself, after showing the exact plan. Every imported APNs key is checked
 with one probe to the APNs sandbox. The developer also performs the Iterable
 dashboard clicks in their own browser, following one exact tool-authored step
-at a time. The native iOS path does not use Playwright, a browser agent, or
-`web-operator`.
+at a time. The native iOS path does not operate a browser.
 
 Think of Apple push readiness as separate layers:
 

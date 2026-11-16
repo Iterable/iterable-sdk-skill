@@ -29,7 +29,7 @@ list**, so the whole verify loop needs zero dashboard clicks. `POST /api/push/ta
 
 ## G10 — proving the API keys work
 
-`web-operator` creates the keys in the dashboard; **you** prove they work. That split is
+The developer creates the keys in the Iterable dashboard. **You** prove they work. That split is
 deliberate: the actor never verifies its own gate.
 
 | Key | Proof | Pass condition |

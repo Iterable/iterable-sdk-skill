@@ -638,6 +638,8 @@ for removed in "plan --bundle-id com.example.existing" \
     "apply --bundle-id com.example.existing --name Existing --confirm" \
     "approve --scope apple-read --bundle-id com.example.existing" \
     "experimental-asc-plan --experimental --confirm-read --apple-id developer@example.com --name Key" \
+    "experimental-apns-install --experimental --confirm" \
+    "experimental-apns-plan --experimental --confirm-read --apple-id developer@example.com --team-id TEAMID1234 --name Key" \
     "record-apple-setup --strategy team-api --confirm"; do
   # shellcheck disable=SC2086
   run_ios_in "$EXISTING_APPLE_WORKSPACE" $removed >/dev/null 2>&1 && removed_rc=1

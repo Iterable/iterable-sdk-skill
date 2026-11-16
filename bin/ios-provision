@@ -7,8 +7,6 @@ TOOL_ROOT="$(cd "$BIN/.." && pwd)"
 source "$BIN/ios-simulator.sh"
 source "$BIN/ios-project.sh"
 source "$BIN/ios-app-check.sh"
-FASTLANE_VERSION="2.240.1"
-PRIVATE_APNS_ACTOR="$TOOL_ROOT/tools/ios-apns-private.rb"
 
 usage() {
   cat <<'EOF'
@@ -49,10 +47,6 @@ Usage:
     [--profile-field NAME ...] [--event NAME ...] --confirm [--workspace PATH]
   ios-provision record-proof --from-answers --confirm [--workspace PATH]
   ios-provision restart-proof --confirm [--workspace PATH]
-  ios-provision experimental-apns-install --experimental --confirm [--workspace PATH]
-  ios-provision experimental-apns-auth --experimental --apple-id EMAIL --team-id ID [--workspace PATH]
-  ios-provision experimental-apns-plan --experimental --confirm-read --apple-id EMAIL --team-id ID --name NAME [--workspace PATH]
-  ios-provision experimental-apns-create --experimental --confirm --apple-id EMAIL --team-id ID --name NAME --output-dir PATH [--workspace PATH]
 
 status and question are read-only and make no Apple or Iterable request.
 question --kind help_* renders a guide for a step the developer is stuck on;
@@ -105,10 +99,6 @@ Simulator's current APNs token on that user. Candidates come from the app's
 ITBL_PROOF marker, the Iterable SDK's own log lines, and --identity-candidate;
 with none, it makes no request. proof-read-identity relaunches the app with
 -iterableProofIdentity YES so the marker logs the identity it signs in with.
-
-experimental-apns-* is an explicit opt-in path that pins Fastlane Spaceship and
-uses unsupported Apple web-session endpoints. It never revokes existing keys,
-and create performs one non-retried creation followed by the one-time download.
 EOF
 }
 
@@ -468,10 +458,6 @@ read_args() {
   PROOF_EVENTS=()
   PROOF_IDENTITY_CANDIDATES=()
   PROOF_RELAUNCH=false
-  APPLE_ID=""
-  OUTPUT_DIR=""
-  EXPERIMENTAL=false
-  CONFIRM_READ=false
   RESTART_PROOF=false
 
   while (($#)); do
@@ -769,32 +755,6 @@ read_args() {
         PROOF_EVENTS+=("${1#*=}")
         shift
         ;;
-      --apple-id)
-        (($# >= 2)) || die "--apple-id needs a value"
-        APPLE_ID="$2"
-        shift 2
-        ;;
-      --apple-id=*)
-        APPLE_ID="${1#*=}"
-        shift
-        ;;
-      --output-dir)
-        (($# >= 2)) || die "--output-dir needs a value"
-        OUTPUT_DIR="$2"
-        shift 2
-        ;;
-      --output-dir=*)
-        OUTPUT_DIR="${1#*=}"
-        shift
-        ;;
-      --experimental)
-        EXPERIMENTAL=true
-        shift
-        ;;
-      --confirm-read)
-        CONFIRM_READ=true
-        shift
-        ;;
       --confirm)
         CONFIRM=true
         shift
@@ -840,7 +800,6 @@ read_args() {
   APNS_VALIDATION="$WORKSPACE/apns-validation.json"
   ASC_KEY_META="$WORKSPACE/asc-key.json"
   ASC_READ_META="$WORKSPACE/asc-read.json"
-  APPLE_WEB_META="$WORKSPACE/apple-web.json"
   APNS_KEY=""
 
   if [[ -z "$BUNDLE_ID" && -f "$TARGET_META" ]]; then
@@ -861,21 +820,6 @@ read_args() {
       const metadata = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
       process.stdout.write(String(metadata.key_path || ""));
     ' "$APNS_META" 2>/dev/null)"
-  fi
-
-  if [[ -f "$APPLE_WEB_META" && -x "$(command -v node 2>/dev/null)" ]]; then
-    if [[ -z "$APPLE_ID" ]]; then
-      APPLE_ID="$(node -e '
-        const metadata = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
-        process.stdout.write(String(metadata.apple_id || ""));
-      ' "$APPLE_WEB_META" 2>/dev/null)"
-    fi
-    if [[ -z "$APPLE_TEAM_ID" ]]; then
-      APPLE_TEAM_ID="$(node -e '
-        const metadata = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
-        process.stdout.write(String(metadata.team_id || ""));
-      ' "$APPLE_WEB_META" 2>/dev/null)"
-    fi
   fi
 
   if [[ -n "$BUNDLE_ID" ]] && ! valid_bundle_id "$BUNDLE_ID"; then
@@ -2182,17 +2126,12 @@ status_json() {
   local apple_evidence_level="blocked"
   local push_required=false target_recorded=false
   local detected_bundle="" detected_name="" detected_source=""
-  local has_modern_ruby=false experimental_fastlane=false experimental_ruby=""
   local next_kind next_owner next_summary
 
   command -v xcodebuild >/dev/null 2>&1 && has_xcode=true
   command -v node >/dev/null 2>&1 && has_node=true
   command -v npx >/dev/null 2>&1 && has_npx=true
   command -v curl >/dev/null 2>&1 && has_curl=true
-  if experimental_ruby="$(modern_ruby 2>/dev/null)"; then
-    has_modern_ruby=true
-  fi
-  experimental_fastlane_ready && experimental_fastlane=true
 
   if [[ -f "$SCOPE_META" ]]; then
     scope_present=true
@@ -3098,9 +3037,6 @@ status_json() {
   printf '"iterable_push":{"path":%s,"present":%s,"mode_0600":%s,"recorded_for_target":%s,"read_back_verifiable":false},' \
     "$(jstr "$ITERABLE_PUSH_META")" "$iterable_push_present" \
     "$iterable_push_secure" "$iterable_push_valid"
-  printf '"experimental_apns":{"unsupported_private_api":true,"ruby_ready":%s,"ruby_path":%s,"fastlane_version":%s,"dependencies_ready":%s},' \
-    "$has_modern_ruby" "$(jstr "$experimental_ruby")" "$(jstr "$FASTLANE_VERSION")" \
-    "$experimental_fastlane"
   printf '"next":{"owner":%s,"kind":%s,"command":%s,"summary":%s,"question":%s}' \
     "$(jstr "$next_owner")" "$(jstr "$next_kind")" \
     "$(jstr "$next_command")" "$(jstr "$next_summary")" "$next_question"
@@ -5158,170 +5094,6 @@ restart_proof() {
   record_proof
 }
 
-modern_ruby() {
-  local candidate
-  for candidate in \
-    "${IOS_EXPERIMENTAL_RUBY:-}" \
-    /opt/homebrew/opt/ruby/"bin"/ruby \
-    /usr/local/opt/ruby/"bin"/ruby \
-    "$(command -v ruby 2>/dev/null)"; do
-    [[ -n "$candidate" && -x "$candidate" ]] || continue
-    "$candidate" -e 'print RUBY_VERSION' >/dev/null 2>&1 || continue
-    if "$candidate" -e 'exit Gem::Version.new(RUBY_VERSION) >= Gem::Version.new("3.1") ? 0 : 1' \
-        >/dev/null 2>&1; then
-      printf '%s' "$candidate"
-      return
-    fi
-  done
-  return 1
-}
-
-experimental_gem_home() {
-  printf '%s/tools/fastlane-%s' "$WORKSPACE" "$FASTLANE_VERSION"
-}
-
-experimental_fastlane_ready() {
-  local gem_home
-  gem_home="$(experimental_gem_home)"
-  [[ -f "$gem_home/specifications/fastlane-$FASTLANE_VERSION.gemspec" ]]
-}
-
-require_experimental() {
-  [[ "$EXPERIMENTAL" == true ]] ||
-    die "$COMMAND requires --experimental because it uses unsupported Apple private APIs"
-}
-
-experimental_apns_install() {
-  require_experimental
-  [[ "$CONFIRM" == true ]] ||
-    die "experimental-apns-install requires --confirm before downloading pinned dependencies"
-
-  local ruby_bin gem_bin gem_home
-  ruby_bin="$(modern_ruby)" ||
-    die "experimental APNs automation requires Ruby 3.1 or newer"
-  gem_bin="$(dirname "$ruby_bin")/gem"
-  [[ -x "$gem_bin" ]] || die "could not find gem next to $ruby_bin"
-  gem_home="$(experimental_gem_home)"
-
-  init_workspace
-  mkdir -p "$gem_home/bin"
-  if ! experimental_fastlane_ready; then
-    mkdir -p "$gem_home/spec-cache"
-    GEM_HOME="$gem_home" GEM_PATH="$gem_home" \
-      GEM_SPEC_CACHE="$gem_home/spec-cache" \
-      "$gem_bin" install fastlane \
-        --version "$FASTLANE_VERSION" \
-        --install-dir "$gem_home" \
-        --bindir "$gem_home/bin" \
-        --no-document ||
-      die "could not install Fastlane $FASTLANE_VERSION into the ignored iOS workspace"
-  fi
-
-  GEM_HOME="$gem_home" GEM_PATH="$gem_home" \
-    "$ruby_bin" -e '
-      gem "fastlane", ARGV.fetch(0)
-      require "spaceship"
-      abort("unexpected Fastlane version") unless Gem.loaded_specs.fetch("fastlane").version.to_s == ARGV.fetch(0)
-    ' "$FASTLANE_VERSION" ||
-    die "Fastlane $FASTLANE_VERSION was not loadable after installation"
-
-  printf '{"tool":"iterable-ios-provision","contract":1,"experimental":true,"unsupported_private_api":true,"fastlane_version":%s,"dependencies_ready":true}\n' \
-    "$(jstr "$FASTLANE_VERSION")"
-}
-
-run_private_apns_actor() {
-  local ruby_bin gem_home
-  ruby_bin="$(modern_ruby)" ||
-    die "experimental APNs automation requires Ruby 3.1 or newer"
-  experimental_fastlane_ready ||
-    die "run experimental-apns-install --experimental --confirm first"
-  [[ -f "$PRIVATE_APNS_ACTOR" ]] || die "missing private APNs actor: $PRIVATE_APNS_ACTOR"
-  gem_home="$(experimental_gem_home)"
-
-  GEM_HOME="$gem_home" GEM_PATH="$gem_home" PATH="$gem_home/bin:$PATH" \
-    "$ruby_bin" "$PRIVATE_APNS_ACTOR" "$@"
-}
-
-experimental_apns_auth() {
-  require_experimental
-  [[ -t 0 && -t 1 ]] ||
-    die "experimental-apns-auth must be run by the developer in an interactive terminal for password and 2FA prompts"
-  [[ -n "$APPLE_ID" ]] || die "experimental-apns-auth requires --apple-id"
-  if [[ -n "$APPLE_TEAM_ID" ]] && ! valid_apple_id "$APPLE_TEAM_ID"; then
-    die "experimental-apns-auth --team-id must be 10 uppercase letters or digits"
-  fi
-
-  local -a actor_args
-  local result selected_team
-  actor_args=(auth --apple-id "$APPLE_ID")
-  if [[ -n "$APPLE_TEAM_ID" ]]; then
-    actor_args+=(--team-id "$APPLE_TEAM_ID")
-  fi
-  result="$(run_private_apns_actor "${actor_args[@]}")" || exit $?
-  selected_team="$(node -e '
-    const result = JSON.parse(process.argv[1]);
-    process.stdout.write(String(result.team_id || ""));
-  ' "$result")"
-  valid_apple_id "$selected_team" ||
-    die "Apple authentication did not resolve one valid team ID"
-
-  init_workspace
-  (
-    umask 077
-    {
-      printf '{\n'
-      printf '  "apple_id": %s,\n' "$(jstr "$APPLE_ID")"
-      printf '  "team_id": %s\n' "$(jstr "$selected_team")"
-      printf '}\n'
-    } > "$APPLE_WEB_META"
-  )
-  chmod 600 "$APPLE_WEB_META"
-  printf '%s\n' "$result"
-}
-
-experimental_apns_plan() {
-  require_experimental
-  [[ "$CONFIRM_READ" == true ]] ||
-    die "experimental-apns-plan requires --confirm-read after approval to list the team's key metadata"
-  [[ -n "$APPLE_ID" ]] || die "experimental-apns-plan requires --apple-id"
-  valid_apple_id "$APPLE_TEAM_ID" ||
-    die "experimental-apns-plan requires a 10-character --team-id"
-  [[ -n "$APP_NAME" ]] || die "experimental-apns-plan requires --name"
-  run_private_apns_actor plan \
-    --apple-id "$APPLE_ID" \
-    --team-id "$APPLE_TEAM_ID" \
-    --name "$APP_NAME"
-}
-
-experimental_apns_create() {
-  require_experimental
-  [[ "$CONFIRM" == true ]] ||
-    die "experimental-apns-create requires --confirm after reviewing the experimental plan"
-  [[ -n "$APPLE_ID" ]] || die "experimental-apns-create requires --apple-id"
-  valid_apple_id "$APPLE_TEAM_ID" ||
-    die "experimental-apns-create requires a 10-character --team-id"
-  [[ -n "$APP_NAME" ]] || die "experimental-apns-create requires --name"
-  [[ -n "$OUTPUT_DIR" ]] || die "experimental-apns-create requires --output-dir"
-
-  local result
-  result="$(run_private_apns_actor create \
-    --apple-id "$APPLE_ID" \
-    --team-id "$APPLE_TEAM_ID" \
-    --name "$APP_NAME" \
-    --output-dir "$OUTPUT_DIR" \
-    --confirm)" || exit $?
-
-  APNS_SOURCE="$(node -e '
-    const result = JSON.parse(process.argv[1]);
-    process.stdout.write(String(result.key_path || ""));
-  ' "$result")"
-  APNS_KEY_ID="$(node -e '
-    const result = JSON.parse(process.argv[1]);
-    process.stdout.write(String(result.key_id || ""));
-  ' "$result")"
-  CONFIRM=true
-  import_apns
-}
 
 read_args "$@"
 
@@ -5638,18 +5410,6 @@ case "$COMMAND" in
     ;;
   restart-proof)
     restart_proof
-    ;;
-  experimental-apns-install)
-    experimental_apns_install
-    ;;
-  experimental-apns-auth)
-    experimental_apns_auth
-    ;;
-  experimental-apns-plan)
-    experimental_apns_plan
-    ;;
-  experimental-apns-create)
-    experimental_apns_create
     ;;
   *)
     usage >&2
