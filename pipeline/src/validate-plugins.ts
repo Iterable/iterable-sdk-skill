@@ -186,7 +186,7 @@ function validateVersions(): void {
       fail(
         file,
         `\`${label}\` "${cursor}" must end with ${expected} while the skill is in ` +
-          `beta (PRERELEASE in pipeline/src/lib/plugin-version.ts)`,
+          `(PRERELEASE in pipeline/src/lib/plugin-version.ts)`,
       );
       continue;
     }

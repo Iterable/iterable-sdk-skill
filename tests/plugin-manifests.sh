@@ -37,9 +37,9 @@ fi
 
 # YY.M.PATCH, calendar-based — see README. Checked because the whole delivery
 # mechanism keys off this string, and a typo in it is a silent non-delivery.
-[[ "$CV" =~ ^[0-9][0-9]\.[0-9]+\.[0-9]+(-beta)?$ ]] \
+[[ "$CV" =~ ^[0-9][0-9]\.[0-9]+\.[0-9]+$ ]] \
   && ok "$(printf '%-48s %s' "the version is a calendar version" "YY.M.PATCH")" \
-  || bad "'$CV' is not YY.M.PATCH[-beta]" "the host sorts and directory-names on this"
+  || bad "'$CV' is not YY.M.PATCH" "the host sorts and directory-names on this"
 
 # A number that has not moved is a change nobody receives: a host compares this string
 # to what it has installed and skips the update when they match. Every fix made on this
