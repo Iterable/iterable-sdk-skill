@@ -23,11 +23,11 @@ FAILED=0
 ok()  { printf '  \033[32mPASS\033[0m %s\n' "$1"; }
 bad() { printf '  \033[31mFAIL\033[0m %s\n' "$1"; FAILED=1; }
 
-# case_is <label> <fixture> <marker|-> <expected-rc> <must-mention>
+# case_is <label> <fixture> <marker|-> <expected-rc> <must-mention> [sent-at]
 case_is() {
-  local label="$1" fixture="$2" marker="$3" want="$4" mention="${5:-}" out rc
+  local label="$1" fixture="$2" marker="$3" want="$4" mention="${5:-}" sent="${6:-$SENT_AT}" out rc
   [[ "$marker" == - ]] && marker=""
-  out="$(node bin/notify-parse.js com.sampleshop "$marker" "$SENT_AT" < "tests/fixtures/$fixture")"; rc=$?
+  out="$(node bin/notify-parse.js com.sampleshop "$marker" "$sent" < "tests/fixtures/$fixture")"; rc=$?
   if ((rc != want)); then
     bad "$label: expected rc=$want, got rc=$rc ($out)"; return
   fi
@@ -41,8 +41,18 @@ echo
 echo "  notify-parse.js — recorded notification dumps, no device"
 echo
 
-# The green with a marker: this is the push we sent, and the lag proves it.
-case_is "marker matched"        dumpsys-notification-arrived.txt "$MARKER" 0 "after send"
+# The green with a marker: the marker is unique to this send, so it is the proof.
+case_is "marker matched"        dumpsys-notification-arrived.txt "$MARKER" 0 "at "
+# Sent-at is the host clock, `when` the device's. An emulator 11s behind the host
+# stamps the push before the host says it was sent; 30s ahead, long after.
+case_is "device 11s behind"     dumpsys-notification-arrived.txt "$MARKER" 0 "at " $((SENT_AT + 11000))
+case_is "device 30s ahead"      dumpsys-notification-arrived.txt "$MARKER" 0 "at " $((SENT_AT - 30000))
+for skew in 11000 -30000; do
+  out="$(node bin/notify-parse.js com.sampleshop "$MARKER" $((SENT_AT + skew)) < tests/fixtures/dumpsys-notification-arrived.txt)"
+  [[ "$out" != *"after send"* && "$out" != *", -"* ]] && ok "skew ${skew}ms reports no cross-clock lag" \
+    || bad "skew ${skew}ms put a cross-clock lag in the verdict: $out"
+done
+case_is "skewed, other marker"  dumpsys-notification-arrived.txt itbl-onboard-0000000000 2 "none carrying" $((SENT_AT + 11000))
 # Re-running the ladder does not re-send, so a green can be about an old push. It
 # has to say so — read without an age it means "a push just landed", and someone
 # watching the device sees nothing and concludes the gate is lying.

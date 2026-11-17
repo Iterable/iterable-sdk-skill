@@ -117,5 +117,5 @@ g16() {
   d="$(device_serial)" || { echo "$d"; return 2; }
   dump="$(notification_dump "$d")" || true
   printf '%s\n' "$dump" \
-    | node "$BIN/notify-parse.js" "$PACKAGE" "$ITBL_PROOF_MARKER" "$ITBL_PROOF_SENT_AT" 2>&1
+    | node "$BIN/notify-parse.js" "$PACKAGE" "$ITBL_PROOF_MARKER" 2>&1
 }

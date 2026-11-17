@@ -3,7 +3,10 @@
 // `dumpsys notification` on stdin. Pure, so tests/device-notify.sh runs it
 // against recorded dumps with no device attached.
 //
-// Usage: notify-parse.js <package> [marker] [sent-at-epoch-ms]
+// Usage: notify-parse.js <package> [marker]
+//
+// No send time: `when` is the device clock, which can sit seconds off the host's.
+// The marker is unique per send, so a push from an earlier send cannot match.
 //
 //   0  a push from this package is in the notification list
 //   1  never returned: the notification service has nothing to say about a push
@@ -23,8 +26,7 @@
 // notification erases this evidence, which is why absence returns 2 forever
 // rather than ever going red.
 
-const [PKG, MARKER = "", SENT_AT = "0"] = process.argv.slice(2);
-const sentAt = Number(SENT_AT) || 0;
+const [PKG, MARKER = ""] = process.argv.slice(2);
 
 let input = "";
 process.stdin.on("data", (c) => (input += c)).on("end", () => {
@@ -90,8 +92,7 @@ process.stdin.on("data", (c) => (input += c)).on("end", () => {
 
   if (MARKER) {
     const carries = (r) => (r.title + " " + r.text).includes(MARKER);
-    const fresh = (r) => !sentAt || !r.when || r.when >= sentAt - 5000;
-    const hit = mine.find((r) => carries(r) && fresh(r));
+    const hit = mine.find(carries);
     if (hit) {
       // Re-running the ladder does not re-send, so say how old the arrival is every
       // time. Read without an age, a green about a two-hour-old push reads as a push
@@ -99,11 +100,10 @@ process.stdin.on("data", (c) => (input += c)).on("end", () => {
       // concludes the gate is lying. Only the text is quoted, not the title too:
       // it carries the marker, and the line has to survive brief()'s 100 characters.
       const at = hit.when ? new Date(hit.when).toLocaleTimeString() : "unknown time";
-      const lag = sentAt && hit.when ? `, ${Math.round((hit.when - sentAt) / 1000)}s after send` : "";
       const mins = hit.when ? Math.round((Date.now() - hit.when) / 60000) : null;
-      const age = !mins ? "" : mins < 60 ? `, ${mins}m ago` : `, ${Math.round(mins / 60)}h ago`;
+      const age = !(mins > 0) ? "" : mins < 60 ? `, ${mins}m ago` : `, ${Math.round(mins / 60)}h ago`;
       const quiet = hit.silent ? " — SILENT, no banner" : "";
-      verdict(0, `"${hit.text || hit.title}" at ${at}${lag}${age}${quiet}`);
+      verdict(0, `"${hit.text || hit.title}" at ${at}${age}${quiet}`);
     }
     if (mine.some((r) => r.redacted)) {
       verdict(2, `${mine.length} notification(s) from ${PKG}, content redacted — cannot match the marker`);
