@@ -391,7 +391,7 @@ rm -f "$WS/artifacts/sa-key.json" "$WS/resolved.env"
 DRIVER=agent
 
 # -------------------------------------------------------------------------- done
-state "$(row G16 green tool "Push arrives on device" "arrived 2s after send")"
+state "$(row G16 green tool "Push arrives on device" "G16 proof itbl-onboard-1789988520 at 12:02:02 PM, 3m ago")"
 expect none done "a push reached the device" "all green — nothing left"
 
 # ------------------------------------------------------------ the app's own push

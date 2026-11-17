@@ -50,14 +50,12 @@ if PP_DEV="$(device_serial 2>/dev/null)"; then
     | grep -q 'itbl-onboard-' && PRIOR_PROOF=1
 fi
 
-sent_at="$(node -e 'process.stdout.write(String(Date.now()))')"
 itbl_post "$ITBL_SERVER_KEY" /api/templates/push/proof \
   "$(node -e 'process.stdout.write(JSON.stringify({templateId:Number(process.argv[1]),[process.argv[2]]:process.argv[3]}))' "$tid" "$(itbl_recipient_field)" "$(itbl_identity)")" \
   || { echo "proof send failed: $(itbl_err "$ITBL_BODY")" >&2; exit 1; }
 
 save_resolved ITBL_PROOF_TEMPLATE_ID "$tid"
 save_resolved ITBL_PROOF_MARKER "$MARKER"
-save_resolved ITBL_PROOF_SENT_AT "$sent_at"
 
 echo
 echo "  Sent template $tid to $(itbl_identity), marked $MARKER."
