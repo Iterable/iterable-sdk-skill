@@ -1591,7 +1591,6 @@ urlenc() { node -e 'process.stdout.write(encodeURIComponent(process.argv[1]))' "
 # Set by the proof sender so G16 can require the push it reads to be the one that
 # was sent, rather than any notification the app happened to post.
 : "${ITBL_PROOF_MARKER:=}"
-: "${ITBL_PROOF_SENT_AT:=}"
 
 # ------------------------------------------------------------------- Device side
 # The developer's own app, on their own device. Everything here is a read over
