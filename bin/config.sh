@@ -1591,6 +1591,7 @@ urlenc() { node -e 'process.stdout.write(encodeURIComponent(process.argv[1]))' "
 # Set by the proof sender so G16 can require the push it reads to be the one that
 # was sent, rather than any notification the app happened to post.
 : "${ITBL_PROOF_MARKER:=}"
+# Host time of the last send, in ms. G17 ignores any pushSend from before it.
 : "${ITBL_PROOF_SENT_AT:=}"
 
 # ------------------------------------------------------------------- Device side

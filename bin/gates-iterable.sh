@@ -100,8 +100,8 @@ g15() {
 # send time: anything older or from another campaign is somebody else's push.
 g17() {
   [[ -n "$(itbl_identity)" ]] || { echo "no test user set (ITBL_EMAIL, or ITBL_USER_ID for a user ID)"; return 1; }
-  [[ -n "$ITBL_CAMPAIGN_ID" ]] || { echo "no ITBL_CAMPAIGN_ID — nothing to match a pushSend against"; return 2; }
-  [[ -n "$ITBL_PROOF_SENT_AT" ]] || { echo "no send time recorded for campaign $ITBL_CAMPAIGN_ID yet"; return 2; }
+  [[ -n "${ITBL_CAMPAIGN_ID:-}" ]] || { echo "no ITBL_CAMPAIGN_ID — nothing to match a pushSend against"; return 2; }
+  [[ -n "${ITBL_PROOF_SENT_AT:-}" ]] || { echo "no send time recorded for campaign $ITBL_CAMPAIGN_ID yet"; return 2; }
   local out
   itbl_get "$ITBL_SERVER_KEY" "$(itbl_events_path)" || true
   if itbl_no_user "$ITBL_CODE" "$ITBL_BODY"; then
@@ -114,8 +114,8 @@ g17() {
     let d=""; process.stdin.on("data",c=>d+=c).on("end",()=>{
       let j; try { j = JSON.parse(d||"{}") } catch (e) { console.error("unparseable response"); process.exit(1) }
       const [campaign, sentAt] = [process.argv[1], Number(process.argv[2])];
-      // Same allowance G16 gives the notification time in notify-parse.js.
-      const SKEW_MS = 5000;
+      // Allowance for the host clock (sentAt) vs the Iterable clock (createdAt).
+      const CLOCK_SKEW_MS = 5000;
       const events = j.events || [];
       // The event objects are untyped in the spec, so match on any field that
       // carries the name rather than betting on one key.
@@ -125,12 +125,14 @@ g17() {
         if (typeof t === "number") return t < 1e12 ? t * 1000 : t;
         return Date.parse(t);
       };
-      const ours = events.filter(e => String(e.campaignId) === campaign && timeOf(e) >= sentAt - SKEW_MS);
+      const mine = events.filter(e => String(e.campaignId) === campaign);
+      const ours = mine.filter(e => timeOf(e) >= sentAt - CLOCK_SKEW_MS);
       const sent = ours.find(e => nameOf(e) === "pushSend");
       if (sent) {
-        const lag = Math.round((timeOf(sent) - sentAt) / 1000);
+        const lag = timeOf(sent) - sentAt;
+        const when = lag < 0 ? "within clock skew" : `${Math.round(lag / 1000)}s after send`;
         const msg = sent.messageId ? `, message ${sent.messageId}` : "";
-        console.log(`pushSend for campaign ${campaign}, ${lag}s after send${msg}`);
+        console.log(`pushSend for campaign ${campaign}, ${when}${msg}`);
         process.exit(0);
       }
       // The informative failures, and different from "nothing yet".
@@ -141,10 +143,14 @@ g17() {
       };
       const bad = ours.map(nameOf).find(n => why[n]);
       if (bad) { console.error(`${bad} — ${why[bad]}`); process.exit(1) }
+      if (mine.some(e => (nameOf(e) === "pushSend" || why[nameOf(e)]) && Number.isNaN(timeOf(e)))) {
+        console.error("Iterable returned events without a parseable timestamp; this run cannot be isolated");
+        process.exit(1);
+      }
       // Nothing sent yet is not a failure to send. Only the verdicts above are.
       const names = events.map(nameOf);
       console.error(names.length ? `no pushSend for campaign ${campaign} since the send yet (saw: ${[...new Set(names)].slice(0,5).join(", ")})`
                                  : "no events recorded for this user yet");
       process.exit(2);
-    })' "$ITBL_CAMPAIGN_ID" "$ITBL_PROOF_SENT_AT" 2>&1
+    })' "$ITBL_CAMPAIGN_ID" "${ITBL_PROOF_SENT_AT:-}" 2>&1
 }
