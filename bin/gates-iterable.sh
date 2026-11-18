@@ -95,8 +95,13 @@ g15() {
 
 # G17 — Iterable agrees it sent the push. Corroborates G16 from the server side:
 # the device saying it arrived and Iterable saying it sent are separate claims.
+#
+# push/target returns no messageId, so "this run's push" is the campaign plus the
+# send time: anything older or from another campaign is somebody else's push.
 g17() {
   [[ -n "$(itbl_identity)" ]] || { echo "no test user set (ITBL_EMAIL, or ITBL_USER_ID for a user ID)"; return 1; }
+  [[ -n "$ITBL_CAMPAIGN_ID" ]] || { echo "no ITBL_CAMPAIGN_ID — nothing to match a pushSend against"; return 2; }
+  [[ -n "$ITBL_PROOF_SENT_AT" ]] || { echo "no send time recorded for campaign $ITBL_CAMPAIGN_ID yet"; return 2; }
   local out
   itbl_get "$ITBL_SERVER_KEY" "$(itbl_events_path)" || true
   if itbl_no_user "$ITBL_CODE" "$ITBL_BODY"; then
@@ -108,22 +113,38 @@ g17() {
   printf '%s' "$ITBL_BODY" | node -e '
     let d=""; process.stdin.on("data",c=>d+=c).on("end",()=>{
       let j; try { j = JSON.parse(d||"{}") } catch (e) { console.error("unparseable response"); process.exit(1) }
+      const [campaign, sentAt] = [process.argv[1], Number(process.argv[2])];
+      // Same allowance G16 gives the notification time in notify-parse.js.
+      const SKEW_MS = 5000;
       const events = j.events || [];
       // The event objects are untyped in the spec, so match on any field that
       // carries the name rather than betting on one key.
       const nameOf = e => e.eventName || e.eventType || e.messageType || "";
-      const names = events.map(nameOf);
-      if (names.includes("pushSend")) {
-        console.log(`pushSend present (${events.length} recent event(s))`);
+      const timeOf = e => {
+        const t = e.createdAt ?? e.createdAtMillis;
+        if (typeof t === "number") return t < 1e12 ? t * 1000 : t;
+        return Date.parse(t);
+      };
+      const ours = events.filter(e => String(e.campaignId) === campaign && timeOf(e) >= sentAt - SKEW_MS);
+      const sent = ours.find(e => nameOf(e) === "pushSend");
+      if (sent) {
+        const lag = Math.round((timeOf(sent) - sentAt) / 1000);
+        const msg = sent.messageId ? `, message ${sent.messageId}` : "";
+        console.log(`pushSend for campaign ${campaign}, ${lag}s after send${msg}`);
         process.exit(0);
       }
-      // These are the informative failures: Iterable decided not to send, or
-      // tried and the token was rejected. Both are different from "nothing yet".
-      const bad = names.find(n => /pushSendSkip|pushBounce|pushSendFailure/.test(n));
-      if (bad) { console.error(`${bad}, not pushSend — Iterable declined or the token was rejected`); process.exit(1) }
+      // The informative failures, and different from "nothing yet".
+      const why = {
+        pushSendSkip: "Iterable chose not to send (opt-out, frequency cap or quiet hours)",
+        pushBounce: "the push service rejected the device token",
+        pushSendFailure: "Iterable tried to send and it failed",
+      };
+      const bad = ours.map(nameOf).find(n => why[n]);
+      if (bad) { console.error(`${bad} — ${why[bad]}`); process.exit(1) }
       // Nothing sent yet is not a failure to send. Only the verdicts above are.
-      console.error(names.length ? `no pushSend yet (saw: ${[...new Set(names)].slice(0,5).join(", ")})`
+      const names = events.map(nameOf);
+      console.error(names.length ? `no pushSend for campaign ${campaign} since the send yet (saw: ${[...new Set(names)].slice(0,5).join(", ")})`
                                  : "no events recorded for this user yet");
       process.exit(2);
-    })' 2>&1
+    })' "$ITBL_CAMPAIGN_ID" "$ITBL_PROOF_SENT_AT" 2>&1
 }

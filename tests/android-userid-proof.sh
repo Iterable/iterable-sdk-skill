@@ -35,7 +35,7 @@ case "$url" in
   */api/templates/push/upsert) printf '{"msg":"Upserted 1 templates with IDs: 42"}\n200' ;;
   */api/templates/push/proof)  printf '{"msg":"ok"}\n200' ;;
   */api/users/byUserId/*|*/api/users/getByEmail*) printf '%s\n%s' "$STUB_USER" "${STUB_CODE:-200}" ;;
-  */api/events/*)              printf '{"events":[{"eventName":"pushSend"}]}\n200' ;;
+  */api/events/*)              printf '{"events":[{"eventName":"pushSend","campaignId":7,"createdAt":"2026-11-17 17:28:43 +00:00"}]}\n200' ;;
   *)                           printf '{"msg":"unexpected path"}\n404' ;;
 esac
 CURL
@@ -98,7 +98,7 @@ grep -qF 'GET /api/users/getByEmail?email=dev%40example.com' <<< "$(calls)" \
   && ok "G15 for an email still reads getByEmail" \
   || bad "G15 for an email no longer reads getByEmail: $out"
 
-out="$(run uid 'source bin/config.sh >/dev/null 2>&1; source bin/gates-iterable.sh; ITBL_USER_ID=u-0a1b2c g17' 2>&1)"; rc=$?
+out="$(run uid 'source bin/config.sh >/dev/null 2>&1; source bin/gates-iterable.sh; ITBL_USER_ID=u-0a1b2c ITBL_CAMPAIGN_ID=7 ITBL_PROOF_SENT_AT=1794936511867 g17' 2>&1)"; rc=$?
 ((rc == 0)) && grep -qF 'GET /api/events/byUserId/u-0a1b2c?limit=50' <<< "$(calls)" \
   && ok "G17 reads the userId's events" \
   || bad "G17 by userId: rc $rc, $out"
