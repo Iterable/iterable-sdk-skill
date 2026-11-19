@@ -170,8 +170,8 @@ case "${1:-status}" in
     # limits promise never happens unless asked outright, so it is its own answer to its
     # own question and the provisioning yes does not include it.
     case "${1:-}" in
-      firebase|create-app|list) ;;
-      *) printf '{"error":%s}\n' "$(jstr "usage: agent approve list --asked <token> | agent approve firebase | agent approve create-app")"; exit 30 ;;
+      firebase|create-app|list|campaign) ;;
+      *) printf '{"error":%s}\n' "$(jstr "usage: agent approve list --asked <token> | agent approve firebase | agent approve create-app | agent approve campaign")"; exit 30 ;;
     esac
     SCOPE="$1"; shift
     TOK=""
@@ -182,12 +182,15 @@ case "${1:-status}" in
         *) printf '{"error":%s}\n' "$(jstr "unknown option: $1")"; exit 30 ;;
       esac
     done
-    # Scoped to something, always. `list` names the account whose estate gets read; the
-    # other two name the project that gets changed. A yes that names neither would cover
-    # every account and every project this workspace is ever pointed at.
+    # Scoped to something, always. `list` names the account whose estate gets read,
+    # `campaign` the Iterable server key, and the other two the project that gets
+    # changed. A yes that names none of them would cover every account and every
+    # project this workspace is ever pointed at.
     [[ -n "$(scope_target "$SCOPE")" ]] || {
       if [[ "$SCOPE" == list ]]; then
         printf '{"error":%s}\n' "$(jstr "gcloud reports no active account, so there is nothing to scope this yes to — they sign in first (gcloud auth login), then this is askable")"
+      elif [[ "$SCOPE" == campaign ]]; then
+        printf '{"error":%s}\n' "$(jstr "no Iterable server key yet — the developer adds it with iterable-keys first, so the approval says which project's key it covers")"
       else
         printf '{"error":%s}\n' "$(jstr "no project chosen yet — agent set PID=… first, so the approval says what it covers")"
       fi

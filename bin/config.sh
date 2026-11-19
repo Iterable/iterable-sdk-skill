@@ -752,7 +752,7 @@ APPROVALS="$WS/approved"
 # so switching accounts does not inherit the previous one's yes.
 gcloud_account() { gcloud config get-value account 2>/dev/null | grep -v '^(unset)$'; }
 
-# Three things get approved, separately, because they are different sizes. `firebase` is
+# Four things get approved, separately, because they are different sizes. `firebase` is
 # the provisioning plan — a service account, a role binding, a key. `create-app`
 # registers a new Android app in the project, which the limits promise never happens
 # "unless you ask outright", so it cannot ride along on the first yes. `list` is the read
@@ -761,9 +761,19 @@ gcloud_account() { gcloud config get-value account 2>/dev/null | grep -v '^(unse
 # `list` is scoped to the Google account and the other two to the project, because that
 # is what each one is actually about: a yes to looking at what this account can see says
 # nothing about the next account, and there is no project chosen yet when it is asked.
+#
+# `campaign` creates a template and a running campaign in their Iterable project. That
+# project's id is only readable from a device endpoint, long after this is asked, so it
+# is scoped to the server key that would spend it. Only a fingerprint is recorded.
+itbl_key_fingerprint() {
+  [[ -n "$ITBL_SERVER_KEY" ]] || return 0
+  printf '%s' "$ITBL_SERVER_KEY" | shasum -a 256 | cut -c1-16
+}
+
 approval_scope() {
   case "${1:-firebase}" in
     list) printf 'list %s' "$(gcloud_account)" ;;
+    campaign) printf 'campaign itbl-key:%s' "$(itbl_key_fingerprint)" ;;
     *)    printf '%s %s' "${1:-firebase}" "${PID:-<no project chosen>}" ;;
   esac
 }
@@ -775,6 +785,7 @@ approval_scope() {
 scope_target() {
   case "${1:-firebase}" in
     list) gcloud_account ;;
+    campaign) itbl_key_fingerprint ;;
     *)    printf '%s' "$PID" ;;
   esac
 }

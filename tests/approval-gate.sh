@@ -401,5 +401,77 @@ grep -qF 'approve create-app' bin/wizard \
   || bad "the wizard has no scoped create-app approval at all"
 
 echo
+echo "  Iterable campaign — a yes names the server key it was given for"
+echo
+
+# The Iterable project id is only readable from a device endpoint, long after this has to
+# be asked, so the yes is scoped to the server key that would spend it.
+KEY_A="srvkey-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+KEY_B="srvkey-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+camp() { local ws="$1"; shift
+  mkdir -p "$ws"; : > "$ws/calls"
+  env -u ITBL_SERVER_KEY -u APPROVED CALLS="$ws/calls" PATH="$STUB:/usr/bin:/bin" WS="$ws" PID=proj "$@" < /dev/null; }
+camp_approved() { local ws="$1"; shift
+  camp "$ws" "$@" bash -c 'source bin/config.sh >/dev/null 2>&1; approved campaign'; }
+
+WS13="$TMP/campaign"
+camp_approved "$WS13" ITBL_SERVER_KEY="$KEY_A" \
+  && bad "campaign: approved with nothing on record" \
+  || ok "campaign: no yes on record, no consent"
+camp_approved "$WS13" ITBL_SERVER_KEY="$KEY_A" APPROVED=1 \
+  && bad "campaign: APPROVED=1 covers creating campaigns in Iterable" \
+  || ok "campaign: APPROVED=1 does not cover it — it is its own answer"
+
+out="$(camp "$WS13" bash bin/agent approve campaign 2>&1)"; rc=$?
+((rc == 30)) && grep -q 'server key' <<< "$out" \
+  && ok "campaign: refuses to record a yes with no server key to scope it to" \
+  || bad "campaign: approving with no key gave rc $rc: $out"
+[[ -s "$WS13/approved" ]] \
+  && bad "campaign: an unscoped yes reached the approval record" \
+  || ok "campaign: and nothing was written"
+
+rec="$(camp "$WS13" ITBL_SERVER_KEY="$KEY_A" bash bin/agent approve campaign 2>&1)"; rrc=$?
+((rrc == 0)) && grep -q '"approved":true' <<< "$rec" && grep -qE 'campaign itbl-key:[0-9a-f]{16}' <<< "$rec" \
+  && ok "campaign: agent approve campaign records it against a key fingerprint" \
+  || bad "campaign: agent approve campaign returned rc $rrc: $rec"
+if grep -qF "$KEY_A" "$WS13/approved" 2>/dev/null || grep -qF "$KEY_A" <<< "$rec"; then
+  bad "campaign: the server key itself was printed or stored"
+else
+  ok "campaign: the key is neither printed nor stored, only its fingerprint"
+fi
+(( $(wc -l < "$WS13/calls") == 0 )) \
+  && ok "campaign: recording the yes made no calls" \
+  || bad "campaign: recording the yes reached out: $(tr '\n' ' ' < "$WS13/calls")"
+
+camp_approved "$WS13" ITBL_SERVER_KEY="$KEY_A" \
+  && ok "campaign: the same key is approved" \
+  || bad "campaign: the recorded yes was not honoured"
+camp_approved "$WS13" ITBL_SERVER_KEY="$KEY_B" \
+  && bad "campaign: the yes carried over to a different server key" \
+  || ok "campaign: a different server key is asked again"
+camp_approved "$WS13" \
+  && bad "campaign: a yes on disk counts with no key loaded" \
+  || ok "campaign: no key loaded, no consent — even with a yes on disk"
+
+printf 'ITBL_SERVER_KEY=%s\n' "$KEY_A" > "$WS13/.env"
+camp_approved "$WS13" \
+  && ok "campaign: the key pasted into .env matches the yes given for it" \
+  || bad "campaign: the .env key fingerprints differently from the same exported key"
+printf 'ITBL_SERVER_KEY=%s\n' "$KEY_B" > "$WS13/.env"
+camp_approved "$WS13" \
+  && bad "campaign: swapping the key in .env kept the old yes" \
+  || ok "campaign: swapping the key in .env needs a new yes"
+rm -f "$WS13/.env"
+
+camp "$WS13" ITBL_SERVER_KEY="$KEY_A" bash -c 'source bin/config.sh >/dev/null 2>&1; approved firebase' \
+  && bad "campaign: a campaign yes approves Firebase provisioning" \
+  || ok "campaign: a campaign yes says nothing about Firebase"
+WS14="$TMP/firebase-only"
+camp "$WS14" bash -c 'source bin/config.sh >/dev/null 2>&1; approve firebase' >/dev/null 2>&1
+camp_approved "$WS14" ITBL_SERVER_KEY="$KEY_A" \
+  && bad "campaign: a Firebase yes approves creating Iterable campaigns" \
+  || ok "campaign: a Firebase yes says nothing about Iterable campaigns"
+
+echo
 ((FAILED)) && { echo "  FAILED"; exit 1; }
 echo "  All good — no yes, no calls."
