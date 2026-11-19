@@ -50,6 +50,7 @@ if PP_DEV="$(device_serial 2>/dev/null)"; then
     | grep -q 'itbl-onboard-' && PRIOR_PROOF=1
 fi
 
+# G17 reads this as the earliest a pushSend from this run can be.
 sent_at="$(node -e 'process.stdout.write(String(Date.now()))')"
 itbl_post "$ITBL_SERVER_KEY" /api/templates/push/proof \
   "$(node -e 'process.stdout.write(JSON.stringify({templateId:Number(process.argv[1]),[process.argv[2]]:process.argv[3]}))' "$tid" "$(itbl_recipient_field)" "$(itbl_identity)")" \
