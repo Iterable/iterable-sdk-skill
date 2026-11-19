@@ -7,6 +7,7 @@
 #   bin/agent discover           the Firebase projects and apps, as JSON
 #   bin/agent set K=V [K=V]      record a choice (project, package, device)
 #   bin/agent approve firebase   record the developer's yes to changing their project
+#                                (also: create-app, list --asked <token>, campaign)
 #   bin/agent set DRIVER=agent   they asked you to run the setup instead of the wizard
 #   bin/agent question K [N]     one question to put to the developer, as data
 #   bin/agent scope ...          record a Step 0 answer picked on a `question scope` screen
@@ -166,7 +167,7 @@ case "${1:-status}" in
   # one project, so it cannot be carried over to the next one by accident.
   approve)
     shift
-    # Two scopes, never one: `create-app` adds something to the project that the stated
+    # Separate scopes, never one: `create-app` adds something to the project that the stated
     # limits promise never happens unless asked outright, so it is its own answer to its
     # own question and the provisioning yes does not include it.
     case "${1:-}" in
@@ -189,6 +190,8 @@ case "${1:-status}" in
     [[ -n "$(scope_target "$SCOPE")" ]] || {
       if [[ "$SCOPE" == list ]]; then
         printf '{"error":%s}\n' "$(jstr "gcloud reports no active account, so there is nothing to scope this yes to — they sign in first (gcloud auth login), then this is askable")"
+      elif [[ "$SCOPE" == campaign && -n "$ITBL_SERVER_KEY" ]]; then
+        printf '{"error":%s}\n' "$(jstr "found the Iterable server key but cannot fingerprint it: neither shasum nor sha256sum is installed")"
       elif [[ "$SCOPE" == campaign ]]; then
         printf '{"error":%s}\n' "$(jstr "no Iterable server key yet — the developer adds it with iterable-keys first, so the approval says which project's key it covers")"
       else
@@ -196,8 +199,8 @@ case "${1:-status}" in
       fi
       exit 30; }
     # The screen has to have been put up, and to have been up long enough to read. Only
-    # `list` for now: it is the yes whose question is rendered by this tool, and the other
-    # two get the same treatment when their screens move here. A tty skips it — the wizard
+    # `list` for now: it is the yes whose question is rendered by this tool, and the others
+    # get the same treatment when their screens move here. A tty skips it — the wizard
     # asks in person, and may_list_projects lets a terminal through anyway.
     #
     # rc 10, not 30: nothing is broken, a human has not been asked yet. That is exactly

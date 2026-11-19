@@ -767,13 +767,17 @@ gcloud_account() { gcloud config get-value account 2>/dev/null | grep -v '^(unse
 # is scoped to the server key that would spend it. Only a fingerprint is recorded.
 itbl_key_fingerprint() {
   [[ -n "$ITBL_SERVER_KEY" ]] || return 0
-  printf '%s' "$ITBL_SERVER_KEY" | shasum -a 256 | cut -c1-16
+  local h
+  if command -v shasum >/dev/null 2>&1; then h=(shasum -a 256)
+  elif command -v sha256sum >/dev/null 2>&1; then h=(sha256sum)
+  else return 1; fi
+  printf '%s' "$ITBL_SERVER_KEY" | "${h[@]}" | cut -c1-16
 }
 
 approval_scope() {
   case "${1:-firebase}" in
     list) printf 'list %s' "$(gcloud_account)" ;;
-    campaign) printf 'campaign itbl-key:%s' "$(itbl_key_fingerprint)" ;;
+    campaign) local fp; fp="$(itbl_key_fingerprint)"; printf 'campaign itbl-key:%s' "${fp:-<no server key>}" ;;
     *)    printf '%s %s' "${1:-firebase}" "${PID:-<no project chosen>}" ;;
   esac
 }
@@ -791,8 +795,8 @@ scope_target() {
 }
 
 approved() {
-  # The CI form covers provisioning and the read. Registering an app is the one change a
-  # pipeline should have to name for itself, with CREATE_APP=1.
+  # The CI form covers provisioning and the read. Registering an app needs CREATE_APP=1,
+  # and creating a campaign has no CI form at all.
   case "${1:-firebase}" in
     firebase|list) [[ "${APPROVED:-0}" == 1 ]] && return 0 ;;
   esac

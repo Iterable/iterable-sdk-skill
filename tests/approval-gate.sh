@@ -452,6 +452,11 @@ camp_approved "$WS13" ITBL_SERVER_KEY="$KEY_B" \
 camp_approved "$WS13" \
   && bad "campaign: a yes on disk counts with no key loaded" \
   || ok "campaign: no key loaded, no consent — even with a yes on disk"
+WS15="$TMP/campaign-blank"; mkdir -p "$WS15"
+printf 'campaign itbl-key:\t2026-01-01 00:00\ncampaign itbl-key:<no server key>\t2026-01-01 00:00\n' > "$WS15/approved"
+camp_approved "$WS15" \
+  && bad "campaign: a blank-key row on disk approves with no key loaded" \
+  || ok "campaign: a blank-key row on disk is no consent with no key loaded"
 
 printf 'ITBL_SERVER_KEY=%s\n' "$KEY_A" > "$WS13/.env"
 camp_approved "$WS13" \
@@ -462,6 +467,27 @@ camp_approved "$WS13" \
   && bad "campaign: swapping the key in .env kept the old yes" \
   || ok "campaign: swapping the key in .env needs a new yes"
 rm -f "$WS13/.env"
+
+# A PATH with every tool but the SHA-256 ones, to stand in for a perl-less Linux image.
+NOHASH="$TMP/nohash"; mkdir -p "$NOHASH"
+ln -s /usr/bin/* /bin/* "$NOHASH"/ 2>/dev/null; rm -f "$NOHASH"/shasum* "$NOHASH"/sha256sum
+out="$(camp "$WS13" PATH="$STUB:$NOHASH" ITBL_SERVER_KEY="$KEY_A" bash bin/agent approve campaign 2>&1)"; rc=$?
+((rc == 30)) && grep -q 'neither shasum nor sha256sum' <<< "$out" && ! grep -q 'no Iterable server key' <<< "$out" \
+  && ok "campaign: with no SHA-256 tool it says so, not that the key is missing" \
+  || bad "campaign: with no SHA-256 tool, approve gave rc $rc: $out"
+camp_approved "$WS13" PATH="$STUB:$NOHASH" ITBL_SERVER_KEY="$KEY_A" \
+  && bad "campaign: approved with no way to fingerprint the key" \
+  || ok "campaign: and nothing is approved without a fingerprint"
+SHA256SUM="$(PATH=/usr/bin:/bin:/usr/sbin:/sbin command -v sha256sum)"
+if [[ -n "$SHA256SUM" ]]; then
+  ln -s "$SHA256SUM" "$NOHASH/sha256sum"
+  camp_approved "$WS13" PATH="$STUB:$NOHASH" ITBL_SERVER_KEY="$KEY_A" \
+    && ok "campaign: sha256sum alone fingerprints the key the same as shasum" \
+    || bad "campaign: a yes recorded with shasum does not match under sha256sum"
+  rm -f "$NOHASH/sha256sum"
+else
+  echo "  SKIP campaign: no sha256sum on this machine to compare with shasum"
+fi
 
 camp "$WS13" ITBL_SERVER_KEY="$KEY_A" bash -c 'source bin/config.sh >/dev/null 2>&1; approved firebase' \
   && bad "campaign: a campaign yes approves Firebase provisioning" \
