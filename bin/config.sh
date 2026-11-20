@@ -752,7 +752,7 @@ APPROVALS="$WS/approved"
 # so switching accounts does not inherit the previous one's yes.
 gcloud_account() { gcloud config get-value account 2>/dev/null | grep -v '^(unset)$'; }
 
-# Three things get approved, separately, because they are different sizes. `firebase` is
+# Four things get approved, separately, because they are different sizes. `firebase` is
 # the provisioning plan — a service account, a role binding, a key. `create-app`
 # registers a new Android app in the project, which the limits promise never happens
 # "unless you ask outright", so it cannot ride along on the first yes. `list` is the read
@@ -761,9 +761,23 @@ gcloud_account() { gcloud config get-value account 2>/dev/null | grep -v '^(unse
 # `list` is scoped to the Google account and the other two to the project, because that
 # is what each one is actually about: a yes to looking at what this account can see says
 # nothing about the next account, and there is no project chosen yet when it is asked.
+#
+# `campaign` creates a template and a running campaign in their Iterable project. That
+# project's id is only readable from a device endpoint, long after this is asked, so it
+# is scoped to the server key that would spend it. Only a fingerprint is recorded.
+itbl_key_fingerprint() {
+  [[ -n "$ITBL_SERVER_KEY" ]] || return 0
+  local h
+  if command -v shasum >/dev/null 2>&1; then h=(shasum -a 256)
+  elif command -v sha256sum >/dev/null 2>&1; then h=(sha256sum)
+  else return 1; fi
+  printf '%s' "$ITBL_SERVER_KEY" | "${h[@]}" | cut -c1-16
+}
+
 approval_scope() {
   case "${1:-firebase}" in
     list) printf 'list %s' "$(gcloud_account)" ;;
+    campaign) local fp; fp="$(itbl_key_fingerprint)"; printf 'campaign itbl-key:%s' "${fp:-<no server key>}" ;;
     *)    printf '%s %s' "${1:-firebase}" "${PID:-<no project chosen>}" ;;
   esac
 }
@@ -775,13 +789,14 @@ approval_scope() {
 scope_target() {
   case "${1:-firebase}" in
     list) gcloud_account ;;
+    campaign) itbl_key_fingerprint ;;
     *)    printf '%s' "$PID" ;;
   esac
 }
 
 approved() {
-  # The CI form covers provisioning and the read. Registering an app is the one change a
-  # pipeline should have to name for itself, with CREATE_APP=1.
+  # The CI form covers provisioning and the read. Registering an app needs CREATE_APP=1,
+  # and creating a campaign has no CI form at all.
   case "${1:-firebase}" in
     firebase|list) [[ "${APPROVED:-0}" == 1 ]] && return 0 ;;
   esac
