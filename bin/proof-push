@@ -8,10 +8,32 @@
 # a user directly — no campaign, no list, so no dashboard click. The cost of that
 # choice, measured 2026-09-21: a proof send raises no pushSend event, so G17 has
 # nothing to corroborate it with. G16 reads the device instead.
+#
+# `--campaign` pays that cost instead: a triggered campaign in their project, which
+# does raise a pushSend. It needs `agent approve campaign` first. The campaign stays
+# running after the send, because archiving a running campaign aborts what it has
+# queued; the next --campaign run archives it, unless --keep-campaign reuses it.
 
 source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
 
 CLIENT_TEMPLATE_ID="itbl-onboard-g16-proof"
+CAMPAIGN_TEMPLATE_ID="itbl-onboard-campaign-proof"
+CAMPAIGN_NAME="Iterable onboard campaign proof"
+
+USAGE="usage: proof-push [--campaign [--keep-campaign] [--message-type <id>]]"
+CAMPAIGN="" KEEP="" MSG_TYPE=""
+while (($#)); do
+  case "$1" in
+    --campaign)      CAMPAIGN=1 ;;
+    --keep-campaign) KEEP=1 ;;
+    --message-type)  (($# > 1)) || { echo "$USAGE" >&2; exit 30; }; MSG_TYPE="$2"; shift ;;
+    *)               echo "$USAGE" >&2; exit 30 ;;
+  esac
+  shift
+done
+[[ -n "$CAMPAIGN" || -z "$KEEP$MSG_TYPE" ]] || { echo "$USAGE" >&2; exit 30; }
+[[ -z "$MSG_TYPE" || "$MSG_TYPE" =~ ^[0-9]+$ ]] \
+  || { echo "--message-type takes the numeric id of a push message type; got: $MSG_TYPE" >&2; exit 30; }
 
 [[ -n "$ITBL_SERVER_KEY" ]] || { echo "no server-side key. Get one with: $BIN/iterable-keys --step 1" >&2; exit 1; }
 [[ -n "$(itbl_identity)" ]] || { echo "no ITBL_EMAIL or ITBL_USER_ID set — the proof needs a user to send to" >&2; exit 1; }
@@ -53,6 +75,179 @@ finish() {
 # {"msg":"Upserted 1 templates with IDs: 26219806"} with no field for it.
 upserted_id() { printf '%s' "$ITBL_BODY" | sed -n 's/.*IDs: *\([0-9][0-9]*\).*/\1/p' | head -1; }
 
+# A JS expression over the last response body, as `j`, with any further arguments as `a`.
+from_body() {
+  printf '%s' "$ITBL_BODY" | node -e '
+    let j; try { j = JSON.parse(require("fs").readFileSync(0, "utf8")) } catch (e) { process.exit(1) }
+    const a = process.argv.slice(2), v = eval(process.argv[1]);
+    if (v != null) process.stdout.write(String(v));' "$@"
+}
+
+# A 2xx that is not JSON is a proxy or an outage page, not an empty answer.
+need_json() {
+  from_body 1 >/dev/null || die "$1: Iterable answered HTTP $ITBL_CODE with a body that is not JSON: $(itbl_err "$ITBL_BODY")"
+}
+
+# <what> <GET|POST> <path> [body]
+api() {
+  local what="$1"; shift
+  itbl_call "$1" "$ITBL_SERVER_KEY" "${@:2}" || die "$what failed: $(itbl_err "$ITBL_BODY")"
+  need_json "$what"
+}
+
+# Sets STATE to the campaign's state, or empty when this project has no such campaign.
+STATE=""
+campaign_state() {
+  STATE=""
+  if itbl_get "$ITBL_SERVER_KEY" "/api/campaigns/$1"; then
+    need_json "looking up campaign $1"
+    STATE="$(from_body 'j.campaignState')"
+  elif [[ "$ITBL_CODE" == 404 ]]; then
+    echo "Campaign $1 from an earlier run is not in this project. If it is still running in another one, archive it there."
+  else
+    die "could not look up campaign $1: $(itbl_err "$ITBL_BODY")"
+  fi
+}
+
+# ITBL_CAMPAIGN_ID is the developer's to set, and G17 gates on it, so the campaign this
+# tool made is recorded under its own keys: ITBL_PROOF_CAMPAIGN_ID as soon as it exists,
+# ITBL_PROOF_CAMPAIGN_SENT once a push has gone through it, and ITBL_PROOF_CAMPAIGN_STALE
+# for earlier ones still waiting to be archived.
+campaign_send() {
+  local resume="$BIN/proof-push --campaign${KEEP:+ --keep-campaign}" prev="${ITBL_PROOF_CAMPAIGN_ID:-}"
+  local link="https://$(dash_host)/campaigns" cid="" tid kind mname body id
+  local -a stale=() cleanup=()
+
+  approved campaign || {
+    echo "Campaign mode creates a push template and a running triggered campaign in their" >&2
+    echo "Iterable project, and sends one push through it. Nothing has been created or sent." >&2
+    echo "The developer has to say yes to that first: $BIN/agent approve campaign" >&2
+    exit 10; }
+
+  for id in ${ITBL_PROOF_CAMPAIGN_STALE:-}; do
+    [[ "$id" =~ ^[0-9]+$ && "$id" != "$prev" ]] || continue
+    campaign_state "$id"
+    [[ "$STATE" == Ready || "$STATE" == Running ]] && stale+=("$id")
+  done
+  local state=""
+  if [[ "$prev" =~ ^[0-9]+$ ]]; then
+    campaign_state "$prev"; state="$STATE"
+    if [[ "$state" == Ready || "$state" == Running ]]; then
+      if [[ -n "$KEEP" || "${ITBL_PROOF_CAMPAIGN_SENT:-}" != "$prev" ]]; then
+        cid="$prev"
+      else
+        stale+=("$prev")
+      fi
+    fi
+  fi
+  [[ "${stale[*]-}" == "${ITBL_PROOF_CAMPAIGN_STALE:-}" ]] || save_resolved ITBL_PROOF_CAMPAIGN_STALE "${stale[*]-}"
+
+  if [[ -z "$cid" ]]; then
+    # Base only: creating a campaign clones the template into a Triggered one with the
+    # same clientTemplateId, and that copy belongs to the campaign.
+    api "listing templates" GET "/api/templates?templateType=Base&messageMedium=Push"
+    tid="$(from_body '((j.templates || []).find(t => t.clientTemplateId === a[0]) || {}).templateId' "$CAMPAIGN_TEMPLATE_ID")"
+    if [[ -z "$tid" && -z "$MSG_TYPE" ]]; then
+      api "listing channels" GET /api/channels
+      local channels="$ITBL_BODY"
+      api "listing message types" GET /api/messageTypes
+      read -r kind MSG_TYPE mname <<< "$(from_body '(() => {
+        const ch = JSON.parse(a[0]).channels || [];
+        const push = (j.messageTypes || []).map(t => [t, ch.find(c => c.id === t.channelId && c.messageMedium === "Push")]).filter(p => p[1]);
+        const pick = push.find(p => p[1].channelType === "Transactional") || push[0];
+        return pick ? pick[1].channelType + " " + pick[0].id + " " + pick[0].name : "none";
+      })()' "$channels")"
+      case "$kind" in
+        Transactional) ;;
+        Marketing)
+          cat >&2 <<EOF
+This project has no transactional push message type, only a marketing one:
+"$mname" (id $MSG_TYPE). Frequency caps, quiet hours and push opt-outs apply to a
+marketing push, and any of them turns the proof into a pushSendSkip.
+Nothing has been created or sent. Ask the developer which they want:
+  - add a transactional push message type in Iterable, then: $resume
+  - or send through the marketing one: $resume --message-type $MSG_TYPE
+EOF
+          exit 10 ;;
+        *) die "this project has no push message type at all, so there is nothing to send a campaign through" ;;
+      esac
+    fi
+    if [[ -z "$tid" ]]; then
+      body="$(node -e '
+        const [cid, name, mt, title] = process.argv.slice(1);
+        process.stdout.write(JSON.stringify({clientTemplateId: cid, name, messageTypeId: Number(mt), title, message: "Campaign proof {{marker}}"}));
+      ' "$CAMPAIGN_TEMPLATE_ID" "$CAMPAIGN_NAME" "$MSG_TYPE" "$TITLE")"
+      api "template upsert" POST /api/templates/push/upsert "$body"
+      tid="$(upserted_id)"
+      [[ -n "$tid" ]] || die "could not read a template id out of: $(itbl_err "$ITBL_BODY")"
+    elif [[ -n "$MSG_TYPE" ]]; then
+      # By id, not upsert: an upsert by clientTemplateId would also rewrite every
+      # campaign's clone of this template.
+      api "template update" POST /api/templates/push/update "{\"templateId\":$tid,\"messageTypeId\":$MSG_TYPE}"
+    fi
+    api "campaign create" POST /api/campaigns/create \
+      "$(node -e 'process.stdout.write(JSON.stringify({name: process.argv[1], templateId: Number(process.argv[2])}))' "$CAMPAIGN_NAME" "$tid")"
+    cid="$(from_body 'j.campaignId')"
+    [[ "$cid" =~ ^[0-9]+$ ]] || die "could not read a campaign id out of: $(itbl_err "$ITBL_BODY")"
+    save_resolved ITBL_PROOF_CAMPAIGN_ID "$cid"
+    state=Ready
+  fi
+
+  if [[ "$state" != Running ]]; then
+    itbl_post "$ITBL_SERVER_KEY" /api/campaigns/activateTriggered "{\"campaignId\":$cid}" || {
+      grep -qi 'not enabled' <<< "$(itbl_err "$ITBL_BODY")" || die "could not activate campaign $cid: $(itbl_err "$ITBL_BODY")"
+      cat >&2 <<EOF
+Campaign $cid exists but is not running: this project does not let the API activate
+triggered campaigns. Nothing has been sent.
+Next: activate it in the dashboard, $link/$cid, then run
+    $resume
+That run picks up campaign $cid instead of creating another.
+EOF
+      exit 10; }
+    need_json "activating campaign $cid"
+  fi
+
+  count_prior_proof
+  local sent_at; sent_at="$(node -e 'process.stdout.write(String(Date.now()))')"
+  itbl_post "$ITBL_SERVER_KEY" /api/push/target \
+    "$(node -e 'const [c, f, id, m] = process.argv.slice(1); process.stdout.write(JSON.stringify({campaignId: Number(c), [f]: id, dataFields: {marker: m}}))' \
+      "$cid" "$(itbl_recipient_field)" "$(itbl_identity)" "$MARKER")" \
+    || die "campaign send failed: $(itbl_err "$ITBL_BODY") — campaign $cid is left running, and a re-run reuses it"
+  need_json "campaign send"
+
+  save_resolved ITBL_PROOF_CAMPAIGN_SENT "$cid"
+  save_resolved ITBL_CAMPAIGN_ID "$cid"
+  save_resolved ITBL_PROOF_MARKER "$MARKER"
+  save_resolved ITBL_PROOF_SENT_AT "$sent_at"
+
+  # Only now, so a run that fails before its own send leaves the last working campaign running.
+  if ((${#stale[@]})); then
+    local ids archived="" why="Iterable reported it as failed"
+    ids="$(IFS=,; echo "${stale[*]}")"
+    if itbl_post "$ITBL_SERVER_KEY" /api/campaigns/archive "{\"campaignIds\":[$ids]}"; then
+      archived=" $(from_body '(j.success || []).map(String).join(" ")') " || why="Iterable answered with a body that is not JSON"
+    else
+      why="the archive call answered HTTP $ITBL_CODE"
+    fi
+    local -a left=()
+    for id in "${stale[@]}"; do
+      if [[ "$archived" == *" $id "* ]]; then
+        cleanup+=("Archived campaign $id from an earlier run.")
+      else
+        left+=("$id")
+        cleanup+=("Campaign $id from an earlier run could not be archived: $why. The next --campaign run tries again, or archive it at $link/$id")
+      fi
+    done
+    save_resolved ITBL_PROOF_CAMPAIGN_STALE "${left[*]-}"
+  fi
+
+  local note="Campaign $cid stays running until the next --campaign run archives it."
+  [[ -n "$KEEP" ]] && note="Campaign $cid stays running, and --keep-campaign runs reuse it."
+  finish "Sent campaign $cid to $(itbl_identity), marked $MARKER." "$note" ${cleanup[@]+"${cleanup[@]}"}
+}
+
+if [[ -n "$CAMPAIGN" ]]; then campaign_send; exit 0; fi
+
 body="$(node -e '
   const [cid,name,title,message]=process.argv.slice(1);
   process.stdout.write(JSON.stringify({clientTemplateId:cid,name,title,message}));
@@ -80,4 +275,18 @@ save_resolved ITBL_PROOF_TEMPLATE_ID "$tid"
 save_resolved ITBL_PROOF_MARKER "$MARKER"
 save_resolved ITBL_PROOF_SENT_AT "$sent_at"
 
-finish "Sent template $tid to $(itbl_identity), marked $MARKER."
+# A proof send raises no pushSend, so a campaign id campaign mode left behind would have
+# G17 waiting on a push this one is not. One the developer set is theirs to clear.
+gate_note=()
+if [[ -n "${ITBL_PROOF_CAMPAIGN_SENT:-}" && "$(sed -n 's/^ITBL_CAMPAIGN_ID=//p' "$WS/resolved.env")" == "$ITBL_PROOF_CAMPAIGN_SENT" ]]; then
+  save_resolved ITBL_CAMPAIGN_ID ""
+  [[ "$ITBL_CAMPAIGN_ID" == "$ITBL_PROOF_CAMPAIGN_SENT" ]] && { unset ITBL_CAMPAIGN_ID; load_env_file "$ITBL_ENV"; }
+fi
+if [[ -n "${ITBL_CAMPAIGN_ID:-}" ]]; then
+  if grep -q '^ITBL_CAMPAIGN_ID=' "$WS/resolved.env"; then clear="$BIN/agent set ITBL_CAMPAIGN_ID="
+  else clear="remove it from $ITBL_ENV"; fi
+  gate_note=("ITBL_CAMPAIGN_ID is $ITBL_CAMPAIGN_ID, so G17 gates on a pushSend from that campaign,"
+    "which this proof does not raise. If that is not the campaign to check: $clear")
+fi
+
+finish "Sent template $tid to $(itbl_identity), marked $MARKER." ${gate_note[@]+"${gate_note[@]}"}

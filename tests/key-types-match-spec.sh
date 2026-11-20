@@ -54,9 +54,17 @@ check /api/channels                 get  Server-side
 check /api/users/registerDeviceToken post Mobile
 check /api/users/getByEmail         get  Server-side
 check "/api/events/{email}"         get  Server-side
-# bin/proof-push sends these two.
+# bin/proof-push sends these; the rest only with --campaign.
 check /api/templates/push/upsert    post Server-side
 check /api/templates/push/proof     post Server-side
+check /api/templates                get  Server-side
+check /api/templates/push/update    post Server-side
+check /api/messageTypes             get  Server-side
+check "/api/campaigns/{id}"         get  Server-side
+check /api/campaigns/create         post Server-side
+check /api/campaigns/activateTriggered post Server-side
+check /api/push/target              post Server-side
+check /api/campaigns/archive        post Server-side
 
 # Android device registration uses the legacy enum value. A tool would naturally
 # guess FCM or ANDROID; both are rejected.

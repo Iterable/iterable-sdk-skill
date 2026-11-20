@@ -1807,10 +1807,10 @@ itbl_call() {
 itbl_get()  { itbl_call GET  "$1" "$2"; }
 itbl_post() { itbl_call POST "$1" "$2" "${3:-}"; }
 
-# Iterable wraps errors as {"msg":…,"code":…,"params":…}.
+# Iterable wraps errors as {"msg":…,"code":…,"params":…}, and some as {"error":…,"message":…}.
 itbl_err() {
   printf '%s' "$1" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{
-    let m; try { const j=JSON.parse(d); m=j.msg||j.error } catch (e) {}
+    let m; try { const j=JSON.parse(d); m=j.msg||j.message||j.error } catch (e) {}
     process.stdout.write((m || d).replace(/\s+/g," ").trim().slice(0, 200));
   })' 2>/dev/null
 }
