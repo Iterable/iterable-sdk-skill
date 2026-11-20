@@ -1585,6 +1585,10 @@ itbl_no_user() {
 # The push integration name Iterable matches against; equals the package name
 # unless the integration predates Aug 2019 or was named by hand.
 itbl_integration() { printf '%s' "${ITBL_PUSH_INTEGRATION:-$PACKAGE}"; }
+# EU projects sign in on their own host; a US link there lands on the wrong login.
+dash_host() {
+  [[ "$ITBL_BASE" == https://api.eu.iterable.com ]] && printf app.eu.iterable.com || printf app.iterable.com
+}
 
 # Single writer for the workspace .env, kept 0600. An empty value deletes the key.
 save_env() {
