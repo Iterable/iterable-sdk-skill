@@ -30,5 +30,6 @@ Text such as `{{part_map}}` is a placeholder filled by the tool. Leave known pla
 where the dynamic content should appear. A typo, missing section, unknown option id or
 unknown placeholder produces a file-and-line error from `make screens` and `make test`.
 
-Only `opening.md` has moved so far. It is the complete vertical slice for this editing model;
-the remaining screens still live in `bin/questions.sh` and can move here one at a time.
+Only `opening.md` and `approve_campaign.md` have moved so far; `opening.md` is the complete
+vertical slice for this editing model. The remaining screens still live in `bin/questions.sh`
+and can move here one at a time.

@@ -113,8 +113,8 @@ run noyes ITBL_EMAIL=dev@example.com -- --campaign
 ((RC == 10)) && [[ -z "$CALLS" ]] \
   && ok "no recorded yes: rc 10 and not one call to Iterable" \
   || bad "no recorded yes: rc $RC, calls: ${CALLS:-none}"
-grep -qF 'approve campaign' <<< "$OUT" \
-  && ok "and it names the approval it is waiting for" \
+grep -qF "question approve_campaign" <<< "$OUT" \
+  && ok "and it names the consent question, not the command that records its answer" \
   || bad "the refusal does not say how to get a yes: $OUT"
 [[ -z "$(resolved noyes ITBL_CAMPAIGN_ID)$(resolved noyes ITBL_PROOF_MARKER)" ]] \
   && ok "and records no campaign and no marker" \
@@ -125,11 +125,45 @@ run noyes-ci ITBL_EMAIL=dev@example.com APPROVED=1 -- --campaign
   && ok "APPROVED=1 is not a yes to creating a campaign" \
   || bad "APPROVED=1 let campaign mode through: rc $RC, calls: ${CALLS:-none}"
 
+# An agent can give itself a terminal with `script`, so a tty is no stand-in for the token.
+# stdin stays open past the "1": at EOF macOS `script` types ^D into the pty.
+mkdir -p "$TMP/ws-pty"; : > "$STUB_CALLS"
+OUT="$({ sleep 1; printf '1\n'; sleep 2; } | env -u ITBL_USER_ID -u ITBL_CAMPAIGN_ID -u APPROVED -u ITBL_PROOF_CAMPAIGN_ID \
+  PATH="$STUB:$PATH" WS="$TMP/ws-pty" PACKAGE=com.example.app ITBL_SERVER_KEY="$KEY" ITBL_EMAIL=dev@example.com \
+  DEVICE_WAIT=0 MENU_PLAIN=1 script -q /dev/null bash bin/proof-push --campaign 2>&1)"; RC=$?
+CALLS="$(cat "$STUB_CALLS")"
+((RC == 10)) && [[ -z "$CALLS" ]] && grep -qF "question approve_campaign" <<< "$OUT" \
+  && [[ ! -s "$TMP/ws-pty/approved" && -z "$(resolved pty ITBL_PROOF_CAMPAIGN_ID)" ]] \
+  && ok "under a pty with \"1\" typed: the same refusal, no call, and no yes recorded" \
+  || bad "under a pty: rc $RC, calls: ${CALLS:-none}, approved: $(cat "$TMP/ws-pty/approved" 2>/dev/null), output: $OUT"
+
 approve_in otherkey
 run otherkey ITBL_EMAIL=dev@example.com ITBL_SERVER_KEY=srvkey-some-other-project -- --campaign
 ((RC == 10)) && [[ -z "$CALLS" ]] \
   && ok "a yes given for another server key makes no calls" \
   || bad "a yes for another key was honoured: rc $RC, calls: ${CALLS:-none}"
+
+# Declined on the chat screen: the "no" option runs nothing, so both sends that follow
+# stay campaign-free.
+mkdir -p "$TMP/ws-declined"
+Q="$(env -u APPROVED PATH="$STUB:$PATH" WS="$TMP/ws-declined" ITBL_SERVER_KEY="$KEY" ITBL_EMAIL=dev@example.com \
+  bin/agent question approve_campaign < /dev/null 2>&1)"
+no_cmds="$(node -e 'const o = JSON.parse(process.argv[1]).options;
+  const no = o.filter(x => !x.commands.some(c => c.includes("approve campaign --asked")));
+  process.stdout.write(o.length === 2 && no.length === 1 && no[0].commands.length === 0 ? "yes" : "no")' "$Q" 2>/dev/null)"
+[[ "$no_cmds" == yes ]] \
+  && ok "declined: the consent screen's no option runs no command" \
+  || bad "the consent screen's options are not one yes and one command-free no: $Q"
+run declined ITBL_EMAIL=dev@example.com -- --campaign
+((RC == 10)) && [[ -z "$CALLS" ]] \
+  && ok "declined: --campaign still refuses, with no call to Iterable" \
+  || bad "declined: --campaign gave rc $RC, calls: ${CALLS:-none}"
+run declined ITBL_EMAIL=dev@example.com --
+((RC == 0)) && called /api/templates/push/proof \
+  && ! grep -qE '/api/(campaigns/create|campaigns/activateTriggered|push/target)' <<< "$CALLS" \
+  && [[ -z "$(resolved declined ITBL_CAMPAIGN_ID)" ]] \
+  && ok "declined: the plain send stays on templates/push/proof — no create, activate or target" \
+  || bad "declined: the plain send gave rc $RC, calls: $CALLS"
 
 # ---------------------------------------------------------------- the first send
 approve_in email

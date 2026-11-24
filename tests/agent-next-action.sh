@@ -224,6 +224,66 @@ state "$(row G13 green human "App installed" "v1.0")" \
         "$(row G16 pending tool "Push arrives on device" "no Iterable push on the device")"
 expect agent send_proof "cmd:$BIN/proof-push" "G16 pending — the caller sends the proof"
 
+# ------------------------------------------------------------- campaign mode
+# Relevant only once the developer has said yes on its screen, and only for the server
+# key they said it for. Before that every route stays campaign-free.
+cmd_now() { local o; o="$(next_action)"; IFS="$NEXT_SEP" read -r _ _ _ o _ <<< "$o"; printf '%s' "$o"; }
+sum_now() { local o; o="$(next_action)"; IFS="$NEXT_SEP" read -r _ _ _ _ o <<< "$o"; printf '%s' "$o"; }
+ITBL_SERVER_KEY=srvkey-campaign-a
+[[ "$(cmd_now)" == "$BIN/proof-push" ]] \
+  && ok "$(printf '%-44s %s' "G16 pending, no campaign yes — plain proof" "proof-push")" \
+  || bad "an unapproved G16 send is not the plain proof" "$(cmd_now)"
+approve campaign
+expect agent send_proof "cmd:$BIN/proof-push --campaign" "G16 pending, campaign yes — one push for both"
+ITBL_SERVER_KEY=srvkey-campaign-b
+[[ "$(cmd_now)" == "$BIN/proof-push" ]] \
+  && ok "$(printf '%-44s %s' "...and a yes for another key does not count" "proof-push")" \
+  || bad "a campaign yes for a different server key routed G16 to it" "$(cmd_now)"
+ITBL_SERVER_KEY=srvkey-campaign-a
+
+# Right after a campaign send, with the push still in flight: a bare --campaign would
+# archive the campaign and cancel it.
+resend_unkept() { local s; s="$(cmd_now) $(sum_now)"; s="${s//proof-push --campaign --keep-campaign/}"; [[ "$s" == *proof-push* ]]; }
+state "$(row G13 green human "App installed" "v1.0")" \
+      "$(row G16 pending tool "Push arrives on device" "no Iterable push on the device")" \
+      "$(row G17 pending tool "Iterable agrees it sent" "no pushSend yet")"
+ITBL_CAMPAIGN_ID=21086024 ITBL_PROOF_CAMPAIGN_SENT=21086024
+expect agent campaign_send "cmd:$BIN/agent" "G16 pending right after a campaign send — re-check"
+! resend_unkept && [[ "$(sum_now)" == *"--campaign --keep-campaign"* ]] \
+  && ok "$(printf '%-44s %s' "...and a re-send only ever keeps the campaign" "--keep-campaign")" \
+  || bad "G16 after a campaign send suggests a send that archives it" "$(cmd_now) / $(sum_now)"
+state "$(row G13 green human "App installed" "v1.0")" \
+      "$(row G16 pending tool "Push arrives on device" "no Iterable push on the device")" \
+      "$(row G17 green tool "Iterable agrees it sent" "pushSend present")"
+expect agent campaign_send "cmd:$BIN/agent" "G16 pending, G17 green after the send — re-check"
+ITBL_CAMPAIGN_ID=777
+expect agent send_proof "cmd:$BIN/proof-push --campaign" "G16 pending, campaign not this tool's send — send"
+ITBL_CAMPAIGN_ID="" ITBL_PROOF_CAMPAIGN_SENT=""
+
+state "$(row G16 green tool "Push arrives on device" "arrived")" \
+      "$(row G17 pending tool "Iterable agrees it sent" "no pushSend yet")"
+ITBL_CAMPAIGN_ID=21086024 ITBL_PROOF_CAMPAIGN_SENT=21086024
+expect agent campaign_send "cmd:$BIN/agent" "G17 pending after this tool's send — re-read"
+[[ "$(sum_now)" == *"rather than sending again"* && "$(cmd_now)" != *proof-push* ]] \
+  && ok "$(printf '%-44s %s' "...and never sends again to manufacture it" "no re-send")" \
+  || bad "a sent campaign is routed to another send" "$(cmd_now) / $(sum_now)"
+ITBL_CAMPAIGN_ID=777
+expect human campaign_send "is yours, not one this tool made" "G17 pending on a hand-set campaign — theirs"
+state "$(row G16 green tool "Push arrives on device" "arrived")" \
+      "$(row G17 red tool "Iterable agrees it sent" "pushSendSkip, not pushSend")"
+expect human investigate "pushSendSkip" "G17 red — the verdict, not another send"
+ITBL_CAMPAIGN_ID="" ITBL_PROOF_CAMPAIGN_SENT=""
+
+state "$(row G16 green tool "Push arrives on device" "arrived")" \
+      "$(row G17 unverifiable human "Iterable agrees it sent" "proof sends raise no pushSend event")"
+expect none done "proof-push --campaign" "done, campaign yes on record — offers the send"
+rm -f "$WS/approved"
+expect none done "question approve_campaign" "done, no campaign yes — offers the screen"
+[[ "$(sum_now)" != *"proof-push --campaign"* ]] \
+  && ok "$(printf '%-44s %s' "...and never the send itself" "no command")" \
+  || bad "done offered the campaign send with no yes on record" "$(sum_now)"
+ITBL_SERVER_KEY=""
+
 # The first red wins over a later pending: fixing the pending one first would be
 # work against a system that is still broken upstream.
 PID=p PACKAGE=com.example

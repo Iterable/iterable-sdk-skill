@@ -1294,8 +1294,29 @@ next_action() {
       # Sending is the caller's to run, not the developer's: there is a command for
       # it, and an owner of `human` on a step that ships its own command tells
       # somebody the tool cannot do the very thing it is offering to do.
-      G16) [[ "$open_status" == pending ]] && { a_kind=send_proof; a_owner=agent; a_cmd="$BIN/proof-push"; } || a_kind=investigate ;;
-      G17) a_kind=campaign_send ;;
+      # With campaign mode approved the proof goes through the campaign, so G16 and G17
+      # read the same push.
+      # A bare --campaign after this tool's campaign has sent archives it, which cancels
+      # the push it may still be delivering.
+      G16) if [[ "$open_status" != pending ]]; then a_kind=investigate
+           elif ! approved campaign; then
+             a_kind=send_proof; a_owner=agent; a_cmd="$BIN/proof-push"
+           elif [[ -n "$ITBL_CAMPAIGN_ID" && "$ITBL_CAMPAIGN_ID" == "${ITBL_PROOF_CAMPAIGN_SENT:-}" ]]; then
+             a_kind=campaign_send; a_owner=agent; a_cmd="$BIN/agent"
+             a_summary="campaign $ITBL_CAMPAIGN_ID has sent its push — re-read the ladder to re-check G16 before sending again. If it never arrives, re-send through the same campaign: $(cmd_path proof-push) --campaign --keep-campaign"
+           else
+             a_kind=send_proof; a_owner=agent; a_cmd="$BIN/proof-push --campaign"
+           fi ;;
+      # Open only while ITBL_CAMPAIGN_ID is set. Once this tool's campaign has sent, the
+      # wait is Iterable's, and sending again would only restart it.
+      G17) if [[ "$open_status" == red ]]; then a_kind=investigate
+           elif [[ -n "$ITBL_CAMPAIGN_ID" && "$ITBL_CAMPAIGN_ID" == "${ITBL_PROOF_CAMPAIGN_SENT:-}" ]]; then
+             a_kind=campaign_send; a_owner=agent; a_cmd="$BIN/agent"
+             a_summary="campaign $ITBL_CAMPAIGN_ID has sent its push, and Iterable can take a few minutes to record the pushSend — re-read the ladder rather than sending again"
+           else
+             a_kind=campaign_send
+             a_summary="campaign $ITBL_CAMPAIGN_ID is yours, not one this tool made — send one push through it to $(itbl_identity), then re-read the ladder"
+           fi ;;
       *)   [[ "$open_status" == pending ]] && a_kind=run_app || a_kind=investigate ;;
     esac
     # The one step whose entire content is "somebody has to use their own app", so it
@@ -1357,6 +1378,13 @@ next_action() {
     follow="$(node "$BIN/existing-push.js" scan android "${PROJECT_ROOT:-$(dirname "$WS")}" 2>/dev/null |
       node "$BIN/existing-push.js" follow-up 2>/dev/null)"
     [[ -z "$follow" ]] || a_summary="$a_summary. $follow"
+    if [[ "$(gate_status G17)" == unverifiable ]]; then
+      if approved campaign; then
+        a_summary="$a_summary. Optional: campaign mode is approved, and $(cmd_path proof-push) --campaign sends through a campaign so Iterable's own send record (G17) can confirm the push"
+      else
+        a_summary="$a_summary. Optional: Iterable's own send record (G17) needs a push sent through a campaign, which creates one in their Iterable project — if they want it, put the screen to them first: $(cmd_path agent) question approve_campaign"
+      fi
+    fi
   else
     a_owner=agent; a_kind=run_ladder; a_cmd="$BIN/agent"
     a_summary="nothing has been checked yet"
