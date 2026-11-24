@@ -1038,6 +1038,42 @@ q_approve_firebase() {
   printf ']}'
 }
 
+# ------------------------------------------------------- the campaign consent
+#
+# Mints a token like choose_target, because the yes creates things in their Iterable
+# project and `agent approve campaign` refuses one that no rendered screen carried.
+q_campaign_text() { # <section> | <option> <field>
+  local who text ph='{{identity}}'
+  who="$(itbl_identity)"
+  if (($# == 1)); then text="$(screen_copy_section approve_campaign "$1")"
+  else text="$(screen_copy_option_scalar approve_campaign "$1" "$2")"; fi
+  printf '%s\n' "${text//"$ph"/${who:-<no test user yet>}}"
+}
+
+q_approve_campaign() {
+  local id tok sep=""
+  screen_copy_validate approve_campaign "approve decline" "identity" || return 1
+  tok="$(ask_for approve_campaign)" || tok=""
+  printf '{"header":%s,"prompt":%s,' \
+    "$(jstr "$(q_campaign_text Header)")" "$(jstr "$(q_campaign_text Prompt)")"
+  printf '"context":%s,' "$(q_campaign_text Context | q_arr)"
+  printf '"requires":%s,' "$(q_campaign_text Requirements | q_arr)"
+  printf '"recommended":null,"options":['
+  while IFS= read -r id; do
+    printf '%s' "$sep"; sep=","
+    case "$id" in
+      approve)
+        q_opt "$(q_campaign_text approve Label)" "$(q_campaign_text approve Description)" \
+          "campaign approval recorded for this server-side key; then proof-push --campaign creates the template and campaign, and sends one push" "" \
+          "$BIN/agent approve campaign --asked $tok" "$BIN/proof-push --campaign" "$BIN/agent" ;;
+      decline)
+        q_opt "$(q_campaign_text decline Label)" "$(q_campaign_text decline Description)" \
+          "nothing recorded; no calls made; G17 stays unverified" "" ;;
+    esac
+  done < <(screen_copy_option_ids approve_campaign)
+  printf ']}'
+}
+
 # ------------------------------------------------------ part 2: the Iterable walk
 q_iterable_context() {
   echo "Part 1 is done and verified: the service-account key exists, and FCM accepted it."
@@ -1412,6 +1448,7 @@ question_for() {
     # Only while the answer is outstanding. A recorded yes re-offered as a question
     # invites a second one, and the developer has no way to tell the first was kept.
     run_in_terminal)  approved && return 1; q_approve_firebase ;;
+    approve_campaign) approved campaign && return 1; q_approve_campaign ;;
     iterable_keys)    q_iterable_entry ;;
     iterable_step)
       case "${2:-}" in

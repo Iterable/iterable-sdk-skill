@@ -7,7 +7,7 @@
 #   bin/agent discover           the Firebase projects and apps, as JSON
 #   bin/agent set K=V [K=V]      record a choice (project, package, device)
 #   bin/agent approve firebase   record the developer's yes to changing their project
-#                                (also: create-app, list --asked <token>, campaign)
+#                                (also: create-app, list --asked <token>, campaign --asked <token>)
 #   bin/agent set DRIVER=agent   they asked you to run the setup instead of the wizard
 #   bin/agent question K [N]     one question to put to the developer, as data
 #   bin/agent scope ...          record a Step 0 answer picked on a `question scope` screen
@@ -50,12 +50,12 @@ NOW_MS="$(now_ms || echo 0)"
 if [[ "${1:-}" == question ]]; then
   shift
   q="$(question_for "${1:-}" "${2:-}")" || {
-    printf '{"error":%s}\n' "$(jstr "no question for '${1:-}'; questions exist for scope, scope_more, opening, authenticate, choose_target, pick_project, pick_app, register_app, keep_target, pick_device, approve_firebase, iterable_keys, iterable_step 1-4 — and some refuse until there is something to ask about: pick_project needs a listing (run discover), pick_app and register_app need a project, keep_target needs both")"
+    printf '{"error":%s}\n' "$(jstr "no question for '${1:-}'; questions exist for scope, scope_more, opening, authenticate, choose_target, pick_project, pick_app, register_app, keep_target, pick_device, approve_firebase, approve_campaign, iterable_keys, iterable_step 1-4 — and some refuse until there is something to ask about: pick_project needs a listing (run discover), pick_app and register_app need a project, keep_target needs both")"
     exit 30; }
   printf '%s\n' "$q"
   # The screen is up as of here, not as of whenever inside the render its token was
-  # minted. Only choose_target has one; for everything else this finds no file and does
-  # nothing.
+  # minted. Only choose_target and approve_campaign have one; for everything else this
+  # finds no file and does nothing.
   ask_stamp "${1:-}"
   exit 0
 fi
@@ -172,7 +172,7 @@ case "${1:-status}" in
     # own question and the provisioning yes does not include it.
     case "${1:-}" in
       firebase|create-app|list|campaign) ;;
-      *) printf '{"error":%s}\n' "$(jstr "usage: agent approve list --asked <token> | agent approve firebase | agent approve create-app | agent approve campaign")"; exit 30 ;;
+      *) printf '{"error":%s}\n' "$(jstr "usage: agent approve list --asked <token> | agent approve campaign --asked <token> | agent approve firebase | agent approve create-app")"; exit 30 ;;
     esac
     SCOPE="$1"; shift
     TOK=""
@@ -199,14 +199,19 @@ case "${1:-status}" in
       fi
       exit 30; }
     # The screen has to have been put up, and to have been up long enough to read. Only
-    # `list` for now: it is the yes whose question is rendered by this tool, and the others
-    # get the same treatment when their screens move here. A tty skips it — the wizard
-    # asks in person, and may_list_projects lets a terminal through anyway.
+    # `list` and `campaign` for now: theirs are the questions rendered by this tool, and
+    # the others get the same treatment when their screens move here. For `list` a tty
+    # skips it, because may_list_projects lets a terminal through anyway. `campaign` gets
+    # no tty exemption, because an agent can give itself a tty with `script`. APPROVED=1
+    # skips only `list`, because it is no yes to a campaign.
     #
     # rc 10, not 30: nothing is broken, a human has not been asked yet. That is exactly
     # what 10 means everywhere else in this tool.
-    if [[ "$SCOPE" == list && ! -t 0 && "${APPROVED:-0}" != 1 ]]; then
-      WHY="$(ask_spent choose_target "$TOK" "$NOW_MS")" || {
+    ASKED_BY=""
+    [[ "$SCOPE" == list && "${APPROVED:-0}" != 1 && ! -t 0 ]] && ASKED_BY=choose_target
+    [[ "$SCOPE" == campaign ]] && ASKED_BY=approve_campaign
+    if [[ -n "$ASKED_BY" ]]; then
+      WHY="$(ask_spent "$ASKED_BY" "$TOK" "$NOW_MS")" || {
         printf '{"error":%s}\n' "$(jstr "$WHY")"; exit 10; }
     fi
     approve "$SCOPE" || { printf '{"error":%s}\n' "$(jstr "could not record the approval in $WS")"; exit 30; }

@@ -430,7 +430,40 @@ out="$(camp "$WS13" bash bin/agent approve campaign 2>&1)"; rc=$?
   && bad "campaign: an unscoped yes reached the approval record" \
   || ok "campaign: and nothing was written"
 
-rec="$(camp "$WS13" ITBL_SERVER_KEY="$KEY_A" bash bin/agent approve campaign 2>&1)"; rrc=$?
+# The same one-time token as `list`: the yes has to answer a screen that was put up, and
+# a missing or wrong token leaves nothing on disk.
+out="$(camp "$WS13" ITBL_SERVER_KEY="$KEY_A" bash bin/agent approve campaign 2>&1)"; rc=$?
+((rc == 10)) && grep -q 'no screen for this has been put up' <<< "$out" && [[ ! -s "$WS13/approved" ]] \
+  && ok "campaign: no screen was rendered, so no token and no yes" \
+  || bad "campaign: recorded a yes with no screen behind it: rc $rc, $out"
+WS13P="$TMP/campaign-pty"
+out="$(camp "$WS13P" ITBL_SERVER_KEY="$KEY_A" script -q /dev/null bash bin/agent approve campaign 2>&1)"; rc=$?
+((rc == 10)) && [[ ! -s "$WS13P/approved" ]] \
+  && ok "campaign: a pty is no way around the screen — no token, no yes" \
+  || bad "campaign: a yes was recorded under a pty with no token: rc $rc, $out"
+rm -f "$WS13P/approved"
+out="$(camp "$WS13P" ITBL_SERVER_KEY="$KEY_A" APPROVED=1 bash bin/agent approve campaign 2>&1)"; rc=$?
+((rc == 10)) && [[ ! -s "$WS13P/approved" ]] \
+  && ok "campaign: APPROVED=1 does not stand in for the screen's token" \
+  || bad "campaign: APPROVED=1 recorded a campaign yes with no token: rc $rc, $out"
+q="$(camp "$WS13" ITBL_SERVER_KEY="$KEY_A" ITBL_EMAIL=dev@example.com bash bin/agent question approve_campaign 2>&1)"
+CTOK="$(cut -f1 "$WS13/asked/approve_campaign" 2>/dev/null)"
+[[ "$CTOK" =~ ^[0-9a-f]{32}$ ]] && grep -qF -- "approve campaign --asked $CTOK" <<< "$q" \
+  && ok "campaign: the consent screen mints a token, and only its yes option carries it" \
+  || bad "campaign: no token reached the screen's yes option: '$CTOK'"
+out="$(camp "$WS13" ITBL_SERVER_KEY="$KEY_A" bash bin/agent approve campaign --asked "$CTOK" 2>&1)"; rc=$?
+((rc == 10)) && grep -q 'faster than anybody could have read it' <<< "$out" \
+  && ok "campaign: answered in the same breath as the screen: refused" \
+  || bad "campaign: a yes milliseconds after the screen was accepted: rc $rc, $out"
+sleep 0.3
+out="$(camp "$WS13" ITBL_SERVER_KEY="$KEY_A" bash bin/agent approve campaign --asked 00000000000000000000000000000000 2>&1)"; rc=$?
+((rc == 10)) && grep -q 'not the token the screen carried' <<< "$out" && [[ ! -s "$WS13/approved" ]] \
+  && ok "campaign: a wrong token records no yes" \
+  || bad "campaign: a wrong token gave rc $rc: $out"
+camp_approved "$WS13" ITBL_SERVER_KEY="$KEY_A" \
+  && bad "campaign: approved after only refused answers" \
+  || ok "campaign: and is no consent"
+rec="$(camp "$WS13" ITBL_SERVER_KEY="$KEY_A" bash bin/agent approve campaign --asked "$CTOK" 2>&1)"; rrc=$?
 ((rrc == 0)) && grep -q '"approved":true' <<< "$rec" && grep -qE 'campaign itbl-key:[0-9a-f]{16}' <<< "$rec" \
   && ok "campaign: agent approve campaign records it against a key fingerprint" \
   || bad "campaign: agent approve campaign returned rc $rrc: $rec"
@@ -443,6 +476,13 @@ fi
   && ok "campaign: recording the yes made no calls" \
   || bad "campaign: recording the yes reached out: $(tr '\n' ' ' < "$WS13/calls")"
 
+out="$(camp "$WS13" ITBL_SERVER_KEY="$KEY_A" bash bin/agent approve campaign --asked "$CTOK" 2>&1)"; rc=$?
+((rc == 10)) && ok "campaign: and the token is spent — one screen buys one yes" \
+  || bad "campaign: the same token was accepted twice: rc $rc"
+out="$(camp "$WS13" ITBL_SERVER_KEY="$KEY_A" ITBL_EMAIL=dev@example.com bash bin/agent question approve_campaign 2>&1)"; rc=$?
+((rc != 0)) && ! grep -q 'approve campaign --asked' <<< "$out" && [[ ! -e "$WS13/asked/approve_campaign" ]] \
+  && ok "campaign: once the yes is recorded, the screen is not offered again" \
+  || bad "campaign: the consent screen was re-offered after a yes: rc $rc, $out"
 camp_approved "$WS13" ITBL_SERVER_KEY="$KEY_A" \
   && ok "campaign: the same key is approved" \
   || bad "campaign: the recorded yes was not honoured"

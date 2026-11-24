@@ -10,9 +10,10 @@
 # nothing to corroborate it with. G16 reads the device instead.
 #
 # `--campaign` pays that cost instead: a triggered campaign in their project, which
-# does raise a pushSend. It needs `agent approve campaign` first. The campaign stays
-# running after the send, because archiving a running campaign aborts what it has
-# queued; the next --campaign run archives it, unless --keep-campaign reuses it.
+# does raise a pushSend. It never asks for that yes itself, terminal or not: the
+# developer gives it on the approve_campaign screen first. The campaign stays running
+# after the send, because archiving a running campaign aborts what it has queued; the
+# next --campaign run archives it, unless --keep-campaign reuses it.
 
 source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
 
@@ -118,10 +119,11 @@ campaign_send() {
   local link="https://$(dash_host)/campaigns" cid="" tid kind mname body id
   local -a stale=() cleanup=()
 
+  # Names the question, not the command that records its answer, like list_refusal.
   approved campaign || {
     echo "Campaign mode creates a push template and a running triggered campaign in their" >&2
     echo "Iterable project, and sends one push through it. Nothing has been created or sent." >&2
-    echo "The developer has to say yes to that first: $BIN/agent approve campaign" >&2
+    echo "The developer has to say yes to that first. Ask them: $BIN/agent question approve_campaign" >&2
     exit 10; }
 
   for id in ${ITBL_PROOF_CAMPAIGN_STALE:-}; do

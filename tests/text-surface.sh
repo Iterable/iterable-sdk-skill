@@ -81,6 +81,39 @@ else
   bad "an opening option inherited another option's behavior"
 fi
 
+# The campaign consent: the same format, and the four things it has to say plainly.
+if screen_copy_validate approve_campaign "approve decline" "identity"; then
+  ok "the campaign consent Markdown has every required section, option id and placeholder"
+else
+  bad "copy/screens/approve_campaign.md does not satisfy the writer-facing format"
+fi
+CAMPAIGN="$(WS="$COPY_TMP/ws" ITBL_SERVER_KEY=srvkey-copy ITBL_EMAIL=dev@example.com \
+  bash bin/agent question approve_campaign < /dev/null)"
+if printf '%s' "$CAMPAIGN" | YES="$(screen_copy_option_scalar approve_campaign approve Label)" \
+   NO="$(screen_copy_option_scalar approve_campaign decline Label)" node -e '
+     let s=""; process.stdin.on("data",d=>s+=d).on("end",()=>{
+       const q=JSON.parse(s), byLabel=l=>q.options.find(o=>o.label===l);
+       const y=byLabel(process.env.YES), n=byLabel(process.env.NO);
+       if (!y || !y.commands.some(c=>/approve campaign --asked [0-9a-f]{32}$/.test(c))) process.exit(1);
+       if (!y.commands.some(c=>c.endsWith("proof-push --campaign"))) process.exit(1);
+       if (!n || n.commands.length) process.exit(1);
+     })'; then
+  ok "the campaign yes carries its token and the send; the no runs nothing"
+else
+  bad "a campaign consent option is attached to the wrong behavior"
+fi
+SAID="$(printf '%s' "$CAMPAIGN" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
+  const q=JSON.parse(s); process.stdout.write([q.prompt,...q.context].join(" "))})')"
+MISSED=""
+for want in "push template" "triggered campaign" "activates the campaign" "one push" \
+            "dev@example.com" "archives it" "--keep-campaign" "only a marketing push message type" \
+            "stops before it creates anything" "Iterable dashboard"; do
+  grep -qF -- "$want" <<< "$SAID" || MISSED+=" '$want'"
+done
+[[ -z "$MISSED" && "$SAID" != *"{{"* ]] \
+  && ok "the campaign screen says what it creates, sends, archives, and when it stops" \
+  || bad "the campaign screen does not say:$MISSED"
+
 # Writer mistakes should point at the copy, not fail later as malformed JSON. Each fixture
 # breaks one rule and asks only for the useful part of the resulting message.
 cp copy/screens/opening.md "$COPY_TMP/opening.md"
