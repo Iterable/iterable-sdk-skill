@@ -20,10 +20,6 @@ source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
 # skim: what survives skimming is a numbered list and an arrow at the value that matters.
 # The two arrows are not decoration — JWT and the FCM type are the whole reason this walk
 # is narrated rather than linked.
-# EU projects sign in on their own host; a US link there lands on the wrong login.
-dash_host() {
-  [[ "$ITBL_BASE" == https://api.eu.iterable.com ]] && printf app.eu.iterable.com || printf app.iterable.com
-}
 
 step_keys() {
   cat <<EOF

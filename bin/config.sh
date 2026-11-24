@@ -1585,6 +1585,10 @@ itbl_no_user() {
 # The push integration name Iterable matches against; equals the package name
 # unless the integration predates Aug 2019 or was named by hand.
 itbl_integration() { printf '%s' "${ITBL_PUSH_INTEGRATION:-$PACKAGE}"; }
+# EU projects sign in on their own host; a US link there lands on the wrong login.
+dash_host() {
+  [[ "$ITBL_BASE" == https://api.eu.iterable.com ]] && printf app.eu.iterable.com || printf app.iterable.com
+}
 
 # Single writer for the workspace .env, kept 0600. An empty value deletes the key.
 save_env() {
@@ -1803,10 +1807,10 @@ itbl_call() {
 itbl_get()  { itbl_call GET  "$1" "$2"; }
 itbl_post() { itbl_call POST "$1" "$2" "${3:-}"; }
 
-# Iterable wraps errors as {"msg":…,"code":…,"params":…}.
+# Iterable wraps errors as {"msg":…,"code":…,"params":…}, and some as {"error":…,"message":…}.
 itbl_err() {
   printf '%s' "$1" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{
-    let m; try { const j=JSON.parse(d); m=j.msg||j.error } catch (e) {}
+    let m; try { const j=JSON.parse(d); m=j.msg||j.message||j.error } catch (e) {}
     process.stdout.write((m || d).replace(/\s+/g," ").trim().slice(0, 200));
   })' 2>/dev/null
 }
